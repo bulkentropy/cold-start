@@ -107,4 +107,9 @@ FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 SELECT 'csps', NULL, enr, NULL, NULL, NULL, NULL, COUNT(DISTINCT CSP_ID), NULL, NULL
 FROM full_j GROUP BY 3
+UNION ALL
+-- all qualified bookings created that day (Q11528 stage 1), whether or not
+-- they ever reached a connection or CSP task
+SELECT 'total', booking_date::STRING, NULL, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL
+FROM acc_clean GROUP BY 2
 ORDER BY 1, 2;

@@ -313,8 +313,8 @@ function renderL1(l1,meta){
   const E=dot(PINK), N=dot('#A7A1B2');
   const specs=[
     {title:'Bookings received by enrolled CSPs / day',kind:'bar',key:'bookings',color:PINK,goodUp:true,
-     shKey:'sh_bookings',shLabel:SH,
-     tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.bookings)}</b> bookings<br>${N}non-enrolled: <b>${fmt(r.sh_bookings)}</b>`},
+     shKey:'sh_bookings',shLabel:SH,dotKey:'total_bookings',dotLabel:'all bookings created (unique)',
+     tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.bookings)}</b> bookings<br>${N}non-enrolled: <b>${fmt(r.sh_bookings)}</b><br>${dot('#161021')}all bookings created: <b>${fmt(r.total_bookings)}</b>`},
     {title:'Task created → slot accepted (median hrs)',kind:'line',key:'med_hrs_to_accept',
      color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.med_hrs_to_accept??'–'} h</b> median<br>${N}non-enrolled: <b>${r.sh_med_hrs_to_accept??'–'} h</b>`},
@@ -356,7 +356,8 @@ function chartCard(s,m,meta){
   card.innerHTML=`<div class="chart-head"><h2>${s.title}</h2>${deltaChip(pre,post,s.goodUp,s.pct?' pp':'')}</div>
     <div class="sub">${sub}</div>`;
   const W=760,H=280,L=42,R=12,T=16,B=30;
-  const vals=rows.flatMap(r=>[r[s.key],s.key2?r[s.key2]:null,s.shKey?r[s.shKey]:null]).filter(v=>v!=null);
+  const vals=rows.flatMap(r=>[r[s.key],s.key2?r[s.key2]:null,s.shKey?r[s.shKey]:null,
+                              s.dotKey?r[s.dotKey]:null]).filter(v=>v!=null);
   const ymax=Math.max(s.pct?100:0,...vals,pre||0)*(s.pct?1:1.15)||1;
   const x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1));
   const xb=i=>L+(W-L-R)*(i/rows.length);
@@ -389,13 +390,20 @@ function chartCard(s,m,meta){
       svg+=`<circle cx="${cx(i)}" cy="${y(Math.min(r[s.shKey],ymax))}" r="3.5" fill="#665E75" stroke="var(--card)" stroke-width="1.5"/>`;});
     svg+=`</g>`;
   };
+  const dotted=()=>{   // reference series (e.g. all bookings created), dotted dark line
+    if(!s.dotKey)return;
+    const dpts=rows.map((r,i)=>r[s.dotKey]!=null?`${cx(i)},${y(Math.min(r[s.dotKey],ymax))}`:null).filter(Boolean);
+    svg+=`<polyline pointer-events="none" points="${dpts.join(' ')}" fill="none" stroke="var(--dark)" stroke-width="2" stroke-dasharray="4 4" opacity=".7"/>`;
+  };
   if(s.kind==='bar'){
     rows.forEach((r,i)=>{
       const v=r[s.key]; if(v==null)return;
       svg+=`<rect x="${xb(i)+1}" y="${y(v)}" width="${bw}" height="${H-B-y(v)}" rx="4" fill="${s.color}"/>`;
     });
     shadow();   // in front of the bars, or it disappears behind them
+    dotted();
   }else{
+    dotted();
     shadow();   // behind the cohort line
     const line=(key,color)=>{
       const pts=rows.map((r,i)=>r[key]!=null?`${x(i)},${y(Math.min(r[key],ymax))}`:null).filter(Boolean);
@@ -416,7 +424,8 @@ function chartCard(s,m,meta){
      <span><i style="background:${s.color2}"></i>${s.names[1]}</span></div>`);
   else if(s.shKey) card.insertAdjacentHTML('beforeend',
     `<div class="legend"><span><i style="background:${s.color}"></i>enrolled</span>
-     <span><i style="background:#665E75"></i>${s.shLabel||'non-enrolled CSPs'}</span></div>`);
+     <span><i style="background:#665E75"></i>${s.shLabel||'non-enrolled CSPs'}</span>${
+     s.dotKey?`<span><i style="background:transparent;border-top:2px dashed var(--dark);height:0;margin-bottom:4px"></i>${s.dotLabel}</span>`:''}</div>`);
 
   const tt=$('tt'), sv=card.querySelector('svg');
   const show=(i,ev)=>{tt.style.display='block';tt.innerHTML=s.tip(rows[i]);
