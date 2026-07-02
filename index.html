@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MG Program — Funnels &amp; Leading Metrics</title>
+<style>
+:root{
+  --accent:#D9008D; --purple:#6D17CE; --deep:#443152; --dark:#161021;
+  --text:#161021; --muted:#665E75; --bg:#F1EDF7; --card:#FAF9FC;
+  --green:#008043; --red:#E01E00;
+  --n200:#E8E4F0; --n300:#D7D3E0; --grid:#E8E4F0; --baseline:#D7D3E0;
+  --shadow:0 4px 24px rgba(22,16,33,.07); --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     background:var(--bg);color:var(--text);padding:24px;max-width:1400px;margin:0 auto}
+.label{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;line-height:1.2}
+h2{font-size:1.1rem;font-weight:700;margin-bottom:2px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.asof{font-size:13px;color:var(--muted)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:40px;padding:10px 26px;
+     font-size:14px;font-weight:600;cursor:pointer;transition:all .3s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(217,0,141,.35)}
+.btn[disabled]{opacity:.5;cursor:wait;transform:none;box-shadow:none}
+.banner{display:none;background:#FFE6CC;color:#B85C00;border-radius:8px;
+        padding:10px 16px;font-size:13px;font-weight:500;margin-bottom:16px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px}
+.section{margin-bottom:24px}
+.sub{font-size:13px;color:var(--muted);line-height:1.5}
+/* tabs */
+.tabs{display:flex;gap:8px;margin-bottom:20px}
+.tab{border:none;background:var(--card);color:var(--muted);border-radius:40px;padding:10px 26px;
+     font-size:14px;font-weight:600;cursor:pointer;box-shadow:var(--shadow)}
+.tab.on{background:var(--dark);color:#fff}
+/* toggle */
+.toggle{display:inline-flex;background:var(--n200);border-radius:40px;padding:3px;gap:2px}
+.toggle button{border:none;background:transparent;color:var(--muted);border-radius:40px;
+     padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer}
+.toggle button.on{background:var(--card);color:var(--text);box-shadow:0 1px 4px rgba(22,16,33,.15)}
+/* NSM strip */
+.nsm{display:flex;gap:40px;align-items:center;flex-wrap:wrap}
+.nsm-hero{font-size:3rem;font-weight:800;line-height:1.1;color:var(--accent)}
+.nsm .d{font-size:12px;color:var(--muted)}
+.nsm-trend{flex:1;min-width:320px}
+/* migration strip */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:20px;align-items:center}
+.tile .v{font-size:2.2rem;font-weight:800;line-height:1.2}
+.tile .d{font-size:12px;color:var(--muted);margin-top:2px}
+.meter{grid-column:1/-1;height:14px;border-radius:7px;background:var(--n200);overflow:hidden;display:flex}
+.meter>div{background:var(--green);border-radius:7px 0 0 7px}
+/* funnels */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:20px}
+.frow{display:grid;grid-template-columns:200px 1fr 120px;align-items:center;gap:10px;margin-top:9px}
+.fname{font-size:13.5px;font-weight:500}
+.ftrack{height:28px;position:relative}
+.fbar{height:28px;border-radius:0 4px 4px 0;min-width:2px}
+.fval{font-size:14px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.fval small{color:var(--muted);font-weight:400}
+.divider{border-top:1px dashed var(--n300);margin-top:12px;padding-top:4px}
+/* L1 grid — bigger charts */
+.l1grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(540px,1fr));gap:20px}
+.chart-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.delta{font-size:12px;font-weight:700;border-radius:40px;padding:3px 10px;white-space:nowrap}
+.delta.good{background:#E1FAED;color:var(--green)}
+.delta.bad{background:#FFE9E5;color:var(--red)}
+.delta.flat{background:var(--n200);color:var(--muted)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+svg text{font-family:inherit}
+.tt{position:fixed;pointer-events:none;background:var(--dark);color:#fff;font-size:12px;
+    border-radius:8px;padding:8px 10px;line-height:1.5;display:none;z-index:9;max-width:240px}
+.foot{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.6}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div class="label">WIOM · Minimum Guarantee Program</div>
+    <h1>MG Funnels &amp; Leading Metrics</h1>
+  </div>
+  <div class="hdr-right">
+    <span class="asof" id="asof">loading…</span>
+    <button class="btn" id="refbtn" onclick="refreshNow()">Refresh Now</button>
+  </div>
+</header>
+<div class="banner" id="banner"></div>
+
+<div class="section card nsm" id="nsm" style="display:none">
+  <div>
+    <div class="label">NSM · Installs by enrolled MG CSPs</div>
+    <div class="nsm-hero" id="nsm-today">–</div>
+    <div class="d" id="nsm-cap">today so far</div>
+  </div>
+  <div class="nsm-trend">
+    <div class="label" style="margin-bottom:6px">Last 7 days</div>
+    <div id="nsm-bars"></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab on" id="tab-l0" onclick="showTab('l0')">L0 · Enrolment</button>
+  <button class="tab" id="tab-l1" onclick="showTab('l1')">L1 · Leading Metrics</button>
+  <button class="tab" id="tab-l2" onclick="showTab('l2')">L2 · Target Metric</button>
+</div>
+
+<div id="pane-l0">
+  <div class="section card">
+    <div class="label">Cohort 2 → Cohort 1 graduations</div>
+    <div class="strip" id="mig-strip"></div>
+  </div>
+  <div class="section two" id="funnels"></div>
+  <div class="foot card">
+    <b>Definitions (mirrors the mbg-tv-wall TV dashboard exactly).</b> All steps count distinct
+    CSPs in the frozen launch cohort (469 + 100). <b>App Opened</b> = CleverTap “App Launched”
+    since go-live (1 Jul 09:00 IST), identity→CSP via the frozen map. <b>Banner Viewed</b> =
+    “InApp_Shown” for that flow's banner campaign. Screen steps (Viewed hero → Quiz started) are
+    the in-app beacon, live since ~11:57 IST 1 Jul — they slightly undercount vs opt-ins, which
+    are exact since go-live (hence “Enrolled” can exceed screen steps). Flow-2 audit stages are
+    scoped to the MG campaign. Cohort-2 Enrolled = opted-in AND audit completed.
+  </div>
+</div>
+
+<div id="pane-l1" style="display:none">
+  <div class="card" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+    <div>
+      <div class="label">L1 · Leading metrics — enrolled CSPs</div>
+      <div class="sub" id="l1sub"></div>
+    </div>
+    <div class="toggle" id="modetoggle">
+      <button class="on" data-mode="cohort" onclick="setMode('cohort')">By booking day</button>
+      <button data-mode="event" onclick="setMode('event')">By event day</button>
+    </div>
+  </div>
+  <div class="l1grid" id="l1grid"></div>
+  <div class="foot card">
+    <b>Definitions — sacrosanct to Metabase Q11528 (B2I funnel with attributed drops).</b>
+    Anchor = <b>booking confirmed</b> (canonical booking window, test-LCO excluded); booking →
+    connection (days=14 window) → <b>current</b> TAS task. A booking counts iff that task belongs
+    to an enrolled CSP (opted-in + audit complete) = “CSP received booking”. “CSP accepted / slot
+    proposed” = current depth ≥ 3 (slot proposed or awaiting customer slot confirmation, or
+    further). “Slot confirmed by customer” = depth ≥ 4 (confirmed slot or awaiting technician, or
+    further). Speed = task creation → ALLOCATION_ACCEPTED event (timing only). <b>By booking
+    day</b>: all outcomes attach to the booking's confirm day — recent days mature upward.
+    <b>By event day</b>: each event counts on the day it happened, shown as absolute counts/day
+    (accepts and confirmations there can belong to bookings from earlier days). Only complete IST
+    calendar days are shown. Pre = 24–30 Jun daily average (dashed); Post = from 1 Jul.
+  </div>
+</div>
+<div id="pane-l2" style="display:none">
+  <div class="card" style="margin-bottom:20px">
+    <div class="label">L2 · Target metric — did the intervention do its job?</div>
+    <div class="sub">Install Ratio = installs ÷ slots confirmed by customer, MG cohort, by booking day (Q11528 depths: 6 ÷ ≥4)</div>
+    <div class="strip" id="l2-hero" style="margin-top:14px"></div>
+  </div>
+  <div class="l1grid" id="l2grid"></div>
+  <div class="foot card">
+    <b>Reading this honestly.</b> Install Ratio is pooled per period: total installed ÷ total
+    customer-confirmed among bookings confirmed in that window. The pre week (24–30 Jun) is fully
+    matured; recent post days are not — a booking confirmed yesterday may still install tomorrow,
+    so the post ratio and the last few daily points drift <i>upward</i> as tasks complete. Compare
+    trend direction early; trust the level only once days are ~3+ days old. Same cohort of
+    enrolled CSPs in both windows.
+  </div>
+</div>
+<div class="tt" id="tt"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-IN'));
+const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
+let DATA=null, MODE='cohort';
+
+function showTab(t){
+  ['l0','l1','l2'].forEach(x=>{
+    $('pane-'+x).style.display=x===t?'':'none';
+    $('tab-'+x).classList.toggle('on',x===t);
+  });
+  location.hash=t;
+}
+const initHash=location.hash;
+if(initHash.includes('event')){MODE='event';
+  document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
+if(initHash.includes('l1'))showTab('l1');
+if(initHash.includes('l2'))showTab('l2');
+function setMode(m){
+  MODE=m;
+  document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
+  if(DATA&&DATA.l1)renderL1(DATA.l1,DATA.meta);
+}
+async function load(force){
+  const btn=$('refbtn'); btn.disabled=true;
+  try{
+    const r=await fetch(force?'/refresh':'/data');
+    DATA=await r.json(); render(DATA);
+  }catch(e){
+    $('banner').style.display='block';
+    $('banner').textContent='Could not reach the dashboard server — showing last rendered numbers. '+e;
+  }finally{btn.disabled=false;}
+}
+function refreshNow(){load(true);}
+
+function render(d){
+  $('asof').textContent='as of '+(d.meta.asof||'').replace('T',' ').slice(0,16)+
+    ' IST · auto-refresh every '+d.meta.cache_ttl_min+' min';
+  const errs=(d.meta.errors||[]);
+  $('banner').style.display=errs.length?'block':'none';
+  $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
+  if(d.nsm)renderNsm(d.nsm);
+  if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0);}
+  if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
+}
+
+function renderL2(l1,meta){
+  const daily=l1.modes.cohort.daily;
+  const pool=rows=>{
+    const c=rows.reduce((a,r)=>a+(r.cust_confirmed||0),0), i=rows.reduce((a,r)=>a+(r.installs||0),0);
+    return {c,i,ratio:c?Math.round(1000*i/c)/10:null};
+  };
+  const pre=pool(daily.filter(r=>r.day_ist<=meta.pre[1]));
+  const post=pool(daily.filter(r=>r.day_ist>=meta.post_start));
+  const d=(pre.ratio!=null&&post.ratio!=null)?Math.round(10*(post.ratio-pre.ratio))/10:null;
+  // post window is immature until its newest booking day has had ~3 days to install
+  const cutoff=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+  const newest=daily.length?daily[daily.length-1].day_ist:null;
+  const immature=newest!=null&&newest>cutoff;
+  const col=d==null?'inherit':(immature?'var(--amber)':(d>=0?'var(--green)':'var(--red)'));
+  const verdict=d==null?'':(immature?'post bookings still installing — judge in a few days'
+    :(d>0?`moving the right way`:(d<0?`not yet`:'flat')));
+  $('l2-hero').innerHTML=
+    tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · 24–30 Jun`)+
+    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · since 1 Jul${immature?' (maturing)':''}`,'color:'+col)+
+    tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
+  const g=$('l2grid'); g.innerHTML='';
+  const m=l1.modes.cohort;
+  [{title:'Install Ratio by booking day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,
+    tip:r=>`${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed`},
+   {title:'Installs by booking day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,
+    tip:r=>`${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed: ${fmt(r.cust_confirmed)}`}
+  ].forEach(s=>g.appendChild(chartCard(s,m,meta)));
+}
+
+function renderNsm(n){
+  $('nsm').style.display='flex';
+  $('nsm-today').textContent=fmt(n.today);
+  $('nsm-cap').textContent='today so far ('+n.today_date+') · of '+fmt(n.today_total)+' across all CSPs';
+  const t=n.trend, max=Math.max(...t.map(r=>Math.max(r.installs,r.total_installs||0)),1);
+  const W=560,H=124,B=22,T=14,gap=6,bw=(W-(t.length-1)*gap)/t.length;
+  const yv=v=>T+(H-T-B-16)*(1-v/max)+16;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:560px;height:auto">`;
+  t.forEach((r,i)=>{
+    const h=Math.max(H-B-yv(r.installs),2), x0=i*(bw+gap);
+    svg+=`<rect x="${x0}" y="${H-B-h}" width="${bw}" height="${h}" rx="4" fill="var(--purple)" opacity="${i===t.length-1?1:.75}"/>
+      <text x="${x0+bw/2}" y="${H-B-h-4}" font-size="12" font-weight="600" fill="var(--text)" text-anchor="middle">${r.installs}</text>
+      <text x="${x0+bw/2}" y="${H-6}" font-size="10.5" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;
+  });
+  const pts=t.map((r,i)=>`${i*(bw+gap)+bw/2},${yv(r.total_installs||0)}`).join(' ');
+  svg+=`<polyline points="${pts}" fill="none" stroke="var(--dark)" stroke-width="2" stroke-dasharray="4 4" opacity=".7"/>`;
+  t.forEach((r,i)=>{
+    svg+=`<text x="${i*(bw+gap)+bw/2}" y="${yv(r.total_installs||0)-5}" font-size="10.5" fill="${MUTED}" text-anchor="middle">${r.total_installs||''}</text>`;
+  });
+  $('nsm-bars').innerHTML=svg+'</svg>'+
+    `<div class="legend"><span><i style="background:var(--purple)"></i>enrolled MG CSPs</span>
+     <span><i style="background:transparent;border-top:2px dashed var(--dark);height:0;width:12px;margin-bottom:4px"></i>all CSPs (total)</span></div>`;
+}
+
+function renderMigration(m){
+  $('mig-strip').innerHTML=
+    tile(m.start,'Cohort-2 at launch','audit pending on 1 Jul')+
+    tile(m.graduated,'Graduated','audit completed → now Cohort-1 rules','color:var(--green)')+
+    tile(m.drained_pct+'%','Drained','share of Cohort-2 cleared','color:var(--green)')+
+    tile(m.remaining,'Remaining','still to finish audit')+
+    `<div class="meter"><div style="width:${m.drained_pct}%"></div></div>`;
+}
+function tile(v,l,d,style){return `<div class="tile"><div class="v" style="${style||''}">${fmt(v)}</div>
+  <div class="label">${l}</div><div class="d">${d}</div></div>`;}
+
+function renderFunnels(l0){
+  const wrap=$('funnels'); wrap.innerHTML='';
+  wrap.appendChild(funnelCard('Cohort 1 — audit already done',l0.funnel1,PINK));
+  wrap.appendChild(funnelCard('Cohort 2 — audit pending',l0.funnel2,PURPLE));
+}
+function funnelCard(title,rows,color){
+  const max=rows[0].csps||1;
+  const div=document.createElement('div'); div.className='card';
+  let h=`<h2>${title}</h2><div class="sub">distinct cohort CSPs reaching each step, since go-live</div>`;
+  rows.forEach((r,i)=>{
+    const isEnr=r.stage.startsWith('Enrolled');
+    const pct=r.csps==null?null:Math.round(100*r.csps/max);
+    const w=r.csps==null?0:Math.max(100*r.csps/max,0.8);
+    const op=i===0?.3:(isEnr?1:.7);
+    h+=`<div class="frow${isEnr?' divider':''}"><div class="fname">${r.stage}</div>
+      <div class="ftrack"><div class="fbar" style="width:${w}%;background:${color};opacity:${op}"></div></div>
+      <div class="fval">${fmt(r.csps)} <small>${pct==null?'':pct+'%'}</small></div></div>`;
+  });
+  div.innerHTML=h; return div;
+}
+
+/* ---------- L1 charts ---------- */
+function renderL1(l1,meta){
+  const m=l1.modes[MODE];
+  $('l1sub').innerHTML=`Measured on <b>${fmt(l1.enrolled_n)}</b> enrolled CSPs (live set) ·
+    complete days through <b>${l1.complete_through}</b> ·
+    ${MODE==='cohort'?'outcomes attributed to the booking’s confirm day':'each event counted on its own day'}`;
+  const g=$('l1grid'); g.innerHTML='';
+  const SH='non-enrolled (scaled to cohort size)';
+  const specs=[
+    {title:'Bookings received by enrolled CSPs / day',kind:'bar',key:'bookings',color:PINK,goodUp:true,
+     shKey:'sh_bookings',shLabel:SH,
+     tip:r=>`${r.day_ist}<br>bookings (task created): <b>${fmt(r.bookings)}</b><br>non-enrolled (scaled): ${fmt(r.sh_bookings)}`},
+    {title:'Task created → slot accepted (median hrs)',kind:'line',key:'med_hrs_to_accept',
+     color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
+     tip:r=>`${r.day_ist}<br>median: <b>${r.med_hrs_to_accept??'–'} h</b><br>non-enrolled: ${r.sh_med_hrs_to_accept??'–'} h`},
+    MODE==='cohort'
+    ?{title:'CSP accepted / slot proposed (%)',kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
+      shKey:'sh_slot_pct',
+      tip:r=>`${r.day_ist}<br>accepted/slot: <b>${r.slot_pct??'–'}%</b><br>${fmt(r.slot_selected)} of ${fmt(r.bookings)} bookings<br>non-enrolled: ${r.sh_slot_pct??'–'}%`}
+    :{title:'CSP accepted / slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
+      shKey:'sh_slot_selected',shLabel:SH,
+      tip:r=>`${r.day_ist}<br>accepted/slot: <b>${fmt(r.slot_selected)}</b><br>bookings that day: ${fmt(r.bookings)}<br>non-enrolled (scaled): ${fmt(r.sh_slot_selected)}`},
+    MODE==='cohort'
+    ?{title:'Slot confirmed by customer (%)',kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
+      shKey:'sh_confirm_pct',
+      tip:r=>`${r.day_ist}<br>confirmed: <b>${r.confirm_pct??'–'}%</b><br>${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} accepted<br>non-enrolled: ${r.sh_confirm_pct??'–'}%`}
+    :{title:'Slot confirmed by customer (count / day)',kind:'bar',key:'cust_confirmed',color:PINK,goodUp:true,
+      shKey:'sh_cust_confirmed',shLabel:SH,
+      tip:r=>`${r.day_ist}<br>confirmed: <b>${fmt(r.cust_confirmed)}</b><br>accepted that day: ${fmt(r.slot_selected)}<br>non-enrolled (scaled): ${fmt(r.sh_cust_confirmed)}`},
+  ];
+  specs.forEach(s=>g.appendChild(chartCard(s,m,meta)));
+}
+
+function deltaChip(pre,post,goodUp,unit){
+  if(pre==null||post==null) return '';
+  const d=post-pre, up=d>=0;
+  const good=(up&&goodUp)||(!up&&!goodUp);
+  const cls=Math.abs(d)<1e-9?'flat':(good?'good':'bad');
+  return `<span class="delta ${cls}" title="post avg vs pre avg">${up?'▲':'▼'} ${Math.abs(d).toFixed(1)}${unit} vs pre</span>`;
+}
+
+function chartCard(s,m,meta){
+  const card=document.createElement('div'); card.className='card';
+  const rows=m.daily, pre=m.pre_avg[s.key], post=m.post_avg[s.key];
+  const u=s.pct?'%':'';
+  let sub=`pre avg ${pre??'–'}${u} → post avg ${post??'–'}${u}`;
+  if(s.shKey){
+    const sp=m.pre_avg[s.shKey], so=m.post_avg[s.shKey];
+    sub+=` · <span style="color:#665E75">non-enrolled: ${sp??'–'}${u} → ${so??'–'}${u}</span>`;
+  }
+  card.innerHTML=`<div class="chart-head"><h2>${s.title}</h2>${deltaChip(pre,post,s.goodUp,s.pct?' pp':'')}</div>
+    <div class="sub">${sub}</div>`;
+  const W=760,H=280,L=42,R=12,T=16,B=30;
+  const vals=rows.flatMap(r=>[r[s.key],s.key2?r[s.key2]:null,s.shKey?r[s.shKey]:null]).filter(v=>v!=null);
+  const ymax=Math.max(s.pct?100:0,...vals,pre||0)*(s.pct?1:1.15)||1;
+  const x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1));
+  const xb=i=>L+(W-L-R)*(i/rows.length);
+  const bw=(W-L-R)/rows.length-2;
+  const y=v=>T+(H-T-B)*(1-v/ymax);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;margin-top:8px">`;
+  const preIdx=rows.reduce((a,r,i)=>r.day_ist<=meta.pre[1]?i:a,-1);
+  if(preIdx>=0){
+    const x0=s.kind==='bar'?xb(0):x(0), x1=s.kind==='bar'?xb(preIdx+1):x(preIdx);
+    svg+=`<rect x="${x0}" y="${T}" width="${x1-x0}" height="${H-T-B}" fill="#F1EDF7"/>
+      <text x="${x0+5}" y="${T+13}" font-size="10" font-weight="700" letter-spacing="1" fill="${MUTED}">PRE</text>`;
+  }
+  for(let i=0;i<=4;i++){
+    const v=ymax*i/4, yy=y(v);
+    svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>
+      <text x="${L-6}" y="${yy+3}" font-size="11" fill="${MUTED}" text-anchor="end">${v>0&&v<10?v.toFixed(1):Math.round(v)}</text>`;
+  }
+  rows.forEach((r,i)=>{
+    if(i===0||i===rows.length-1||(r.day_ist===meta.post_start&&i<rows.length-2)){
+      svg+=`<text x="${s.kind==='bar'?xb(i)+bw/2:x(i)}" y="${H-9}" font-size="11" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;
+    }
+  });
+  if(pre!=null) svg+=`<line x1="${L}" x2="${W-R}" y1="${y(pre)}" y2="${y(pre)}" stroke="${MUTED}" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  const cx=i=>s.kind==='bar'?xb(i)+bw/2:x(i);
+  const shadow=()=>{   // non-enrolled series: muted ink, card-colored marker rings,
+    if(!s.shKey)return;// pointer-events off so the hover overlay still receives the mouse
+    const spts=rows.map((r,i)=>r[s.shKey]!=null?`${cx(i)},${y(Math.min(r[s.shKey],ymax))}`:null).filter(Boolean);
+    svg+=`<g class="sh" pointer-events="none"><polyline points="${spts.join(' ')}" fill="none" stroke="#665E75" stroke-width="2.5"/>`;
+    rows.forEach((r,i)=>{if(r[s.shKey]!=null)
+      svg+=`<circle cx="${cx(i)}" cy="${y(Math.min(r[s.shKey],ymax))}" r="3.5" fill="#665E75" stroke="var(--card)" stroke-width="1.5"/>`;});
+    svg+=`</g>`;
+  };
+  if(s.kind==='bar'){
+    rows.forEach((r,i)=>{
+      const v=r[s.key]; if(v==null)return;
+      svg+=`<rect x="${xb(i)+1}" y="${y(v)}" width="${bw}" height="${H-B-y(v)}" rx="4" fill="${s.color}"/>`;
+    });
+    shadow();   // in front of the bars, or it disappears behind them
+  }else{
+    shadow();   // behind the cohort line
+    const line=(key,color)=>{
+      const pts=rows.map((r,i)=>r[key]!=null?`${x(i)},${y(Math.min(r[key],ymax))}`:null).filter(Boolean);
+      svg+=`<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>`;
+      rows.forEach((r,i)=>{
+        if(r[key]==null)return;
+        svg+=`<circle cx="${x(i)}" cy="${y(Math.min(r[key],ymax))}" r="4" fill="${color}" stroke="${color}" stroke-width="2"/>`;
+      });
+    };
+    line(s.key,s.color);
+    if(s.key2) line(s.key2,s.color2);
+  }
+  svg+=`<rect class="overlay" x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent"/>`;
+  svg+=`<line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="var(--baseline)" stroke-width="1"/></svg>`;
+  card.insertAdjacentHTML('beforeend',svg);
+  if(s.key2) card.insertAdjacentHTML('beforeend',
+    `<div class="legend"><span><i style="background:${s.color}"></i>${s.names[0]}</span>
+     <span><i style="background:${s.color2}"></i>${s.names[1]}</span></div>`);
+  else if(s.shKey) card.insertAdjacentHTML('beforeend',
+    `<div class="legend"><span><i style="background:${s.color}"></i>enrolled</span>
+     <span><i style="background:#665E75"></i>${s.shLabel||'non-enrolled CSPs'}</span></div>`);
+
+  const tt=$('tt'), sv=card.querySelector('svg');
+  const show=(i,ev)=>{tt.style.display='block';tt.innerHTML=s.tip(rows[i]);
+    tt.style.left=Math.min(ev.clientX+14,window.innerWidth-260)+'px';tt.style.top=(ev.clientY+12)+'px';};
+  const ov=sv.querySelector('.overlay');
+  ov.addEventListener('mousemove',ev=>{
+    const box=sv.getBoundingClientRect();
+    const px=(ev.clientX-box.left)*(W/box.width);
+    let best=0,bd=1e9;
+    rows.forEach((r,i)=>{const d=Math.abs(cx(i)-px);if(d<bd){bd=d;best=i;}});
+    show(best,ev);
+  });
+  ov.addEventListener('mouseleave',()=>tt.style.display='none');
+  return card;
+}
+
+load(false);
+setInterval(()=>load(false),30*60*1000);
+</script>
+</body>
+</html>

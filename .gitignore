@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+_q_*.sql
+.env
+.env.*
