@@ -274,16 +274,9 @@ def compute_l1(enrolled_ids):
 
     coh, eacc, econf = bucket("cohort"), bucket("event_accept"), bucket("event_confirm")
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
-    # shadow counts are scaled to the enrolled group's active-CSP count so the
-    # count charts compare like-for-like levels ("what this many average
-    # non-enrolled CSPs would have done")
-    scale = (csps.get(1) / csps.get(0)) if csps.get(0) else None
 
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
-
-    def sc(v):
-        return round(v * scale) if (v is not None and scale) else None
 
     def agg_cohort():
         out = []
@@ -297,7 +290,7 @@ def compute_l1(enrolled_ids):
                         "confirm_pct": pct(cnf, acc), "installs": ins,
                         "install_ratio": pct(ins, cnf),
                         "med_hrs_to_accept": e.get("med_hrs"), "p90_hrs_to_accept": e.get("p90_hrs"),
-                        "sh_bookings": sc(s.get("bookings")),
+                        "sh_bookings": s.get("bookings"),
                         "sh_slot_pct": pct(s.get("accepted", 0), s.get("bookings", 0)),
                         "sh_confirm_pct": pct(s.get("confirmed", 0), s.get("accepted", 0)),
                         "sh_med_hrs_to_accept": s.get("med_hrs")})
@@ -314,9 +307,9 @@ def compute_l1(enrolled_ids):
                         "slot_pct": pct(acc, bks), "cust_confirmed": cnf,
                         "confirm_pct": pct(cnf, acc),
                         "med_hrs_to_accept": ea.get("med_hrs"), "p90_hrs_to_accept": ea.get("p90_hrs"),
-                        "sh_bookings": sc(s.get("bookings")),
-                        "sh_slot_selected": sc(sa.get("n")),
-                        "sh_cust_confirmed": sc(scf.get("n")),
+                        "sh_bookings": s.get("bookings"),
+                        "sh_slot_selected": sa.get("n"),
+                        "sh_cust_confirmed": scf.get("n"),
                         "sh_med_hrs_to_accept": sa.get("med_hrs")})
         return out
 

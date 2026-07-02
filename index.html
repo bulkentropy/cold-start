@@ -305,13 +305,13 @@ function renderL1(l1,meta){
     complete days through <b>${l1.complete_through}</b> ·
     ${MODE==='cohort'?'outcomes attributed to the booking’s confirm day':'each event counted on its own day'}`;
   const g=$('l1grid'); g.innerHTML='';
-  const SH='non-enrolled (scaled to cohort size)';
+  const SH='non-enrolled CSPs (absolute)';
   const dot=c=>`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin-right:6px"></span>`;
   const E=dot(PINK), N=dot('#A7A1B2');
   const specs=[
     {title:'Bookings received by enrolled CSPs / day',kind:'bar',key:'bookings',color:PINK,goodUp:true,
      shKey:'sh_bookings',shLabel:SH,
-     tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.bookings)}</b> bookings<br>${N}non-enrolled (scaled): <b>${fmt(r.sh_bookings)}</b>`},
+     tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.bookings)}</b> bookings<br>${N}non-enrolled: <b>${fmt(r.sh_bookings)}</b>`},
     {title:'Task created → slot accepted (median hrs)',kind:'line',key:'med_hrs_to_accept',
      color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.med_hrs_to_accept??'–'} h</b> median<br>${N}non-enrolled: <b>${r.sh_med_hrs_to_accept??'–'} h</b>`},
@@ -321,14 +321,14 @@ function renderL1(l1,meta){
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.slot_pct??'–'}%</b> (${fmt(r.slot_selected)} of ${fmt(r.bookings)} bookings)<br>${N}non-enrolled: <b>${r.sh_slot_pct??'–'}%</b>`}
     :{title:'CSP accepted / slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
       shKey:'sh_slot_selected',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> accepted (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled (scaled): <b>${fmt(r.sh_slot_selected)}</b>`},
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> accepted (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled: <b>${fmt(r.sh_slot_selected)}</b>`},
     MODE==='cohort'
     ?{title:'Slot confirmed by customer (%)',kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
       shKey:'sh_confirm_pct',
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.confirm_pct??'–'}%</b> (${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} accepted)<br>${N}non-enrolled: <b>${r.sh_confirm_pct??'–'}%</b>`}
     :{title:'Slot confirmed by customer (count / day)',kind:'bar',key:'cust_confirmed',color:PINK,goodUp:true,
       shKey:'sh_cust_confirmed',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.cust_confirmed)}</b> confirmed (${fmt(r.slot_selected)} accepted that day)<br>${N}non-enrolled (scaled): <b>${fmt(r.sh_cust_confirmed)}</b>`},
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.cust_confirmed)}</b> confirmed (${fmt(r.slot_selected)} accepted that day)<br>${N}non-enrolled: <b>${fmt(r.sh_cust_confirmed)}</b>`},
   ];
   specs.forEach(s=>g.appendChild(chartCard(s,m,meta)));
 }
