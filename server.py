@@ -364,7 +364,13 @@ def compute_feedback(enrolled_ids):
     counts = {k: 0 for k in ("excited", "questions", "dontknow", "dontcare")}
     for ans in latest.values():
         counts[ans] += 1
-    return {"counts": counts, "answered": len(latest), "enrolled_n": len(enrolled)}
+    names = FC.get("names", {})
+    call_list = sorted(
+        ({"partner_id": p, "name": names.get(p, ""), "answer": a}
+         for p, a in latest.items() if a != "excited"),
+        key=lambda r: ({"dontcare": 0, "dontknow": 1, "questions": 2}[r["answer"]], r["name"]))
+    return {"counts": counts, "answered": len(latest), "enrolled_n": len(enrolled),
+            "call_list": call_list}
 
 
 def compute_nsm(enrolled_ids):
@@ -453,6 +459,9 @@ CS_KINDS = {
                   ("title", "description", "category", "impact", "owner", "changed_at")),
     "content": ("cs_content", "order_index.asc",
                 ("slug", "title", "section", "body_md", "order_index")),
+    "call_logs": ("cs_call_logs", "created_at.desc",
+                  ("partner_id", "partner_name", "reason", "called_by", "called_at",
+                   "outcome", "learning", "belief_after")),
 }
 
 

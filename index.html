@@ -343,6 +343,16 @@ svg text{font-family:inherit}
     <div class="meter" id="fb-meter" style="margin-top:12px"></div>
     <div class="strip" id="fb-tiles" style="margin-top:14px"></div>
   </div>
+  <details class="card section" style="margin-top:20px" id="l2-calls" hidden>
+    <summary class="label" style="cursor:pointer">Call &amp; learn — re-engage the non-enthusiastic <span id="call-cov"></span></summary>
+    <div class="sub" style="margin-top:6px">Every enrolled CSP whose latest belief answer wasn't "excited",
+      hardest first. Log each call's outcome and what you learned — the learnings feed project knowledge.</div>
+    <div class="tablewrap"><table class="board" id="call-table" style="min-width:760px"></table></div>
+    <div id="call-form-slot"></div>
+    <details style="margin-top:16px"><summary class="label" style="cursor:pointer">Learnings from calls (latest first)</summary>
+      <div id="call-learnings"></div>
+    </details>
+  </details>
   <div class="foot card">
     <b>Reading this honestly.</b> Install Ratio is pooled per period: total installed ÷ total
     customer-confirmed among bookings confirmed in that window. The pre week (24–30 Jun) is fully
@@ -648,6 +658,58 @@ function renderFeedback(fb){
   $('fb-tiles').innerHTML=SEG.map(([k,col,label])=>
     tile(`${c[k]}<span style="font-size:1rem;color:var(--muted)"> · ${n?Math.round(100*c[k]/n):0}%</span>`,
          label.split(' — ')[0],label.split(' — ')[1]||'','color:'+col)).join('');
+  if(fb.call_list)renderCallList(fb.call_list);
+}
+
+const ANSWER_LABEL={dontcare:'indifferent',dontknow:'unaware',questions:'has questions'};
+async function renderCallList(list){
+  const box=$('l2-calls'); box.hidden=false;
+  const logs=await hub('call_logs');
+  const byPartner={};
+  logs.forEach(l=>{if(!byPartner[l.partner_id])byPartner[l.partner_id]=l;});   // newest first
+  const called=list.filter(r=>byPartner[r.partner_id]).length;
+  $('call-cov').textContent=`(${called} of ${list.length} called)`;
+  $('call-table').innerHTML=`<tr><th>CSP</th><th>Partner ID</th><th>Belief answer</th>
+    <th>Last call</th><th>After call</th><th></th></tr>`+list.map(r=>{
+    const l=byPartner[r.partner_id];
+    return `<tr>
+      <td class="tt2">${esc(r.name||'—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(r.partner_id)}</td>
+      <td>${chip(ANSWER_LABEL[r.answer]||r.answer)}</td>
+      <td>${l?esc(dstr(l.called_at))+' · '+esc(l.outcome)+' · '+esc(l.called_by||''):'<span style="color:var(--muted)">not called</span>'}</td>
+      <td>${l&&l.belief_after?chip(l.belief_after):''}</td>
+      <td class="editcell"><button class="statbtn" onclick="callLog('${r.partner_id}','${esc(r.name||'')}','${r.answer}')">📞 log call</button></td>
+    </tr>`;}).join('');
+  $('call-learnings').innerHTML=logs.filter(l=>l.learning).map(l=>
+    `<div class="act-item"><span class="who">${esc(l.partner_name||l.partner_id)}</span>
+     <span class="when">· ${dstr(l.called_at)} · ${esc(l.called_by||'')} · was ${esc(ANSWER_LABEL[l.reason]||l.reason||'?')}${l.belief_after?' → '+esc(l.belief_after):''}</span><br>
+     ${esc(l.learning)}</div>`).join('')||'<div class="act-item">no learnings logged yet</div>';
+}
+function callLog(pid,name,answer){
+  const sel=o=>o.map(x=>`<option>${x}</option>`).join('');
+  $('call-form-slot').innerHTML=`<div class="form on">
+    <div class="sub" style="margin-bottom:8px">Logging call to <b>${esc(name||pid)}</b> (${esc(ANSWER_LABEL[answer]||answer)})</div>
+    <div class="row2">
+      <select id="cl-outcome">${sel(['connected','no_answer','callback'])}</select>
+      <input id="cl-date" type="date" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <textarea id="cl-learning" placeholder="What did you learn? (their words, blockers, misunderstandings, ideas)"></textarea>
+    <div class="row2">
+      <select id="cl-after"><option value="">belief after call — unknown</option>${sel(['excited','questions','dontknow','dontcare','unchanged'])}</select>
+      <span></span>
+    </div>
+    <button onclick="saveCall('${pid}','${esc(name||'')}','${answer}')">Save call</button>
+    <button style="background:var(--n500);margin-left:8px" onclick="$('call-form-slot').innerHTML=''">Cancel</button>
+  </div>`;
+  $('call-form-slot').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function saveCall(pid,name,answer){
+  await post('call_logs',{partner_id:pid,partner_name:name,reason:answer,
+    outcome:$('cl-outcome').value,called_at:$('cl-date').value,
+    learning:$('cl-learning').value,belief_after:$('cl-after').value||null,
+    called_by:editorName(true),_editor:editorName(true)});
+  $('call-form-slot').innerHTML='';
+  renderCallList(DATA.feedback.call_list);
 }
 
 function renderL2(l1,meta){
