@@ -251,13 +251,16 @@ svg text{font-family:inherit}
 </div>
 
 <div id="pane-log" style="display:none">
-  <div class="card"><div class="label">Changelog — definition, config &amp; deploy changes</div><div id="log-list"></div>
+  <div class="card"><div class="label">Changelog — data sources, queries, definitions &amp; content</div>
+    <div class="sub">Only changes that affect the numbers or the project's content belong here — metric definitions,
+    source-table or query changes, data corrections, education/document content. Portal features don't.</div>
+    <div id="log-list"></div>
     <button class="addbtn" onclick="toggleForm('f-log')">+ Add entry</button>
     <div class="form" id="f-log">
       <input id="l-title" placeholder="What changed">
       <textarea id="l-desc" placeholder="Description"></textarea>
       <div class="row2">
-        <select id="l-cat"><option>definition</option><option>deploy</option><option>config</option><option>content</option><option>other</option></select>
+        <select id="l-cat"><option>definition</option><option>source</option><option>query</option><option>data</option><option>content</option></select>
         <input id="l-date" type="date">
       </div>
       <input id="l-impact" placeholder="Impact on numbers / consumers">
