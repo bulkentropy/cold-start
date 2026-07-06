@@ -21,10 +21,12 @@ Secrets from C:\credentials\.env: METABASE_API_KEY,
 PROD_SUPABASE_SERVICE_ROLE_KEY (audit db). Portal read uses its public
 publishable key unless SUPABASE_PORTAL_SERVICE_KEY is set.
 """
+import base64
 import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -365,23 +367,28 @@ def compute_nsm(enrolled_ids):
 # ----------------------------------------------------------------------------
 GATE_PASSWORD = os.environ.get("COLDSTART_PASSWORD")
 SESSION_DAYS = 30
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@wiom\.in$", re.IGNORECASE)
 
 
-def _sign(exp):
-    return hmac.new(GATE_PASSWORD.encode(), exp.encode(), hashlib.sha256).hexdigest()[:32]
+def _sign(msg):
+    return hmac.new(GATE_PASSWORD.encode(), msg.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def make_token():
+def make_token(email):
     exp = str(int(time.time()) + SESSION_DAYS * 86400)
-    return f"{exp}.{_sign(exp)}"
+    e64 = base64.urlsafe_b64encode(email.encode()).decode().rstrip("=")
+    return f"{exp}.{e64}.{_sign(exp + '.' + e64)}"
 
 
-def token_ok(tok):
+def token_email(tok):
+    """Return the signed-in email, or None if the token is invalid/expired."""
     try:
-        exp, sig = tok.split(".")
-        return int(exp) > time.time() and hmac.compare_digest(sig, _sign(exp))
+        exp, e64, sig = tok.split(".")
+        if int(exp) < time.time() or not hmac.compare_digest(sig, _sign(exp + "." + e64)):
+            return None
+        return base64.urlsafe_b64decode(e64 + "=" * (-len(e64) % 4)).decode()
     except Exception:
-        return False
+        return None
 
 
 LOGIN_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -396,7 +403,9 @@ button{width:100%;background:#D9008D;color:#fff;border:none;border-radius:40px;p
 .err{color:#E01E00;font-size:13px;margin-bottom:10px}</style></head><body>
 <form class="card" method="POST" action="/login">
 <div class="label">WIOM · Cold-start Project</div><h1>Team access</h1>
-{ERR}<input type="password" name="password" placeholder="Access password" autofocus>
+{ERR}<input type="email" name="email" placeholder="you@wiom.in" required
+  pattern="[A-Za-z0-9._%+-]+@wiom\\.in" title="Use your @wiom.in email" autofocus>
+<input type="password" name="password" placeholder="Access password" required>
 <button>Enter</button></form></body></html>"""
 
 
@@ -550,12 +559,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _authed(self):
+    def _email(self):
+        """Signed-in email; None when unauthenticated; '' when gate is off (local dev)."""
         if not GATE_PASSWORD:
-            return True
+            return ""
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         tok = cookie.get("cs_auth")
-        return bool(tok and token_ok(tok.value))
+        return token_email(tok.value) if tok else None
+
+    def _authed(self):
+        return self._email() is not None
 
     def _json_body(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -577,6 +590,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(refresh()).encode(), "application/json")
             elif path == "/refresh":
                 self._send(200, json.dumps(refresh(force=True)).encode(), "application/json")
+            elif path == "/api/me":
+                self._send(200, json.dumps({"email": self._email() or None}).encode(), "application/json")
             elif path == "/api/activity":
                 self._send(200, json.dumps(cs_activity()).encode(), "application/json")
             elif path.startswith("/api/"):
@@ -596,22 +611,29 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/login":
                 n = int(self.headers.get("Content-Length", 0) or 0)
                 form = urllib.parse.parse_qs(self.rfile.read(n).decode())
+                email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
-                if GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
+                if not EMAIL_RE.match(email):
+                    err = '<div class="err">Use your @wiom.in email.</div>'
+                elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
                     return self._send(302, b"", "text/plain",
                                       {"Location": "/",
-                                       "Set-Cookie": f"cs_auth={make_token()}; Path=/; Max-Age={SESSION_DAYS*86400}; HttpOnly; SameSite=Lax"})
-                err = '<div class="err">Wrong password.</div>'
+                                       "Set-Cookie": f"cs_auth={make_token(email)}; Path=/; Max-Age={SESSION_DAYS*86400}; HttpOnly; SameSite=Lax"})
+                else:
+                    err = '<div class="err">Wrong password.</div>'
                 return self._send(200, LOGIN_HTML.replace("{ERR}", err).encode(), "text/html; charset=utf-8")
             if not self._authed():
                 return self._send(401, b'{"error":"auth required"}', "application/json")
             parts = path.split("/")
             if len(parts) >= 3 and parts[1] == "api" and parts[2] in CS_KINDS:
                 kind = parts[2]
+                body = self._json_body()
+                if self._email():          # signed-in email is the authoritative editor
+                    body["_editor"] = self._email()
                 if len(parts) == 3:
-                    out = cs_create(kind, self._json_body())
+                    out = cs_create(kind, body)
                 else:
-                    out = cs_update(kind, parts[3], self._json_body())
+                    out = cs_update(kind, parts[3], body)
                 return self._send(200, json.dumps(out).encode(), "application/json")
             self._send(404, b"not found", "text/plain")
         except Exception as e:
@@ -625,7 +647,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, b'{"error":"auth required"}', "application/json")
             parts = path.split("/")
             if len(parts) == 4 and parts[1] == "api" and parts[2] in CS_KINDS:
-                out = cs_delete(parts[2], parts[3])
+                out = cs_delete(parts[2], parts[3], self._email() or None)
                 return self._send(200, json.dumps(out).encode(), "application/json")
             self._send(404, b"not found", "text/plain")
         except Exception as e:

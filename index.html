@@ -220,7 +220,7 @@ svg text{font-family:inherit}
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div><div class="label">Command board — open tasks &amp; decisions</div>
         <div class="sub" id="board-sub"></div></div>
-      <div class="sub">editing as <b id="editor-name">?</b> <button class="statbtn" onclick="setEditor()">change</button></div>
+      <div class="sub">editing as <b id="editor-name">?</b> <button class="statbtn" id="editor-chg" onclick="setEditor()">change</button></div>
     </div>
     <div class="tablewrap"><table class="board" id="board-open"></table></div>
     <button class="addbtn" onclick="boardEdit('new')">+ Add task / decision point</button>
@@ -444,7 +444,13 @@ async function renderDocs(){
 /* ---------- command board ---------- */
 const OPEN_STATUSES=['open','in_progress','awaiting_input','blocked'];
 const ALL_STATUSES=[...OPEN_STATUSES,'done','scrapped'];
+let ME=null;   // signed-in wiom email (authoritative editor identity)
+async function whoami(){
+  if(ME===null){try{ME=(await (await fetch('/api/me')).json()).email||'';}catch(e){ME='';}}
+  return ME;
+}
 function editorName(ask){
+  if(ME){const el=$('editor-name');if(el)el.textContent=ME;return ME;}
   let n=localStorage.getItem('cs_editor');
   if(!n&&ask){n=prompt('Your name (recorded in the change history):')||'anonymous';localStorage.setItem('cs_editor',n);}
   const el=$('editor-name'); if(el)el.textContent=n||'? — set on first edit';
@@ -473,7 +479,9 @@ const BOARD_HEAD=`<tr><th>Initiative</th><th>Task</th><th>Kind</th><th>Owner</th
   <th>Due</th><th>Blocker → blocks</th><th>Notes</th><th></th></tr>`;
 
 async function renderBoard(){
+  await whoami();
   editorName(false);
+  const chg=$('editor-chg'); if(chg)chg.style.display=ME?'none':'';
   const rows=await hub('actions');
   const open=rows.filter(a=>OPEN_STATUSES.includes(a.status))
     .sort((x,y)=>(x.due_date||'9999')<(y.due_date||'9999')?-1:1);
