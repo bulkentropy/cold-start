@@ -151,7 +151,7 @@ svg text{font-family:inherit}
     <div class="d" id="nsm-cap">today so far</div>
   </div>
   <div class="nsm-trend">
-    <div class="label" style="margin-bottom:6px">Last 7 days</div>
+    <div class="label" style="margin-bottom:6px">Last 15 days</div>
     <div id="nsm-bars"></div>
   </div>
 </div>
@@ -660,14 +660,14 @@ function renderNsm(n){
   $('nsm-today').textContent=fmt(n.today);
   $('nsm-cap').textContent='today so far ('+n.today_date+') · of '+fmt(n.today_total)+' across all CSPs';
   const t=n.trend, max=Math.max(...t.map(r=>Math.max(r.installs,r.total_installs||0)),1);
-  const W=560,H=124,B=22,T=14,gap=6,bw=(W-(t.length-1)*gap)/t.length;
+  const W=860,H=124,B=22,T=14,gap=5,bw=(W-(t.length-1)*gap)/t.length;
   const yv=v=>T+(H-T-B-16)*(1-v/max)+16;
-  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:560px;height:auto">`;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
   t.forEach((r,i)=>{
     const h=Math.max(H-B-yv(r.installs),2), x0=i*(bw+gap);
     svg+=`<rect x="${x0}" y="${H-B-h}" width="${bw}" height="${h}" rx="4" fill="var(--purple)" opacity="${i===t.length-1?1:.75}"/>
-      <text x="${x0+bw/2}" y="${H-B-h-4}" font-size="12" font-weight="600" fill="var(--text)" text-anchor="middle">${r.installs}</text>
-      <text x="${x0+bw/2}" y="${H-6}" font-size="10.5" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;
+      <text x="${x0+bw/2}" y="${H-B-h-4}" font-size="11.5" font-weight="600" fill="var(--text)" text-anchor="middle">${r.installs}</text>
+      <text x="${x0+bw/2}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;
   });
   const pts=t.map((r,i)=>`${i*(bw+gap)+bw/2},${yv(r.total_installs||0)}`).join(' ');
   svg+=`<polyline points="${pts}" fill="none" stroke="var(--dark)" stroke-width="2" stroke-dasharray="4 4" opacity=".7"/>`;

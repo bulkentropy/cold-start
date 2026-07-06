@@ -1,6 +1,6 @@
 -- NSM: installs completed per IST day by the enrolled MG CSP set.
 -- Install = TAS task with INSTALLATION_COMPLETED_AT set, counted on that
--- timestamp's IST day, one per connection. Last ~9 days (7 complete + today).
+-- timestamp's IST day, one per connection. Last ~17 days (15 complete + today).
 WITH mg_csp AS (
     SELECT DISTINCT CSP_ID
     FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
@@ -13,6 +13,6 @@ SELECT TO_DATE(DATEADD(minute, 330, INSTALLATION_COMPLETED_AT))::STRING AS day_i
 FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
 WHERE ETL_CURRENT = TRUE
   AND INSTALLATION_COMPLETED_AT IS NOT NULL
-  AND INSTALLATION_COMPLETED_AT >= DATEADD(day, -9, CURRENT_TIMESTAMP())
+  AND INSTALLATION_COMPLETED_AT >= DATEADD(day, -17, CURRENT_TIMESTAMP())
 GROUP BY 1
 ORDER BY 1;

@@ -342,7 +342,7 @@ def compute_l1(enrolled_ids):
 
 
 def compute_nsm(enrolled_ids):
-    """Installs/day by enrolled CSPs: today (partial) + last 7 complete days."""
+    """Installs/day by enrolled CSPs: today (partial) + last 15 complete days."""
     if not enrolled_ids:
         raise RuntimeError("no enrolled partners — NSM skipped")
     sql = open(os.path.join(BASE_DIR, "sql", "nsm_installs.sql"), encoding="utf-8").read()
@@ -355,7 +355,7 @@ def compute_nsm(enrolled_ids):
         return {"day_ist": d, "installs": r.get("installs", 0),
                 "total_installs": r.get("total_installs", 0)}
 
-    trend = [row((today - timedelta(days=i)).isoformat()) for i in range(7, 0, -1)]
+    trend = [row((today - timedelta(days=i)).isoformat()) for i in range(15, 0, -1)]
     t = row(today.isoformat())
     return {"today": t["installs"], "today_total": t["total_installs"],
             "today_date": today.isoformat(), "trend": trend}
