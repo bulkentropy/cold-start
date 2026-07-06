@@ -21,14 +21,18 @@ Secrets from C:\credentials\.env: METABASE_API_KEY,
 PROD_SUPABASE_SERVICE_ROLE_KEY (audit db). Portal read uses its public
 publishable key unless SUPABASE_PORTAL_SERVICE_KEY is set.
 """
+import hashlib
+import hmac
 import json
 import os
 import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -356,6 +360,101 @@ def compute_nsm(enrolled_ids):
 
 
 # ----------------------------------------------------------------------------
+# Auth — whole app is gated when COLDSTART_PASSWORD is set (Railway); the gate
+# is off locally when the env var is absent.
+# ----------------------------------------------------------------------------
+GATE_PASSWORD = os.environ.get("COLDSTART_PASSWORD")
+SESSION_DAYS = 30
+
+
+def _sign(exp):
+    return hmac.new(GATE_PASSWORD.encode(), exp.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def make_token():
+    exp = str(int(time.time()) + SESSION_DAYS * 86400)
+    return f"{exp}.{_sign(exp)}"
+
+
+def token_ok(tok):
+    try:
+        exp, sig = tok.split(".")
+        return int(exp) > time.time() and hmac.compare_digest(sig, _sign(exp))
+    except Exception:
+        return False
+
+
+LOGIN_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Cold-start Project</title>
+<style>body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:#F1EDF7;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0}
+.card{background:#FAF9FC;border-radius:16px;box-shadow:0 4px 24px rgba(22,16,33,.07);padding:36px;width:340px}
+.label{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#665E75}
+h1{font-size:1.4rem;font-weight:800;color:#161021;margin:4px 0 18px}
+input{width:100%;box-sizing:border-box;border:1px solid #D7D3E0;border-radius:8px;padding:12px;font-size:15px;margin-bottom:14px}
+button{width:100%;background:#D9008D;color:#fff;border:none;border-radius:40px;padding:12px;font-size:15px;font-weight:600;cursor:pointer}
+.err{color:#E01E00;font-size:13px;margin-bottom:10px}</style></head><body>
+<form class="card" method="POST" action="/login">
+<div class="label">WIOM · Cold-start Project</div><h1>Team access</h1>
+{ERR}<input type="password" name="password" placeholder="Access password" autofocus>
+<button>Enter</button></form></body></html>"""
+
+
+# ----------------------------------------------------------------------------
+# Content CRUD (Supabase, service key, server-side only)
+# ----------------------------------------------------------------------------
+CS_KINDS = {
+    "tasks": ("cs_tasks", "created_at.desc",
+              ("title", "owner", "status", "due_date", "blocked_by", "notes")),
+    "actions": ("cs_actions", "created_at.desc",
+                ("title", "kind", "owner", "due_date", "status", "options", "resolution")),
+    "decisions": ("cs_decisions", "decided_at.desc",
+                  ("title", "context", "decision", "reasoning", "owner", "decided_at", "status", "tags")),
+    "documents": ("cs_documents", "shared_at.desc.nullslast",
+                  ("title", "url", "doc_type", "summary", "source", "channel", "shared_by", "shared_at", "body_md")),
+    "changelog": ("cs_changelog", "changed_at.desc",
+                  ("title", "description", "category", "impact", "owner", "changed_at")),
+    "content": ("cs_content", "order_index.asc",
+                ("slug", "title", "section", "body_md", "order_index")),
+}
+
+
+def supabase_write(method, path, body=None):
+    key = _require("SUPABASE_AUDIT_SERVICE_KEY")
+    req = urllib.request.Request(
+        f"{SUPABASE_AUDIT_URL}/rest/v1/{path}",
+        data=json.dumps(body).encode() if body is not None else None, method=method,
+        headers={"apikey": key, "Authorization": f"Bearer {key}",
+                 "Content-Type": "application/json", "Prefer": "return=representation"})
+    return _http_json(req)
+
+
+def cs_list(kind):
+    table, order, _ = CS_KINDS[kind]
+    return supabase_rows(SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
+                         f"{table}?select=*&order={order}")
+
+
+def cs_create(kind, data):
+    table, _, fields = CS_KINDS[kind]
+    clean = {k: v for k, v in data.items() if k in fields and v not in ("", None)}
+    return supabase_write("POST", table, clean)
+
+
+def cs_update(kind, row_id, data):
+    table, _, fields = CS_KINDS[kind]
+    clean = {k: v for k, v in data.items() if k in fields}
+    if kind != "changelog":
+        clean["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return supabase_write("PATCH", f"{table}?id=eq.{urllib.parse.quote(row_id)}", clean)
+
+
+def cs_delete(kind, row_id):
+    table, _, _ = CS_KINDS[kind]
+    return supabase_write("DELETE", f"{table}?id=eq.{urllib.parse.quote(row_id)}")
+
+
+# ----------------------------------------------------------------------------
 # Cache with last-good merge
 # ----------------------------------------------------------------------------
 _cache = {"payload": None, "at": 0.0}
@@ -407,16 +506,35 @@ def refresh(force=False):
 # HTTP
 # ----------------------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, extra=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _authed(self):
+        if not GATE_PASSWORD:
+            return True
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        tok = cookie.get("cs_auth")
+        return bool(tok and token_ok(tok.value))
+
+    def _json_body(self):
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
+            if path == "/login":
+                return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
+            if not self._authed():
+                if path.startswith("/api") or path in ("/data", "/refresh"):
+                    return self._send(401, b'{"error":"auth required"}', "application/json")
+                return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
             if path == "/":
                 html = open(os.path.join(BASE_DIR, "index.html"), "rb").read()
                 self._send(200, html, "text/html; charset=utf-8")
@@ -424,8 +542,55 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(refresh()).encode(), "application/json")
             elif path == "/refresh":
                 self._send(200, json.dumps(refresh(force=True)).encode(), "application/json")
+            elif path.startswith("/api/"):
+                kind = path.split("/")[2]
+                if kind not in CS_KINDS:
+                    return self._send(404, b'{"error":"unknown kind"}', "application/json")
+                self._send(200, json.dumps(cs_list(kind)).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
+        except Exception as e:
+            traceback.print_exc()
+            self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
+
+    def do_POST(self):
+        path = self.path.split("?")[0]
+        try:
+            if path == "/login":
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                form = urllib.parse.parse_qs(self.rfile.read(n).decode())
+                pw = (form.get("password") or [""])[0]
+                if GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
+                    return self._send(302, b"", "text/plain",
+                                      {"Location": "/",
+                                       "Set-Cookie": f"cs_auth={make_token()}; Path=/; Max-Age={SESSION_DAYS*86400}; HttpOnly; SameSite=Lax"})
+                err = '<div class="err">Wrong password.</div>'
+                return self._send(200, LOGIN_HTML.replace("{ERR}", err).encode(), "text/html; charset=utf-8")
+            if not self._authed():
+                return self._send(401, b'{"error":"auth required"}', "application/json")
+            parts = path.split("/")
+            if len(parts) >= 3 and parts[1] == "api" and parts[2] in CS_KINDS:
+                kind = parts[2]
+                if len(parts) == 3:
+                    out = cs_create(kind, self._json_body())
+                else:
+                    out = cs_update(kind, parts[3], self._json_body())
+                return self._send(200, json.dumps(out).encode(), "application/json")
+            self._send(404, b"not found", "text/plain")
+        except Exception as e:
+            traceback.print_exc()
+            self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")
+
+    def do_DELETE(self):
+        path = self.path.split("?")[0]
+        try:
+            if not self._authed():
+                return self._send(401, b'{"error":"auth required"}', "application/json")
+            parts = path.split("/")
+            if len(parts) == 4 and parts[1] == "api" and parts[2] in CS_KINDS:
+                out = cs_delete(parts[2], parts[3])
+                return self._send(200, json.dumps(out).encode(), "application/json")
+            self._send(404, b"not found", "text/plain")
         except Exception as e:
             traceback.print_exc()
             self._send(500, json.dumps({"error": str(e)}).encode(), "application/json")

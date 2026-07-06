@@ -1,6 +1,13 @@
-# MG Program Dashboard — L0 funnels + L1 leading metrics
+# Cold-start Project — Command Center
 
-Self-refreshing local dashboard for the Minimum Guarantee program.
+Self-refreshing dashboard + project hub for WIOM's Cold-start project
+(Minimum Guarantee Program). Metrics (L0/L1/L2 + NSM) and project memory
+(education, documents, tasks, actions & decision points, decision library,
+changelog) in one always-on service.
+
+Content tabs store data in the audit-tool Supabase (`cs_*` tables) via in-app
+forms; the whole app sits behind a password gate when `COLDSTART_PASSWORD` is
+set (always on Railway; unset locally = open for dev).
 
 ## Run
 

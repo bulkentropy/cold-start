@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MG Program — Funnels &amp; Leading Metrics</title>
+<title>Cold-start Project — Command Center</title>
 <style>
 :root{
   --accent:#D9008D; --purple:#6D17CE; --deep:#443152; --dark:#161021;
@@ -31,10 +31,45 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .section{margin-bottom:24px}
 .sub{font-size:13px;color:var(--muted);line-height:1.5}
 /* tabs */
-.tabs{display:flex;gap:8px;margin-bottom:20px}
-.tab{border:none;background:var(--card);color:var(--muted);border-radius:40px;padding:10px 26px;
-     font-size:14px;font-weight:600;cursor:pointer;box-shadow:var(--shadow)}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.tab{border:none;background:var(--card);color:var(--muted);border-radius:40px;padding:9px 18px;
+     font-size:13.5px;font-weight:600;cursor:pointer;box-shadow:var(--shadow)}
 .tab.on{background:var(--dark);color:#fff}
+/* content hub */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px}
+.md h1,.md h2,.md h3{margin:10px 0 6px;font-size:1rem}
+.md p{margin:8px 0;font-size:14px;line-height:1.6}
+.md ul{margin:8px 0 8px 20px;font-size:14px;line-height:1.6}
+.md code{background:var(--n200);border-radius:4px;padding:1px 5px;font-size:13px}
+.md a{color:var(--purple)}
+.chip2{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;border-radius:40px;
+       padding:3px 10px;background:var(--n200);color:var(--deep);text-transform:uppercase}
+.chip2.open,.chip2.active,.chip2.in_progress{background:#E1FAED;color:var(--green)}
+.chip2.blocked,.chip2.reversed{background:#FFE9E5;color:var(--red)}
+.chip2.done,.chip2.closed,.chip2.superseded{background:var(--n200);color:var(--muted)}
+.chip2.decision_point{background:#F1E5FF;color:var(--purple)}
+.item{border-top:1px solid var(--n200);padding:12px 0}
+.item:first-child{border-top:none}
+.item .t{font-weight:600;font-size:14.5px}
+.item .m{font-size:12px;color:var(--muted);margin-top:3px}
+.item .b{font-size:13.5px;line-height:1.55;margin-top:6px}
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+.doc{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.doc a.t{font-weight:700;font-size:14.5px;color:var(--dark);text-decoration:none}
+.doc a.t:hover{color:var(--accent)}
+.doc .sum{font-size:13px;color:var(--deep);line-height:1.5;background:var(--bg);border-radius:8px;padding:8px 10px}
+.addbtn{background:transparent;border:1.5px dashed var(--n500);color:var(--muted);border-radius:12px;
+        padding:10px 18px;font-size:13.5px;font-weight:600;cursor:pointer;width:100%;margin-top:10px}
+.addbtn:hover{border-color:var(--accent);color:var(--accent)}
+.form{display:none;margin-top:12px;border-top:1px dashed var(--n300);padding-top:12px}
+.form.on{display:block}
+.form input,.form textarea,.form select{width:100%;box-sizing:border-box;border:1px solid var(--n300);
+   border-radius:8px;padding:9px 10px;font-size:13.5px;margin-bottom:8px;font-family:inherit;background:#fff}
+.form textarea{min-height:64px}
+.form .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.form button{background:var(--accent);color:#fff;border:none;border-radius:40px;padding:9px 22px;font-size:13.5px;font-weight:600;cursor:pointer}
+.statbtn{border:none;background:var(--n200);border-radius:6px;font-size:11.5px;padding:3px 8px;cursor:pointer;color:var(--deep);margin-left:6px}
+.ov-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
 /* toggle */
 .toggle{display:inline-flex;background:var(--n200);border-radius:40px;padding:3px;gap:2px}
 .toggle button{border:none;background:transparent;color:var(--muted);border-radius:40px;
@@ -81,8 +116,8 @@ svg text{font-family:inherit}
 </div>
 <header>
   <div>
-    <div class="label">WIOM · Minimum Guarantee Program</div>
-    <h1>MG Funnels &amp; Leading Metrics</h1>
+    <div class="label">WIOM · Cold-start Project (Minimum Guarantee)</div>
+    <h1>Cold-start Command Center</h1>
   </div>
   <div class="hdr-right">
     <span class="asof" id="asof">loading…</span>
@@ -104,12 +139,122 @@ svg text{font-family:inherit}
 </div>
 
 <div class="tabs">
-  <button class="tab on" id="tab-l0" onclick="showTab('l0')">L0 · Enrolment</button>
-  <button class="tab" id="tab-l1" onclick="showTab('l1')">L1 · Leading Metrics</button>
-  <button class="tab" id="tab-l2" onclick="showTab('l2')">L2 · Target Metric</button>
+  <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
+  <button class="tab" id="tab-l0" onclick="showTab('l0')">L0 · Enrolment</button>
+  <button class="tab" id="tab-l1" onclick="showTab('l1')">L1 · Leading</button>
+  <button class="tab" id="tab-l2" onclick="showTab('l2')">L2 · Target</button>
+  <button class="tab" id="tab-edu" onclick="showTab('edu')">Education</button>
+  <button class="tab" id="tab-docs" onclick="showTab('docs')">Documents</button>
+  <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
+  <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
+  <button class="tab" id="tab-log" onclick="showTab('log')">Changelog</button>
 </div>
 
-<div id="pane-l0">
+<div id="pane-ov">
+  <div class="grid2">
+    <div class="card"><div class="label">Objective</div><div class="md" id="ov-objective">loading…</div></div>
+    <div class="card"><div class="label">Measurement hierarchy</div><div class="md" id="ov-l0l4">loading…</div></div>
+  </div>
+  <div class="card section" style="margin-top:20px">
+    <div class="label">Project pulse</div>
+    <div class="ov-strip" id="ov-pulse" style="margin-top:10px"></div>
+  </div>
+  <div class="grid2" style="margin-top:20px">
+    <div class="card"><div class="label">Latest decisions</div><div id="ov-decisions"></div></div>
+    <div class="card"><div class="label">Open actions &amp; decision points</div><div id="ov-actions"></div></div>
+  </div>
+</div>
+
+<div id="pane-edu" style="display:none">
+  <div id="edu-list" class="section"></div>
+  <div class="card"><button class="addbtn" onclick="toggleForm('f-content')">+ Add education section</button>
+    <div class="form" id="f-content">
+      <input id="c-title" placeholder="Title">
+      <input id="c-slug" placeholder="slug (unique, kebab-case)">
+      <textarea id="c-body" placeholder="Content (markdown: ## heading, **bold**, - list, [link](url))"></textarea>
+      <button onclick="submitContent()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="pane-docs" style="display:none">
+  <div class="doc-grid" id="doc-list"></div>
+  <div class="card" style="margin-top:20px"><button class="addbtn" onclick="toggleForm('f-doc')">+ Add document</button>
+    <div class="form" id="f-doc">
+      <input id="d-title" placeholder="Document title">
+      <input id="d-url" placeholder="URL (Drive / sheet / Metabase / …)">
+      <textarea id="d-summary" placeholder="Short summary — what's inside, who should read it"></textarea>
+      <div class="row2">
+        <select id="d-type"><option>sheet</option><option>doc</option><option>deck</option><option>pdf</option><option>metabase</option><option>dashboard</option><option>other</option></select>
+        <input id="d-sharedby" placeholder="Shared by">
+      </div>
+      <div class="row2">
+        <input id="d-sharedat" type="date">
+        <input id="d-channel" placeholder="#channel (if from Slack)">
+      </div>
+      <button onclick="submitDoc()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="pane-tasks" style="display:none">
+  <div class="grid2">
+    <div class="card"><div class="label">Tasklist</div><div id="task-list"></div>
+      <button class="addbtn" onclick="toggleForm('f-task')">+ Add task</button>
+      <div class="form" id="f-task">
+        <input id="t-title" placeholder="Task">
+        <div class="row2"><input id="t-owner" placeholder="Owner"><input id="t-due" type="date"></div>
+        <textarea id="t-notes" placeholder="Notes / blocked by"></textarea>
+        <button onclick="submitTask()">Save</button>
+      </div>
+    </div>
+    <div class="card"><div class="label">Open actions &amp; decision points</div><div id="action-list"></div>
+      <button class="addbtn" onclick="toggleForm('f-action')">+ Add action / decision point</button>
+      <div class="form" id="f-action">
+        <input id="a-title" placeholder="What needs to happen / be decided">
+        <div class="row2">
+          <select id="a-kind"><option value="action">action</option><option value="decision_point">decision point</option></select>
+          <input id="a-owner" placeholder="Owner">
+        </div>
+        <div class="row2"><input id="a-due" type="date"><span></span></div>
+        <textarea id="a-options" placeholder="Options on the table (for decision points)"></textarea>
+        <button onclick="submitAction()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pane-dec" style="display:none">
+  <div class="card"><div class="label">Decision library</div><div id="dec-list"></div>
+    <button class="addbtn" onclick="toggleForm('f-dec')">+ Log a decision</button>
+    <div class="form" id="f-dec">
+      <input id="de-title" placeholder="Decision title">
+      <textarea id="de-context" placeholder="Context — what was the situation?"></textarea>
+      <textarea id="de-decision" placeholder="The decision"></textarea>
+      <textarea id="de-reasoning" placeholder="Reasoning / alternatives rejected"></textarea>
+      <div class="row2"><input id="de-owner" placeholder="Owner"><input id="de-date" type="date"></div>
+      <button onclick="submitDecision()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="pane-log" style="display:none">
+  <div class="card"><div class="label">Changelog — definition, config &amp; deploy changes</div><div id="log-list"></div>
+    <button class="addbtn" onclick="toggleForm('f-log')">+ Add entry</button>
+    <div class="form" id="f-log">
+      <input id="l-title" placeholder="What changed">
+      <textarea id="l-desc" placeholder="Description"></textarea>
+      <div class="row2">
+        <select id="l-cat"><option>definition</option><option>deploy</option><option>config</option><option>content</option><option>other</option></select>
+        <input id="l-date" type="date">
+      </div>
+      <input id="l-impact" placeholder="Impact on numbers / consumers">
+      <button onclick="submitLog()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="pane-l0" style="display:none">
   <div class="section card">
     <div class="label">Cohort 2 → Cohort 1 graduations</div>
     <div class="strip" id="mig-strip"></div>
@@ -176,18 +321,162 @@ const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-I
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort';
 
+const TABS=['ov','l0','l1','l2','edu','docs','tasks','dec','log'];
 function showTab(t){
-  ['l0','l1','l2'].forEach(x=>{
+  TABS.forEach(x=>{
     $('pane-'+x).style.display=x===t?'':'none';
     $('tab-'+x).classList.toggle('on',x===t);
   });
   location.hash=t;
+  loadHub(t);
 }
-const initHash=location.hash;
+/* ---------- project hub (content) ---------- */
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function md(src){                     // tiny markdown: ##, **, *, -, [](), `code`
+  const inline=t=>esc(t)
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\*([^*]+)\*/g,'<i>$1</i>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+  let out='',list=false;
+  for(const raw of String(src??'').split('\n')){
+    const line=raw.trimEnd();
+    if(/^\s*[-•]\s+/.test(line)){ if(!list){out+='<ul>';list=true;} out+='<li>'+inline(line.replace(/^\s*[-•]\s+/,''))+'</li>'; continue; }
+    if(list){out+='</ul>';list=false;}
+    if(/^#{1,3}\s/.test(line)) out+='<h3>'+inline(line.replace(/^#{1,3}\s/,''))+'</h3>';
+    else if(line.trim()) out+='<p>'+inline(line)+'</p>';
+  }
+  if(list)out+='</ul>';
+  return out;
+}
+const HUB={};   // kind -> rows cache
+async function api(kind,opts){
+  const r=await fetch('/api/'+kind,opts);
+  if(r.status===401){location.href='/login';throw new Error('auth');}
+  return r.json();
+}
+async function hub(kind,force){
+  if(!HUB[kind]||force)HUB[kind]=await api(kind);
+  return HUB[kind];
+}
+async function post(kind,body){const out=await api(kind,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});HUB[kind]=null;return out;}
+async function patch(kind,id,body){const out=await fetch(`/api/${kind}/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});HUB[kind]=null;return out.json();}
+function toggleForm(id){$(id).classList.toggle('on');}
+const chip=s=>`<span class="chip2 ${esc(s)}">${esc(String(s).replace('_',' '))}</span>`;
+const dstr=s=>s?String(s).slice(0,10):'';
+
+function loadHub(t){
+  if(t==='ov')renderOverview();
+  else if(t==='edu')renderEdu();
+  else if(t==='docs')renderDocs();
+  else if(t==='tasks'){renderTasks();renderActions('action-list',true);}
+  else if(t==='dec')renderDecisions();
+  else if(t==='log')renderLog();
+}
+
+async function renderOverview(){
+  const content=await hub('content');
+  const get=slug=>content.find(c=>c.slug===slug);
+  $('ov-objective').innerHTML=md((get('objective')||{}).body_md||'*add content with slug `objective`*');
+  $('ov-l0l4').innerHTML=md((get('l0l4')||{}).body_md||'');
+  const [tasks,actions,decisions]=await Promise.all([hub('tasks'),hub('actions'),hub('decisions')]);
+  const openT=tasks.filter(t=>t.status!=='done').length;
+  const openA=actions.filter(a=>a.status==='open'&&a.kind==='action').length;
+  const openD=actions.filter(a=>a.status==='open'&&a.kind==='decision_point').length;
+  let l2='–',l2col='var(--muted)';
+  if(DATA&&DATA.l1){
+    const daily=DATA.l1.modes.cohort.daily;
+    const pool=rs=>{const c=rs.reduce((x,r)=>x+(r.cust_confirmed||0),0),i=rs.reduce((x,r)=>x+(r.installs||0),0);return c?Math.round(1000*i/c)/10:null;};
+    const pre=pool(daily.filter(r=>r.day_ist<=DATA.meta.pre[1])),post=pool(daily.filter(r=>r.day_ist>=DATA.meta.post_start));
+    if(pre!=null&&post!=null){const dd=Math.round(10*(post-pre))/10;l2=(dd>0?'+':'')+dd+' pp';l2col=dd>=0?'var(--green)':'var(--amber)';}
+  }
+  $('ov-pulse').innerHTML=
+    tile(l2,'L2 movement','install ratio, post vs pre (maturing)','color:'+l2col)+
+    tile(openT,'Open tasks','tasklist')+
+    tile(openA,'Open actions','need an owner to move')+
+    tile(openD,'Open decision points','waiting on a call','color:var(--purple)')+
+    tile(DATA&&DATA.l1?DATA.l1.enrolled_n:'–','Enrolled CSPs','live set');
+  $('ov-decisions').innerHTML=decisions.slice(0,3).map(d=>
+    `<div class="item"><div class="t">${esc(d.title)}</div>
+     <div class="m">${dstr(d.decided_at)} · ${esc(d.owner||'')} ${chip(d.status)}</div>
+     <div class="b">${esc(d.decision)}</div></div>`).join('')||'<div class="item m">none yet</div>';
+  $('ov-actions').innerHTML=actions.filter(a=>a.status==='open').slice(0,6).map(a=>
+    `<div class="item"><div class="t">${esc(a.title)} ${chip(a.kind)}</div>
+     <div class="m">${esc(a.owner||'unowned')}${a.due_date?' · due '+dstr(a.due_date):''}</div></div>`).join('')||'<div class="item m">nothing open 🎉</div>';
+}
+
+async function renderEdu(){
+  const rows=(await hub('content')).filter(c=>c.section==='education');
+  $('edu-list').innerHTML=rows.map(c=>
+    `<div class="card" style="margin-bottom:20px"><h2>${esc(c.title)}</h2>
+     <div class="md">${md(c.body_md)}</div>
+     <div style="font-size:11px;color:var(--muted);margin-top:8px">updated ${dstr(c.updated_at)}</div></div>`).join('')
+    ||'<div class="card">No education content yet.</div>';
+}
+
+async function renderDocs(){
+  const rows=await hub('documents');
+  $('doc-list').innerHTML=rows.map(d=>
+    `<div class="doc">
+       <a class="t" href="${esc(d.url||'#')}" target="_blank" rel="noopener">${esc(d.title)}</a>
+       <div><span class="chip2">${esc(d.doc_type)}</span>${d.source==='slack'?' <span class="chip2">from slack</span>':''}</div>
+       <div class="sum">${esc(d.summary||'No summary yet — add one so consumers pick the right doc.')}</div>
+       <div style="font-size:12px;color:var(--muted)">${esc(d.shared_by||'')}${d.shared_at?' · '+dstr(d.shared_at):''}${d.channel?' · '+esc(d.channel):''}</div>
+     </div>`).join('')||'<div class="card">No documents yet — add the first one.</div>';
+}
+
+async function renderTasks(){
+  const rows=await hub('tasks');
+  const next={open:'in_progress',in_progress:'done',blocked:'open',done:'open'};
+  $('task-list').innerHTML=rows.map(t=>
+    `<div class="item"><div class="t">${esc(t.title)} ${chip(t.status)}
+       <button class="statbtn" onclick="cycleTask('${t.id}','${next[t.status]||'open'}')">→ ${esc(next[t.status]||'open')}</button></div>
+     <div class="m">${esc(t.owner||'unowned')}${t.due_date?' · due '+dstr(t.due_date):''}${t.notes?' · '+esc(t.notes):''}</div></div>`).join('')
+    ||'<div class="item m">no tasks yet</div>';
+}
+async function renderActions(el,withClose){
+  const rows=await hub('actions');
+  $(el).innerHTML=rows.map(a=>
+    `<div class="item"><div class="t">${esc(a.title)} ${chip(a.kind)} ${chip(a.status)}
+       ${withClose&&a.status==='open'?`<button class="statbtn" onclick="closeAction('${a.id}')">close</button>`:''}</div>
+     <div class="m">${esc(a.owner||'unowned')}${a.due_date?' · due '+dstr(a.due_date):''}</div>
+     ${a.options?`<div class="b">Options: ${esc(a.options)}</div>`:''}
+     ${a.resolution?`<div class="b">Resolution: ${esc(a.resolution)}</div>`:''}</div>`).join('')
+    ||'<div class="item m">none yet</div>';
+}
+async function renderDecisions(){
+  const rows=await hub('decisions');
+  $('dec-list').innerHTML=rows.map(d=>
+    `<div class="item"><div class="t">${esc(d.title)} ${chip(d.status)}</div>
+     <div class="m">${dstr(d.decided_at)} · ${esc(d.owner||'')}${d.tags?' · '+esc(d.tags):''}</div>
+     ${d.context?`<div class="b"><b>Context:</b> ${esc(d.context)}</div>`:''}
+     <div class="b"><b>Decision:</b> ${esc(d.decision)}</div>
+     ${d.reasoning?`<div class="b"><b>Why:</b> ${esc(d.reasoning)}</div>`:''}</div>`).join('');
+}
+async function renderLog(){
+  const rows=await hub('changelog');
+  $('log-list').innerHTML=rows.map(l=>
+    `<div class="item"><div class="t">${esc(l.title)} ${chip(l.category)}</div>
+     <div class="m">${dstr(l.changed_at)} · ${esc(l.owner||'')}</div>
+     ${l.description?`<div class="b">${esc(l.description)}</div>`:''}
+     ${l.impact?`<div class="b"><b>Impact:</b> ${esc(l.impact)}</div>`:''}</div>`).join('');
+}
+
+async function cycleTask(id,status){await patch('tasks',id,{status});renderTasks();}
+async function closeAction(id){
+  const res=prompt('Resolution (what was done / decided)?')||'';
+  await patch('actions',id,{status:'closed',resolution:res});renderActions('action-list',true);
+}
+async function submitTask(){await post('tasks',{title:$('t-title').value,owner:$('t-owner').value,due_date:$('t-due').value,notes:$('t-notes').value});toggleForm('f-task');renderTasks();}
+async function submitAction(){await post('actions',{title:$('a-title').value,kind:$('a-kind').value,owner:$('a-owner').value,due_date:$('a-due').value,options:$('a-options').value});toggleForm('f-action');renderActions('action-list',true);}
+async function submitDecision(){await post('decisions',{title:$('de-title').value,context:$('de-context').value,decision:$('de-decision').value,reasoning:$('de-reasoning').value,owner:$('de-owner').value,decided_at:$('de-date').value||undefined});toggleForm('f-dec');renderDecisions();}
+async function submitDoc(){await post('documents',{title:$('d-title').value,url:$('d-url').value,summary:$('d-summary').value,doc_type:$('d-type').value,shared_by:$('d-sharedby').value,shared_at:$('d-sharedat').value||undefined,channel:$('d-channel').value});toggleForm('f-doc');renderDocs();}
+async function submitLog(){await post('changelog',{title:$('l-title').value,description:$('l-desc').value,category:$('l-cat').value,impact:$('l-impact').value,changed_at:$('l-date').value||undefined});toggleForm('f-log');renderLog();}
+async function submitContent(){await post('content',{title:$('c-title').value,slug:$('c-slug').value,body_md:$('c-body').value,section:'education'});toggleForm('f-content');renderEdu();}
+
+const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
-if(initHash.includes('l1'))showTab('l1');
-if(initHash.includes('l2'))showTab('l2');
+showTab(TABS.find(t=>initHash.startsWith(t))||'ov');
 function setMode(m){
   MODE=m;
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
