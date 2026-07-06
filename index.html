@@ -470,13 +470,12 @@ function boardRow(a,closed){
     <td>${esc(a.owner||'')}</td>
     <td>${chip(a.status)}</td>
     <td>${dstr(a.due_date)}</td>
-    <td>${esc(a.blocker||'')}</td>
     <td style="min-width:260px">${esc(notes)}</td>
     <td class="editcell"><button class="statbtn" onclick="boardEdit('${a.id}')">✎ edit</button></td>
   </tr>`;
 }
 const BOARD_HEAD=`<tr><th>Initiative</th><th>Task</th><th>Kind</th><th>Owner</th><th>Status</th>
-  <th>Due</th><th>Blocker → blocks</th><th>Notes</th><th></th></tr>`;
+  <th>Due</th><th>Notes</th><th></th></tr>`;
 
 async function renderBoard(){
   await whoami();
@@ -513,7 +512,6 @@ function boardEdit(id){
       <select id="bf-status">${sel(ALL_STATUSES,a.status)}</select></div>
     <div class="row2"><input id="bf-owner" placeholder="Owner" value="${esc(a.owner||'')}">
       <input id="bf-due" type="date" value="${a.due_date||''}"></div>
-    <input id="bf-blocker" placeholder="Blocker → blocks" value="${esc(a.blocker||'')}">
     <textarea id="bf-notes" placeholder="Notes">${esc(a.notes||'')}</textarea>
     <textarea id="bf-options" placeholder="Options on the table (decision points)">${esc(a.options||'')}</textarea>
     <textarea id="bf-resolution" placeholder="Resolution (when closing)">${esc(a.resolution||'')}</textarea>
@@ -526,7 +524,7 @@ function boardEdit(id){
 async function boardSave(id){
   const body={title:$('bf-title').value,initiative:$('bf-initiative').value,kind:$('bf-kind').value,
     status:$('bf-status').value,owner:$('bf-owner').value,due_date:$('bf-due').value||null,
-    blocker:$('bf-blocker').value,notes:$('bf-notes').value,options:$('bf-options').value,
+    notes:$('bf-notes').value,options:$('bf-options').value,
     resolution:$('bf-resolution').value,_editor:editorName(true)};
   if(id==='new')await post('actions',body);else await patch('actions',id,body);
   $('board-form-slot').innerHTML='';
