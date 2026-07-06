@@ -422,7 +422,7 @@ CS_KINDS = {
                   ("title", "context", "decision", "reasoning", "owner", "decided_at", "status", "tags")),
     "documents": ("cs_documents", "shared_at.desc.nullslast",
                   ("title", "url", "doc_type", "summary", "summary_source", "source",
-                   "channel", "shared_by", "shared_at", "body_md")),
+                   "channel", "shared_by", "shared_at", "body_md", "file_path")),
     "changelog": ("cs_changelog", "changed_at.desc",
                   ("title", "description", "category", "impact", "owner", "changed_at")),
     "content": ("cs_content", "order_index.asc",
@@ -516,21 +516,110 @@ def _synopsis_via_api(context):
     return next((b.text for b in resp.content if b.type == "text"), "").strip() or None
 
 
-def synopsize_document(doc):
+def synopsize_document(doc, file_text=None):
     """Return (summary, source): subscription CLI first, API as backup."""
     try:
-        context = _synopsis_context(doc)
+        if file_text:
+            context = (f"Title: {doc.get('title')}\nType: {doc.get('doc_type')}\n"
+                       f"Uploaded by: {doc.get('shared_by') or 'unknown'}\n"
+                       f"\nFile content (may be partial):\n{file_text[:8000]}")
+        else:
+            context = _synopsis_context(doc)
     except Exception:
         traceback.print_exc()
         return None, None
-    for fn, src in ((_synopsis_via_cli, "auto"), (_synopsis_via_api, "auto")):
+    for fn in (_synopsis_via_cli, _synopsis_via_api):
         try:
             text = fn(context)
             if text:
-                return text, src
+                return text, "auto"
         except Exception:
             traceback.print_exc()
     return None, None
+
+
+def _synopsis_pdf_api(title, pdf_b64):
+    """PDF synopsis via the API's document input (backup-path only)."""
+    import anthropic
+    client = anthropic.Anthropic()
+    resp = client.messages.create(
+        model="claude-opus-4-8", max_tokens=300,
+        system=SYNOPSIS_INSTRUCTIONS,
+        messages=[{"role": "user", "content": [
+            {"type": "document",
+             "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+            {"type": "text", "text": f"Write the synopsis card for this document, titled: {title}"},
+        ]}],
+    )
+    return next((b.text for b in resp.content if b.type == "text"), "").strip() or None
+
+
+# ----------------------------------------------------------------------------
+# File uploads — Supabase Storage (private bucket); downloads stream through
+# this server so files stay behind the portal's login.
+# ----------------------------------------------------------------------------
+UPLOAD_BUCKET = "cs-docs"
+MAX_UPLOAD = 15 * 1024 * 1024
+DOC_TYPES = {"pdf": "pdf", "doc": "doc", "docx": "doc", "xls": "sheet", "xlsx": "sheet",
+             "csv": "sheet", "ppt": "deck", "pptx": "deck", "md": "doc", "txt": "doc"}
+
+
+def storage_upload(path, data, content_type):
+    key = _require("SUPABASE_AUDIT_SERVICE_KEY")
+    req = urllib.request.Request(
+        f"{SUPABASE_AUDIT_URL}/storage/v1/object/{UPLOAD_BUCKET}/{urllib.parse.quote(path)}",
+        data=data, method="POST",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": content_type,
+                 "x-upsert": "false"})
+    return _http_json(req)
+
+
+def storage_download(path):
+    key = _require("SUPABASE_AUDIT_SERVICE_KEY")
+    req = urllib.request.Request(
+        f"{SUPABASE_AUDIT_URL}/storage/v1/object/{UPLOAD_BUCKET}/{urllib.parse.quote(path)}",
+        headers={"Authorization": f"Bearer {key}"})
+    resp = urllib.request.urlopen(req, timeout=120)
+    return resp.read(), resp.headers.get("Content-Type", "application/octet-stream")
+
+
+def handle_upload(body, editor):
+    import base64 as b64
+    import uuid
+    filename = os.path.basename(body.get("filename") or "file")
+    data = b64.b64decode(body.get("data_b64") or "")
+    if not data:
+        raise ValueError("empty file")
+    if len(data) > MAX_UPLOAD:
+        raise ValueError("file exceeds 15 MB limit")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    path = f"{uuid.uuid4().hex[:12]}-{re.sub(r'[^A-Za-z0-9._-]', '_', filename)}"
+    ctype = {"pdf": "application/pdf", "csv": "text/csv", "txt": "text/plain",
+             "md": "text/markdown"}.get(ext, "application/octet-stream")
+    storage_upload(path, data, ctype)
+
+    doc = {"title": body.get("title") or filename,
+           "doc_type": DOC_TYPES.get(ext, "other"), "source": "upload",
+           "shared_by": body.get("shared_by") or editor or None,
+           "shared_at": datetime.now(IST).date().isoformat(),
+           "url": f"/files/{path}", "file_path": path}
+    summary = (body.get("summary") or "").strip()
+    if summary:
+        doc["summary"], doc["summary_source"] = summary, "manual"
+    else:
+        text = None
+        if ext in ("txt", "md", "csv"):
+            text = data.decode("utf-8", "replace")
+        s, src = synopsize_document(doc, file_text=text) if (text or ext != "pdf") else (None, None)
+        if not s and ext == "pdf":
+            try:
+                s, src = _synopsis_pdf_api(doc["title"], b64.b64encode(data).decode()), "auto"
+            except Exception:
+                traceback.print_exc()
+                s = None
+        if s:
+            doc["summary"], doc["summary_source"] = s, src
+    return cs_create("documents", {**doc, "_editor": editor})
 
 
 def _audit(kind, entity_id, title, change, editor):
@@ -682,6 +771,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(refresh()).encode(), "application/json")
             elif path == "/refresh":
                 self._send(200, json.dumps(refresh(force=True)).encode(), "application/json")
+            elif path.startswith("/files/"):
+                data, ctype = storage_download(path[len("/files/"):])
+                self._send(200, data, ctype)
             elif path == "/api/me":
                 self._send(200, json.dumps({"email": self._email() or None}).encode(), "application/json")
             elif path == "/api/activity":
@@ -716,6 +808,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, LOGIN_HTML.replace("{ERR}", err).encode(), "text/html; charset=utf-8")
             if not self._authed():
                 return self._send(401, b'{"error":"auth required"}', "application/json")
+            if path == "/api/upload":
+                out = handle_upload(self._json_body(), self._email() or None)
+                return self._send(200, json.dumps(out).encode(), "application/json")
             parts = path.split("/")
             if len(parts) >= 3 and parts[1] == "api" and parts[2] in CS_KINDS:
                 kind = parts[2]

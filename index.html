@@ -206,7 +206,16 @@ svg text{font-family:inherit}
 
 <div id="pane-docs" style="display:none">
   <div class="doc-grid" id="doc-list"></div>
-  <div class="card" style="margin-top:20px"><button class="addbtn" onclick="toggleForm('f-doc')">+ Add document</button>
+  <div class="card" style="margin-top:20px"><button class="addbtn" onclick="toggleForm('f-upload')">⬆ Upload a document from your computer</button>
+    <div class="form" id="f-upload">
+      <input type="file" id="u-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.md,.txt">
+      <input id="u-title" placeholder="Title (defaults to the file name)">
+      <textarea id="u-summary" placeholder="Synopsis — leave blank for an auto-generated smart synopsis"></textarea>
+      <button onclick="submitUpload(this)">Upload</button>
+      <span class="sub" id="u-status" style="margin-left:10px"></span>
+    </div>
+  </div>
+  <div class="card" style="margin-top:20px"><button class="addbtn" onclick="toggleForm('f-doc')">+ Add a link</button>
     <div class="form" id="f-doc">
       <input id="d-title" placeholder="Document title">
       <input id="d-url" placeholder="URL (Drive / sheet / Metabase / …)">
@@ -450,7 +459,7 @@ async function renderDocs(){
   $('doc-list').innerHTML=rows.map(d=>
     `<div class="doc">
        <a class="t" href="${esc(d.url||'#')}" target="_blank" rel="noopener">${esc(d.title)}</a>
-       <div><span class="chip2">${esc(d.doc_type)}</span>${d.source==='slack'?' <span class="chip2">from slack</span>':''}${d.summary_source==='auto'?' <span class="chip2" style="background:#F1E5FF;color:var(--purple)">✦ ai synopsis</span>':''}</div>
+       <div><span class="chip2">${esc(d.doc_type)}</span>${d.source==='slack'?' <span class="chip2">from slack</span>':''}${d.source==='upload'?' <span class="chip2">uploaded file</span>':''}${d.summary_source==='auto'?' <span class="chip2" style="background:#F1E5FF;color:var(--purple)">✦ ai synopsis</span>':''}</div>
        <div class="sum">${esc(d.summary||'No synopsis yet.')}</div>
        <div style="font-size:12px;color:var(--muted)">${esc(d.shared_by||'')}${d.shared_at?' · '+dstr(d.shared_at):''}${d.channel?' · '+esc(d.channel):''}</div>
      </div>`).join('')||'<div class="card">No documents yet — add the first one.</div>';
@@ -564,6 +573,23 @@ async function renderLog(){
 }
 
 async function submitDecision(){await post('decisions',{title:$('de-title').value,context:$('de-context').value,decision:$('de-decision').value,reasoning:$('de-reasoning').value,owner:$('de-owner').value,decided_at:$('de-date').value||undefined,_editor:editorName(true)});toggleForm('f-dec');renderDecisions();}
+async function submitUpload(btn){
+  const f=$('u-file').files[0];
+  if(!f){alert('Pick a file first.');return;}
+  if(f.size>15*1024*1024){alert('Max 15 MB.');return;}
+  btn.disabled=true;$('u-status').textContent='uploading… (synopsis may take ~30s)';
+  try{
+    const b64=await new Promise((res,rej)=>{const r=new FileReader();
+      r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);});
+    const resp=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({filename:f.name,data_b64:b64,title:$('u-title').value,
+        summary:$('u-summary').value,_editor:editorName(true)})});
+    if(!resp.ok)throw new Error((await resp.json()).error||resp.status);
+    HUB.documents=null;toggleForm('f-upload');$('u-file').value='';$('u-title').value='';$('u-summary').value='';
+    renderDocs();
+  }catch(e){alert('Upload failed: '+e.message);}
+  finally{btn.disabled=false;$('u-status').textContent='';}
+}
 async function submitDoc(){await post('documents',{title:$('d-title').value,url:$('d-url').value,summary:$('d-summary').value,doc_type:$('d-type').value,shared_by:$('d-sharedby').value,shared_at:$('d-sharedat').value||undefined,channel:$('d-channel').value,_editor:editorName(true)});toggleForm('f-doc');renderDocs();}
 async function submitLog(){await post('changelog',{title:$('l-title').value,description:$('l-desc').value,category:$('l-cat').value,impact:$('l-impact').value,changed_at:$('l-date').value||undefined,_editor:editorName(true)});toggleForm('f-log');renderLog();}
 async function submitContent(){await post('content',{title:$('c-title').value,slug:$('c-slug').value,body_md:$('c-body').value,section:'education',_editor:editorName(true)});toggleForm('f-content');renderEdu();}
