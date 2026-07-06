@@ -341,6 +341,32 @@ def compute_l1(enrolled_ids):
             "complete_through": yday}
 
 
+def compute_feedback(enrolled_ids):
+    """Enrolled-CSP belief-check answers (flow-3 beacon on the mbg portal).
+
+    Answers: excited / questions / dontknow (unaware) / dontcare (indifferent).
+    f3a_/f3b_ prefixes are an A/B position test — merged. Latest answer per CSP.
+    """
+    rows = supabase_rows(
+        SUPABASE_PORTAL_URL, "SUPABASE_PORTAL_SERVICE_KEY",
+        "mbg_screen_log?select=pid,screen,ts&flow=eq.3"
+        "&or=(screen.like.f3a_*,screen.like.f3b_*)&order=ts.asc")
+    enrolled = set(enrolled_ids)
+    latest = {}
+    for r in rows:
+        pid, ans = r["pid"], str(r["screen"])[4:]
+        # flow-3 pids are person-level CleverTap identities (zero-padded, e.g.
+        # '009278' for map identity '9278'); resolve to partner
+        partner = (pid if pid in enrolled
+                   else ID2P.get(pid) or ID2P.get(str(pid).lstrip("0")))
+        if partner in enrolled and ans in ("excited", "questions", "dontknow", "dontcare"):
+            latest[partner] = ans   # ts ascending — last write wins
+    counts = {k: 0 for k in ("excited", "questions", "dontknow", "dontcare")}
+    for ans in latest.values():
+        counts[ans] += 1
+    return {"counts": counts, "answered": len(latest), "enrolled_n": len(enrolled)}
+
+
 def compute_nsm(enrolled_ids):
     """Installs/day by enrolled CSPs: today (partial) + last 15 complete days."""
     if not enrolled_ids:
@@ -712,6 +738,13 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"NSM: {type(e).__name__}: {e}")
             payload["nsm"] = prev.get("nsm")
+
+        try:
+            payload["feedback"] = compute_feedback(enrolled)
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"feedback: {type(e).__name__}: {e}")
+            payload["feedback"] = prev.get("feedback")
 
         try:
             payload["l1"] = compute_l1(enrolled)

@@ -337,6 +337,12 @@ svg text{font-family:inherit}
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
   </div>
   <div class="l1grid" id="l2grid"></div>
+  <div class="card section" style="margin-top:20px" id="l2-feedback" hidden>
+    <div class="label">Enrolled CSP feedback — belief check (in-app, since 2 Jul)</div>
+    <div class="sub" id="fb-cov"></div>
+    <div class="meter" id="fb-meter" style="margin-top:12px"></div>
+    <div class="strip" id="fb-tiles" style="margin-top:14px"></div>
+  </div>
   <div class="foot card">
     <b>Reading this honestly.</b> Install Ratio is pooled per period: total installed ÷ total
     customer-confirmed among bookings confirmed in that window. The pre week (24–30 Jun) is fully
@@ -624,6 +630,24 @@ function render(d){
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0);}
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
+  if(d.feedback)renderFeedback(d.feedback);
+}
+
+function renderFeedback(fb){
+  const card=$('l2-feedback'); card.hidden=false;
+  const c=fb.counts, n=fb.answered||0;
+  const cov=fb.enrolled_n?Math.round(100*n/fb.enrolled_n):0;
+  $('fb-cov').innerHTML=`<b>${fmt(n)}</b> of ${fmt(fb.enrolled_n)} enrolled CSPs have answered (${cov}% coverage) ·
+    latest answer per CSP · A/B position variants merged`;
+  const SEG=[['excited','var(--green)','Excited — ready to start'],
+             ['questions','var(--purple)','Understood, has questions'],
+             ['dontknow','var(--amber)','Unaware of the program'],
+             ['dontcare','var(--red)','Indifferent — "schemes come and go"']];
+  $('fb-meter').innerHTML=n?SEG.map(([k,col])=>
+    `<div style="width:${100*c[k]/n}%;background:${col};border-radius:0"></div>`).join(''):'';
+  $('fb-tiles').innerHTML=SEG.map(([k,col,label])=>
+    tile(`${c[k]}<span style="font-size:1rem;color:var(--muted)"> · ${n?Math.round(100*c[k]/n):0}%</span>`,
+         label.split(' — ')[0],label.split(' — ')[1]||'','color:'+col)).join('');
 }
 
 function renderL2(l1,meta){
