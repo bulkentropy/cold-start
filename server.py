@@ -421,7 +421,8 @@ CS_KINDS = {
     "decisions": ("cs_decisions", "decided_at.desc",
                   ("title", "context", "decision", "reasoning", "owner", "decided_at", "status", "tags")),
     "documents": ("cs_documents", "shared_at.desc.nullslast",
-                  ("title", "url", "doc_type", "summary", "source", "channel", "shared_by", "shared_at", "body_md")),
+                  ("title", "url", "doc_type", "summary", "summary_source", "source",
+                   "channel", "shared_by", "shared_at", "body_md")),
     "changelog": ("cs_changelog", "changed_at.desc",
                   ("title", "description", "category", "impact", "owner", "changed_at")),
     "content": ("cs_content", "order_index.asc",
@@ -445,6 +446,93 @@ def cs_list(kind):
                          f"{table}?select=*&order={order}")
 
 
+# ----------------------------------------------------------------------------
+# Smart synopsis — when a document is added without a summary, fetch the URL
+# (best effort) and have Claude write the 2-3 sentence card.
+# ----------------------------------------------------------------------------
+def _fetch_page_text(url, cap=8000):
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (coldstart-hub)"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if "text" not in (resp.headers.get("Content-Type") or "text"):
+                return None
+            html = resp.read(400_000).decode("utf-8", "replace")
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) < 200 or "accounts.google.com" in text[:2000].lower():
+            return None            # empty page or a login wall — nothing useful
+        return text[:cap]
+    except Exception:
+        return None
+
+
+SYNOPSIS_INSTRUCTIONS = (
+    "You write synopsis cards for WIOM's Cold-start project knowledge "
+    "repository (the Minimum Guarantee program for CSP partners). "
+    "Given a document's metadata and content, write 2-3 plain sentences: "
+    "what the document contains and who on the team should read it for what. "
+    "No preamble, no markdown, no quotes around the output.")
+
+
+def _synopsis_context(doc):
+    page = _fetch_page_text(doc.get("url")) if doc.get("url") else None
+    context = (f"Title: {doc.get('title')}\nType: {doc.get('doc_type')}\n"
+               f"Shared by: {doc.get('shared_by') or 'unknown'}"
+               f"{' in ' + doc['channel'] if doc.get('channel') else ''}\n")
+    if page:
+        context += f"\nExtracted page content (may be partial):\n{page}"
+    else:
+        context += ("\nThe document content could not be fetched (private link). "
+                    "Write the card from the title and metadata only, and end with "
+                    "'(contents unverified)'.")
+    return context
+
+
+def _synopsis_via_cli(context):
+    """Primary path: the claude CLI runs on the user's Claude subscription."""
+    import shutil
+    import subprocess
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    r = subprocess.run([exe, "-p", "--model", "claude-opus-4-8"],
+                       input=f"{SYNOPSIS_INSTRUCTIONS}\n\n{context}",
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=180)
+    out = (r.stdout or "").strip()
+    return out if r.returncode == 0 and out else None
+
+
+def _synopsis_via_api(context):
+    """Backup path: the Anthropic API (ANTHROPIC_API_KEY)."""
+    import anthropic
+    client = anthropic.Anthropic()
+    resp = client.messages.create(
+        model="claude-opus-4-8", max_tokens=300,
+        system=SYNOPSIS_INSTRUCTIONS,
+        messages=[{"role": "user", "content": context}],
+    )
+    return next((b.text for b in resp.content if b.type == "text"), "").strip() or None
+
+
+def synopsize_document(doc):
+    """Return (summary, source): subscription CLI first, API as backup."""
+    try:
+        context = _synopsis_context(doc)
+    except Exception:
+        traceback.print_exc()
+        return None, None
+    for fn, src in ((_synopsis_via_cli, "auto"), (_synopsis_via_api, "auto")):
+        try:
+            text = fn(context)
+            if text:
+                return text, src
+        except Exception:
+            traceback.print_exc()
+    return None, None
+
+
 def _audit(kind, entity_id, title, change, editor):
     """Silent append-only activity trail; a log failure never blocks the edit."""
     try:
@@ -465,6 +553,10 @@ def cs_create(kind, data):
     table, _, fields = CS_KINDS[kind]
     editor = data.pop("_editor", None)
     clean = {k: v for k, v in data.items() if k in fields and v not in ("", None)}
+    if kind == "documents" and not clean.get("summary"):
+        summary, src = synopsize_document(clean)
+        if summary:
+            clean["summary"], clean["summary_source"] = summary, src
     out = supabase_write("POST", table, clean)
     row = out[0] if isinstance(out, list) and out else {}
     _audit(kind, row.get("id"), clean.get("title") or clean.get("slug"),

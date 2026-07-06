@@ -159,11 +159,11 @@ svg text{font-family:inherit}
 <div class="tabs">
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
   <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
-  <button class="tab" id="tab-edu" onclick="showTab('edu')">Education</button>
-  <button class="tab" id="tab-docs" onclick="showTab('docs')">Documents</button>
+  <button class="tab" id="tab-docs" onclick="showTab('docs')">Knowledge repository</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
   <button class="tab" id="tab-log" onclick="showTab('log')">Changelog</button>
+  <button class="tab" id="tab-edu" onclick="showTab('edu')">Dashboard dictionary</button>
 </div>
 
 <div id="pane-metrics" style="display:none">
@@ -190,8 +190,11 @@ svg text{font-family:inherit}
 </div>
 
 <div id="pane-edu" style="display:none">
+  <div class="card section"><div class="label">Dashboard dictionary</div>
+    <div class="sub">Every number and term on this dashboard, defined — plus definitions locked by decisions.
+    If a definition changes, it changes here AND gets a Changelog entry.</div></div>
   <div id="edu-list" class="section"></div>
-  <div class="card"><button class="addbtn" onclick="toggleForm('f-content')">+ Add education section</button>
+  <div class="card"><button class="addbtn" onclick="toggleForm('f-content')">+ Add dictionary entry</button>
     <div class="form" id="f-content">
       <input id="c-title" placeholder="Title">
       <input id="c-slug" placeholder="slug (unique, kebab-case)">
@@ -207,7 +210,7 @@ svg text{font-family:inherit}
     <div class="form" id="f-doc">
       <input id="d-title" placeholder="Document title">
       <input id="d-url" placeholder="URL (Drive / sheet / Metabase / …)">
-      <textarea id="d-summary" placeholder="Short summary — what's inside, who should read it"></textarea>
+      <textarea id="d-summary" placeholder="Synopsis — leave blank and a smart synopsis card will be generated automatically"></textarea>
       <div class="row2">
         <select id="d-type"><option>sheet</option><option>doc</option><option>deck</option><option>pdf</option><option>metabase</option><option>dashboard</option><option>other</option></select>
         <input id="d-sharedby" placeholder="Shared by">
@@ -447,8 +450,8 @@ async function renderDocs(){
   $('doc-list').innerHTML=rows.map(d=>
     `<div class="doc">
        <a class="t" href="${esc(d.url||'#')}" target="_blank" rel="noopener">${esc(d.title)}</a>
-       <div><span class="chip2">${esc(d.doc_type)}</span>${d.source==='slack'?' <span class="chip2">from slack</span>':''}</div>
-       <div class="sum">${esc(d.summary||'No summary yet — add one so consumers pick the right doc.')}</div>
+       <div><span class="chip2">${esc(d.doc_type)}</span>${d.source==='slack'?' <span class="chip2">from slack</span>':''}${d.summary_source==='auto'?' <span class="chip2" style="background:#F1E5FF;color:var(--purple)">✦ ai synopsis</span>':''}</div>
+       <div class="sum">${esc(d.summary||'No synopsis yet.')}</div>
        <div style="font-size:12px;color:var(--muted)">${esc(d.shared_by||'')}${d.shared_at?' · '+dstr(d.shared_at):''}${d.channel?' · '+esc(d.channel):''}</div>
      </div>`).join('')||'<div class="card">No documents yet — add the first one.</div>';
 }
