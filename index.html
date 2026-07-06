@@ -158,14 +158,20 @@ svg text{font-family:inherit}
 
 <div class="tabs">
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
-  <button class="tab" id="tab-l0" onclick="showTab('l0')">L0 · Enrolment</button>
-  <button class="tab" id="tab-l1" onclick="showTab('l1')">L1 · Leading</button>
-  <button class="tab" id="tab-l2" onclick="showTab('l2')">L2 · Target</button>
+  <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
   <button class="tab" id="tab-edu" onclick="showTab('edu')">Education</button>
   <button class="tab" id="tab-docs" onclick="showTab('docs')">Documents</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
   <button class="tab" id="tab-log" onclick="showTab('log')">Changelog</button>
+</div>
+
+<div id="pane-metrics" style="display:none">
+  <div class="toggle" style="margin-bottom:20px" id="metric-subnav">
+    <button class="on" data-m="l0" onclick="showMetric('l0')">L0 · Enrolment</button>
+    <button data-m="l1" onclick="showMetric('l1')">L1 · Leading</button>
+    <button data-m="l2" onclick="showMetric('l2')">L2 · Target</button>
+  </div>
 </div>
 
 <div id="pane-ov">
@@ -336,15 +342,21 @@ const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-I
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort';
 
-const TABS=['ov','l0','l1','l2','edu','docs','tasks','dec','log'];
+const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
+const METRICS=['l0','l1','l2'];
+let MTAB='l0';
 function showTab(t){
+  if(METRICS.includes(t)){MTAB=t;t='metrics';}
   TABS.forEach(x=>{
     $('pane-'+x).style.display=x===t?'':'none';
     $('tab-'+x).classList.toggle('on',x===t);
   });
-  location.hash=t;
+  METRICS.forEach(m=>$('pane-'+m).style.display=(t==='metrics'&&m===MTAB)?'':'none');
+  document.querySelectorAll('#metric-subnav button').forEach(b=>b.classList.toggle('on',b.dataset.m===MTAB));
+  location.hash=t==='metrics'?MTAB:t;
   loadHub(t);
 }
+function showMetric(m){showTab(m);}
 /* ---------- project hub (content) ---------- */
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 function md(src){                     // tiny markdown: ##, **, *, -, [](), `code`
@@ -556,7 +568,7 @@ async function submitContent(){await post('content',{title:$('c-title').value,sl
 const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
-showTab(TABS.find(t=>initHash.startsWith(t))||'ov');
+showTab(METRICS.find(m=>initHash.startsWith(m))||TABS.find(t=>initHash.startsWith(t))||'ov');
 function setMode(m){
   MODE=m;
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
