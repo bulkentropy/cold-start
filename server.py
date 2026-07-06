@@ -407,7 +407,8 @@ CS_KINDS = {
     "tasks": ("cs_tasks", "created_at.desc",
               ("title", "owner", "status", "due_date", "blocked_by", "notes")),
     "actions": ("cs_actions", "created_at.desc",
-                ("title", "kind", "owner", "due_date", "status", "options", "resolution")),
+                ("title", "kind", "initiative", "owner", "due_date", "status",
+                 "blocker", "notes", "options", "resolution")),
     "decisions": ("cs_decisions", "decided_at.desc",
                   ("title", "context", "decision", "reasoning", "owner", "decided_at", "status", "tags")),
     "documents": ("cs_documents", "shared_at.desc.nullslast",
@@ -435,23 +436,57 @@ def cs_list(kind):
                          f"{table}?select=*&order={order}")
 
 
+def _audit(kind, entity_id, title, change, editor):
+    """Silent append-only activity trail; a log failure never blocks the edit."""
+    try:
+        supabase_write("POST", "cs_activity_log",
+                       {"entity_kind": kind, "entity_id": entity_id,
+                        "entity_title": (title or "")[:200], "change": change[:2000],
+                        "changed_by": editor or None})
+    except Exception:
+        traceback.print_exc()
+
+
+def cs_activity():
+    return supabase_rows(SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
+                         "cs_activity_log?select=*&order=changed_at.desc&limit=50")
+
+
 def cs_create(kind, data):
     table, _, fields = CS_KINDS[kind]
+    editor = data.pop("_editor", None)
     clean = {k: v for k, v in data.items() if k in fields and v not in ("", None)}
-    return supabase_write("POST", table, clean)
+    out = supabase_write("POST", table, clean)
+    row = out[0] if isinstance(out, list) and out else {}
+    _audit(kind, row.get("id"), clean.get("title") or clean.get("slug"),
+           "created: " + "; ".join(f"{k}={v}" for k, v in clean.items() if k != "body_md"),
+           editor)
+    return out
 
 
 def cs_update(kind, row_id, data):
     table, _, fields = CS_KINDS[kind]
+    editor = data.pop("_editor", None)
     clean = {k: v for k, v in data.items() if k in fields}
+    old_rows = supabase_rows(SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
+                             f"{table}?select=*&id=eq.{urllib.parse.quote(row_id)}")
+    old = old_rows[0] if old_rows else {}
+    diffs = [f"{k}: {old.get(k) if old.get(k) not in (None, '') else '—'} → {v if v not in (None, '') else '—'}"
+             for k, v in clean.items() if (old.get(k) or "") != (v or "")]
     if kind != "changelog":
         clean["updated_at"] = datetime.now(timezone.utc).isoformat()
-    return supabase_write("PATCH", f"{table}?id=eq.{urllib.parse.quote(row_id)}", clean)
+    out = supabase_write("PATCH", f"{table}?id=eq.{urllib.parse.quote(row_id)}", clean)
+    if diffs:
+        _audit(kind, row_id, old.get("title") or old.get("slug"), "; ".join(diffs), editor)
+    return out
 
 
-def cs_delete(kind, row_id):
+def cs_delete(kind, row_id, editor=None):
     table, _, _ = CS_KINDS[kind]
-    return supabase_write("DELETE", f"{table}?id=eq.{urllib.parse.quote(row_id)}")
+    out = supabase_write("DELETE", f"{table}?id=eq.{urllib.parse.quote(row_id)}")
+    row = out[0] if isinstance(out, list) and out else {}
+    _audit(kind, row_id, row.get("title") or row.get("slug"), "deleted", editor)
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -542,6 +577,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(refresh()).encode(), "application/json")
             elif path == "/refresh":
                 self._send(200, json.dumps(refresh(force=True)).encode(), "application/json")
+            elif path == "/api/activity":
+                self._send(200, json.dumps(cs_activity()).encode(), "application/json")
             elif path.startswith("/api/"):
                 kind = path.split("/")[2]
                 if kind not in CS_KINDS:

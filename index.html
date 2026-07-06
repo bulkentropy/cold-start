@@ -70,6 +70,24 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .form button{background:var(--accent);color:#fff;border:none;border-radius:40px;padding:9px 22px;font-size:13.5px;font-weight:600;cursor:pointer}
 .statbtn{border:none;background:var(--n200);border-radius:6px;font-size:11.5px;padding:3px 8px;cursor:pointer;color:var(--deep);margin-left:6px}
 .ov-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px}
+/* command board table */
+.tablewrap{overflow-x:auto;margin-top:12px}
+.board{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
+.board th{font-size:10.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);
+          text-align:left;padding:8px 10px;border-bottom:2px solid var(--n300);white-space:nowrap}
+.board td{padding:9px 10px;border-bottom:1px solid var(--n200);vertical-align:top;line-height:1.45}
+.board tr.overdue td:nth-child(6){color:var(--red);font-weight:600}
+.board .tt2{font-weight:600}
+.board td.ini{white-space:nowrap;color:var(--deep);font-size:12px}
+.board .editcell{white-space:nowrap}
+.rowform td{background:var(--bg)}
+.rowform input,.rowform select,.rowform textarea{width:100%;box-sizing:border-box;border:1px solid var(--n300);
+  border-radius:6px;padding:6px 8px;font-size:12.5px;font-family:inherit;background:#fff}
+.rowform textarea{min-height:48px}
+details.card summary::-webkit-details-marker{display:inline}
+.act-item{border-top:1px solid var(--n200);padding:8px 0;font-size:12.5px;line-height:1.5}
+.act-item .who{color:var(--deep);font-weight:600}
+.act-item .when{color:var(--muted)}
 /* toggle */
 .toggle{display:inline-flex;background:var(--n200);border-radius:40px;padding:3px;gap:2px}
 .toggle button{border:none;background:transparent;color:var(--muted);border-radius:40px;
@@ -198,30 +216,24 @@ svg text{font-family:inherit}
 </div>
 
 <div id="pane-tasks" style="display:none">
-  <div class="grid2">
-    <div class="card"><div class="label">Tasklist</div><div id="task-list"></div>
-      <button class="addbtn" onclick="toggleForm('f-task')">+ Add task</button>
-      <div class="form" id="f-task">
-        <input id="t-title" placeholder="Task">
-        <div class="row2"><input id="t-owner" placeholder="Owner"><input id="t-due" type="date"></div>
-        <textarea id="t-notes" placeholder="Notes / blocked by"></textarea>
-        <button onclick="submitTask()">Save</button>
-      </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div><div class="label">Command board — open tasks &amp; decisions</div>
+        <div class="sub" id="board-sub"></div></div>
+      <div class="sub">editing as <b id="editor-name">?</b> <button class="statbtn" onclick="setEditor()">change</button></div>
     </div>
-    <div class="card"><div class="label">Open actions &amp; decision points</div><div id="action-list"></div>
-      <button class="addbtn" onclick="toggleForm('f-action')">+ Add action / decision point</button>
-      <div class="form" id="f-action">
-        <input id="a-title" placeholder="What needs to happen / be decided">
-        <div class="row2">
-          <select id="a-kind"><option value="action">action</option><option value="decision_point">decision point</option></select>
-          <input id="a-owner" placeholder="Owner">
-        </div>
-        <div class="row2"><input id="a-due" type="date"><span></span></div>
-        <textarea id="a-options" placeholder="Options on the table (for decision points)"></textarea>
-        <button onclick="submitAction()">Save</button>
-      </div>
-    </div>
+    <div class="tablewrap"><table class="board" id="board-open"></table></div>
+    <button class="addbtn" onclick="boardEdit('new')">+ Add task / decision point</button>
+    <div id="board-form-slot"></div>
   </div>
+  <details class="card" style="margin-top:20px">
+    <summary class="label" style="cursor:pointer">Closed &amp; scrapped — last 10 <span id="closed-count"></span></summary>
+    <div class="tablewrap"><table class="board" id="board-closed"></table></div>
+  </details>
+  <details class="card" style="margin-top:20px">
+    <summary class="label" style="cursor:pointer">Change history (silent audit log, last 50)</summary>
+    <div id="activity-list"></div>
+  </details>
 </div>
 
 <div id="pane-dec" style="display:none">
@@ -368,7 +380,7 @@ function loadHub(t){
   if(t==='ov')renderOverview();
   else if(t==='edu')renderEdu();
   else if(t==='docs')renderDocs();
-  else if(t==='tasks'){renderTasks();renderActions('action-list',true);}
+  else if(t==='tasks')renderBoard();
   else if(t==='dec')renderDecisions();
   else if(t==='log')renderLog();
 }
@@ -378,10 +390,12 @@ async function renderOverview(){
   const get=slug=>content.find(c=>c.slug===slug);
   $('ov-objective').innerHTML=md((get('objective')||{}).body_md||'*add content with slug `objective`*');
   $('ov-l0l4').innerHTML=md((get('l0l4')||{}).body_md||'');
-  const [tasks,actions,decisions]=await Promise.all([hub('tasks'),hub('actions'),hub('decisions')]);
-  const openT=tasks.filter(t=>t.status!=='done').length;
-  const openA=actions.filter(a=>a.status==='open'&&a.kind==='action').length;
-  const openD=actions.filter(a=>a.status==='open'&&a.kind==='decision_point').length;
+  const [actions,decisions]=await Promise.all([hub('actions'),hub('decisions')]);
+  const isOpen=a=>!['done','scrapped'].includes(a.status);
+  const today=new Date().toISOString().slice(0,10);
+  const openA=actions.filter(a=>isOpen(a)&&a.kind==='action').length;
+  const openD=actions.filter(a=>isOpen(a)&&a.kind==='decision_point').length;
+  const overdue=actions.filter(a=>isOpen(a)&&a.due_date&&a.due_date<today).length;
   let l2='–',l2col='var(--muted)';
   if(DATA&&DATA.l1){
     const daily=DATA.l1.modes.cohort.daily;
@@ -391,15 +405,15 @@ async function renderOverview(){
   }
   $('ov-pulse').innerHTML=
     tile(l2,'L2 movement','install ratio, post vs pre (maturing)','color:'+l2col)+
-    tile(openT,'Open tasks','tasklist')+
-    tile(openA,'Open actions','need an owner to move')+
+    tile(openA,'Open tasks','on the command board')+
     tile(openD,'Open decision points','waiting on a call','color:var(--purple)')+
+    tile(overdue,'Overdue','past their board timeline','color:'+(overdue?'var(--red)':'var(--green)'))+
     tile(DATA&&DATA.l1?DATA.l1.enrolled_n:'–','Enrolled CSPs','live set');
   $('ov-decisions').innerHTML=decisions.slice(0,3).map(d=>
     `<div class="item"><div class="t">${esc(d.title)}</div>
      <div class="m">${dstr(d.decided_at)} · ${esc(d.owner||'')} ${chip(d.status)}</div>
      <div class="b">${esc(d.decision)}</div></div>`).join('')||'<div class="item m">none yet</div>';
-  $('ov-actions').innerHTML=actions.filter(a=>a.status==='open').slice(0,6).map(a=>
+  $('ov-actions').innerHTML=actions.filter(isOpen).slice(0,6).map(a=>
     `<div class="item"><div class="t">${esc(a.title)} ${chip(a.kind)}</div>
      <div class="m">${esc(a.owner||'unowned')}${a.due_date?' · due '+dstr(a.due_date):''}</div></div>`).join('')||'<div class="item m">nothing open 🎉</div>';
 }
@@ -424,24 +438,88 @@ async function renderDocs(){
      </div>`).join('')||'<div class="card">No documents yet — add the first one.</div>';
 }
 
-async function renderTasks(){
-  const rows=await hub('tasks');
-  const next={open:'in_progress',in_progress:'done',blocked:'open',done:'open'};
-  $('task-list').innerHTML=rows.map(t=>
-    `<div class="item"><div class="t">${esc(t.title)} ${chip(t.status)}
-       <button class="statbtn" onclick="cycleTask('${t.id}','${next[t.status]||'open'}')">→ ${esc(next[t.status]||'open')}</button></div>
-     <div class="m">${esc(t.owner||'unowned')}${t.due_date?' · due '+dstr(t.due_date):''}${t.notes?' · '+esc(t.notes):''}</div></div>`).join('')
-    ||'<div class="item m">no tasks yet</div>';
+/* ---------- command board ---------- */
+const OPEN_STATUSES=['open','in_progress','awaiting_input','blocked'];
+const ALL_STATUSES=[...OPEN_STATUSES,'done','scrapped'];
+function editorName(ask){
+  let n=localStorage.getItem('cs_editor');
+  if(!n&&ask){n=prompt('Your name (recorded in the change history):')||'anonymous';localStorage.setItem('cs_editor',n);}
+  const el=$('editor-name'); if(el)el.textContent=n||'? — set on first edit';
+  return n||'anonymous';
 }
-async function renderActions(el,withClose){
+function setEditor(){localStorage.removeItem('cs_editor');editorName(true);}
+
+function boardRow(a,closed){
+  const today=new Date().toISOString().slice(0,10);
+  const od=!closed&&a.due_date&&a.due_date<today;
+  const notes=[a.notes,a.options?'Options: '+a.options:null,a.resolution?'Resolution: '+a.resolution:null]
+    .filter(Boolean).join(' · ');
+  return `<tr class="${od?'overdue':''}">
+    <td class="ini">${esc(a.initiative||'')}</td>
+    <td class="tt2">${esc(a.title)}</td>
+    <td>${chip(a.kind)}</td>
+    <td>${esc(a.owner||'')}</td>
+    <td>${chip(a.status)}</td>
+    <td>${dstr(a.due_date)}</td>
+    <td>${esc(a.blocker||'')}</td>
+    <td style="min-width:260px">${esc(notes)}</td>
+    <td class="editcell"><button class="statbtn" onclick="boardEdit('${a.id}')">✎ edit</button></td>
+  </tr>`;
+}
+const BOARD_HEAD=`<tr><th>Initiative</th><th>Task</th><th>Kind</th><th>Owner</th><th>Status</th>
+  <th>Due</th><th>Blocker → blocks</th><th>Notes</th><th></th></tr>`;
+
+async function renderBoard(){
+  editorName(false);
   const rows=await hub('actions');
-  $(el).innerHTML=rows.map(a=>
-    `<div class="item"><div class="t">${esc(a.title)} ${chip(a.kind)} ${chip(a.status)}
-       ${withClose&&a.status==='open'?`<button class="statbtn" onclick="closeAction('${a.id}')">close</button>`:''}</div>
-     <div class="m">${esc(a.owner||'unowned')}${a.due_date?' · due '+dstr(a.due_date):''}</div>
-     ${a.options?`<div class="b">Options: ${esc(a.options)}</div>`:''}
-     ${a.resolution?`<div class="b">Resolution: ${esc(a.resolution)}</div>`:''}</div>`).join('')
-    ||'<div class="item m">none yet</div>';
+  const open=rows.filter(a=>OPEN_STATUSES.includes(a.status))
+    .sort((x,y)=>(x.due_date||'9999')<(y.due_date||'9999')?-1:1);
+  const closed=rows.filter(a=>!OPEN_STATUSES.includes(a.status))
+    .sort((x,y)=>(x.updated_at||'')<(y.updated_at||'')?1:-1);
+  $('board-sub').textContent=`${open.length} open · sorted by due date · every edit is logged`;
+  $('board-open').innerHTML=BOARD_HEAD+open.map(a=>boardRow(a,false)).join('');
+  $('closed-count').textContent=`(${closed.length} total, archived forever)`;
+  $('board-closed').innerHTML=BOARD_HEAD+closed.slice(0,10).map(a=>boardRow(a,true)).join('');
+  renderActivity();
+}
+async function renderActivity(){
+  const acts=await api('activity');
+  $('activity-list').innerHTML=acts.map(a=>
+    `<div class="act-item"><span class="who">${esc(a.changed_by||'someone')}</span>
+     <span class="when">· ${String(a.changed_at).slice(0,16).replace('T',' ')} · ${esc(a.entity_kind)}</span><br>
+     <b>${esc(a.entity_title||'')}</b> — ${esc(a.change)}</div>`).join('')
+    ||'<div class="act-item">no changes logged yet</div>';
+}
+
+function boardEdit(id){
+  const a=id==='new'?{kind:'action',status:'open'}:(HUB.actions||[]).find(r=>r.id===id)||{};
+  const sel=(opts,cur)=>opts.map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('');
+  const f=`<div class="form on" id="rowform">
+    <div class="row2"><input id="bf-title" placeholder="Task / decision" value="${esc(a.title||'')}">
+      <input id="bf-initiative" placeholder="Initiative (e.g. MG - ongoing)" value="${esc(a.initiative||'')}"></div>
+    <div class="row2">
+      <select id="bf-kind">${sel(['action','decision_point'],a.kind)}</select>
+      <select id="bf-status">${sel(ALL_STATUSES,a.status)}</select></div>
+    <div class="row2"><input id="bf-owner" placeholder="Owner" value="${esc(a.owner||'')}">
+      <input id="bf-due" type="date" value="${a.due_date||''}"></div>
+    <input id="bf-blocker" placeholder="Blocker → blocks" value="${esc(a.blocker||'')}">
+    <textarea id="bf-notes" placeholder="Notes">${esc(a.notes||'')}</textarea>
+    <textarea id="bf-options" placeholder="Options on the table (decision points)">${esc(a.options||'')}</textarea>
+    <textarea id="bf-resolution" placeholder="Resolution (when closing)">${esc(a.resolution||'')}</textarea>
+    <button onclick="boardSave('${id}')">Save</button>
+    <button style="background:var(--n500);margin-left:8px" onclick="$('board-form-slot').innerHTML=''">Cancel</button>
+  </div>`;
+  $('board-form-slot').innerHTML=f;
+  $('board-form-slot').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function boardSave(id){
+  const body={title:$('bf-title').value,initiative:$('bf-initiative').value,kind:$('bf-kind').value,
+    status:$('bf-status').value,owner:$('bf-owner').value,due_date:$('bf-due').value||null,
+    blocker:$('bf-blocker').value,notes:$('bf-notes').value,options:$('bf-options').value,
+    resolution:$('bf-resolution').value,_editor:editorName(true)};
+  if(id==='new')await post('actions',body);else await patch('actions',id,body);
+  $('board-form-slot').innerHTML='';
+  renderBoard();
 }
 async function renderDecisions(){
   const rows=await hub('decisions');
@@ -461,17 +539,10 @@ async function renderLog(){
      ${l.impact?`<div class="b"><b>Impact:</b> ${esc(l.impact)}</div>`:''}</div>`).join('');
 }
 
-async function cycleTask(id,status){await patch('tasks',id,{status});renderTasks();}
-async function closeAction(id){
-  const res=prompt('Resolution (what was done / decided)?')||'';
-  await patch('actions',id,{status:'closed',resolution:res});renderActions('action-list',true);
-}
-async function submitTask(){await post('tasks',{title:$('t-title').value,owner:$('t-owner').value,due_date:$('t-due').value,notes:$('t-notes').value});toggleForm('f-task');renderTasks();}
-async function submitAction(){await post('actions',{title:$('a-title').value,kind:$('a-kind').value,owner:$('a-owner').value,due_date:$('a-due').value,options:$('a-options').value});toggleForm('f-action');renderActions('action-list',true);}
-async function submitDecision(){await post('decisions',{title:$('de-title').value,context:$('de-context').value,decision:$('de-decision').value,reasoning:$('de-reasoning').value,owner:$('de-owner').value,decided_at:$('de-date').value||undefined});toggleForm('f-dec');renderDecisions();}
-async function submitDoc(){await post('documents',{title:$('d-title').value,url:$('d-url').value,summary:$('d-summary').value,doc_type:$('d-type').value,shared_by:$('d-sharedby').value,shared_at:$('d-sharedat').value||undefined,channel:$('d-channel').value});toggleForm('f-doc');renderDocs();}
-async function submitLog(){await post('changelog',{title:$('l-title').value,description:$('l-desc').value,category:$('l-cat').value,impact:$('l-impact').value,changed_at:$('l-date').value||undefined});toggleForm('f-log');renderLog();}
-async function submitContent(){await post('content',{title:$('c-title').value,slug:$('c-slug').value,body_md:$('c-body').value,section:'education'});toggleForm('f-content');renderEdu();}
+async function submitDecision(){await post('decisions',{title:$('de-title').value,context:$('de-context').value,decision:$('de-decision').value,reasoning:$('de-reasoning').value,owner:$('de-owner').value,decided_at:$('de-date').value||undefined,_editor:editorName(true)});toggleForm('f-dec');renderDecisions();}
+async function submitDoc(){await post('documents',{title:$('d-title').value,url:$('d-url').value,summary:$('d-summary').value,doc_type:$('d-type').value,shared_by:$('d-sharedby').value,shared_at:$('d-sharedat').value||undefined,channel:$('d-channel').value,_editor:editorName(true)});toggleForm('f-doc');renderDocs();}
+async function submitLog(){await post('changelog',{title:$('l-title').value,description:$('l-desc').value,category:$('l-cat').value,impact:$('l-impact').value,changed_at:$('l-date').value||undefined,_editor:editorName(true)});toggleForm('f-log');renderLog();}
+async function submitContent(){await post('content',{title:$('c-title').value,slug:$('c-slug').value,body_md:$('c-body').value,section:'education',_editor:editorName(true)});toggleForm('f-content');renderEdu();}
 
 const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
