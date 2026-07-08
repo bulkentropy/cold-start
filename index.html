@@ -717,17 +717,18 @@ function renderGate(g){
   $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: install tasks completed ÷
     customer-slot-confirmed tasks received, over <b>${g.month}</b> to date (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b>`;
   const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ confirmed ≥ '+g.gate_pct+'%'],
-             ['below','var(--amber)','Below the gate','installing, but under '+g.gate_pct+'%'],
-             ['zero','var(--red)','Zero installs','no installs this month']];
+             ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
+             ['zero','var(--red)','No confirmed-slot tasks','denominator = 0 · nothing to install yet']];
   $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*g[k]/n}%;background:${c};border-radius:0"></div>`).join('');
   $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
     tile(`${fmt(g[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*g[k]/n)}%</span>`,
          label,sub,'color:'+c)).join('');
-  $('gate-foot').innerHTML=`⚠ Month-to-date and <b>still maturing</b> — a confirmed-slot task received early in the month may
-    still install, so "zero installs" is inflated now and shrinks through the month; the above/below ratios firm up as tasks
-    mature. Of the ${fmt(g.zero)} at zero installs: <b>${fmt(g.zero_had_confirmed)}</b> received customer-slot-confirmed tasks
-    but completed no install (ignition/maturity gap); <b>${fmt(g.zero_no_confirmed)}</b> received no confirmed-slot task this
-    month. Counted per CSP-task (a reassigned task counts for each CSP that received it), from the current TAS candidates.`;
+  $('gate-foot').innerHTML=`Denominator = customer-slot-confirmed tasks received this month; a CSP with none is in
+    <b>No confirmed-slot tasks</b> (gate undefined), not "below". <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)}
+    below-gate CSPs received confirmed tasks but completed <b>zero</b> installs (the ignition worklist).
+    ⚠ Month-to-date and <b>still maturing</b> — a confirmed-slot task received early in the month may still install, so
+    below-gate is inflated now and the ratios firm up as tasks mature. Counted per CSP-task (a reassigned task counts for
+    each CSP that received it), from the current TAS candidates.`;
 }
 
 const IGN=[['moved','var(--green)','Moved','≥1 install'],

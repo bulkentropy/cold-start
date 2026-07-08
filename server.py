@@ -540,22 +540,19 @@ def compute_cohort(enrolled_ids, latest):
     # tasks it received this month. Task level, so reassignments count against
     # each CSP that received the task. Sourced from l1_status (recv_m / inst_m).
     GATE = 0.60
-    g = {"zero": 0, "above": 0, "below": 0,
-         "zero_had_confirmed": 0, "zero_no_confirmed": 0}
+    g = {"zero": 0, "above": 0, "below": 0, "below_zero_install": 0}
     for p in enrolled_ids:
         r = sraw.get(p)
         recv = (r.get("recv_m") or 0) if r else 0
         inst = (r.get("inst_m") or 0) if r else 0
-        if inst == 0:
-            g["zero"] += 1
-            if recv > 0:
-                g["zero_had_confirmed"] += 1      # received confirmed tasks, installed none
-            else:
-                g["zero_no_confirmed"] += 1       # received no confirmed task this month
+        if recv == 0:
+            g["zero"] += 1                        # denominator zero — no confirmed-slot task received
         elif inst / recv >= GATE:
             g["above"] += 1
         else:
-            g["below"] += 1
+            g["below"] += 1                       # under the gate, includes 0-install CSPs
+            if inst == 0:
+                g["below_zero_install"] += 1
     gate = {"gate_pct": int(GATE * 100), "month": today.strftime("%B %Y"),
             "window": [month_start, today.isoformat()], "enrolled": len(enrolled_ids), **g}
 
