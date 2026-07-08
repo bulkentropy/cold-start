@@ -68,6 +68,9 @@ PRE_END = "2026-06-30"         # inclusive
 POST_START = "2026-07-01"
 # Belief-cohort before/after cut: matured pre-window vs the live post-window.
 COHORT_BEFORE = ("2026-06-01", "2026-06-15")
+# CSP-status (moved/ignition/demand) before vs after: two equal 7-day windows.
+IGN_BEFORE = ("2026-06-24", "2026-06-30")   # last 7 days of June
+IGN_AFTER = ("2026-07-01", "2026-07-07")    # first week of July
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -415,7 +418,6 @@ def compute_cohort(enrolled_ids, latest):
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
     before, after = fresh(), fresh()
-    per_csp = {}   # partner -> {bk, inst} over the AFTER window (for the ignition split)
     for r in raw:
         d = str(r["booking_date"])[:10]
         if COHORT_BEFORE[0] <= d <= COHORT_BEFORE[1]:
@@ -440,11 +442,6 @@ def compute_cohort(enrolled_ids, latest):
             a["installed"] += 1
         if r["accept_epoch"] and r["task_epoch"]:
             a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
-        if bucket is after:
-            c = per_csp.setdefault(pid, {"bk": 0, "inst": 0})
-            c["bk"] += 1
-            if dep >= 6:
-                c["inst"] += 1
 
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
@@ -473,32 +470,52 @@ def compute_cohort(enrolled_ids, latest):
     cohort = {"after_window": list(after_win), "after_days": after_days,
               "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
 
-    # ----- ignition split: classify every enrolled CSP over the after window --
-    received = set(per_csp)
-    outcome_of = {}
-    for p in enrolled_ids:
-        if p not in received:
-            outcome_of[p] = "demand"          # 0 bookings assigned — nothing reached the CSP
-        elif per_csp[p]["inst"] == 0:
-            outcome_of[p] = "ignition"        # bookings assigned, 0 installs
-        else:
-            outcome_of[p] = "moved"           # >= 1 install
+    # ----- CSP-status split: classify each enrolled CSP in BOTH 7-day windows --
+    def per_csp_window(win):
+        m = {}
+        for r in raw:
+            if not (win[0] <= str(r["booking_date"])[:10] <= win[1]):
+                continue
+            pid = str(r["partner_id"])
+            if cohort_of.get(pid) is None:
+                continue
+            c = m.setdefault(pid, {"bk": 0, "inst": 0})
+            c["bk"] += 1
+            if r["depth"] >= 6:
+                c["inst"] += 1
+        return m
 
-    def split(keys):
+    def outcomes(per):
+        o = {}
+        for p in enrolled_ids:
+            if p not in per:
+                o[p] = "demand"       # 0 bookings assigned — nothing reached the CSP
+            elif per[p]["inst"] == 0:
+                o[p] = "ignition"     # bookings assigned, 0 installs
+            else:
+                o[p] = "moved"        # >= 1 install
+        return o
+
+    out_b = outcomes(per_csp_window(IGN_BEFORE))
+    out_a = outcomes(per_csp_window(IGN_AFTER))
+
+    def split(out, keys):
         s = {"moved": 0, "ignition": 0, "demand": 0}
         for p in enrolled_ids:
             if cohort_of[p] in keys:
-                s[outcome_of[p]] += 1
+                s[out[p]] += 1
         return s
 
     by_belief = []
     for k, lbl in COHORT_ORDER:
-        s = split({k})
         by_belief.append({"cohort": k, "label": lbl, "csps": cohort_size[k],
-                          "small": cohort_size[k] < SMALL_COHORT, **s})
-    tot = split({k for k, _ in COHORT_ORDER})
-    ignition = {"window": list(after_win), "days": after_days,
-                "totals": {**tot, "enrolled": len(enrolled_ids)}, "by_belief": by_belief}
+                          "small": cohort_size[k] < SMALL_COHORT,
+                          "before": split(out_b, {k}), "after": split(out_a, {k})})
+    allk = {k for k, _ in COHORT_ORDER}
+    ignition = {"before_window": list(IGN_BEFORE), "after_window": list(IGN_AFTER), "days": 7,
+                "enrolled": len(enrolled_ids),
+                "totals_before": split(out_b, allk), "totals_after": split(out_a, allk),
+                "by_belief": by_belief}
 
     cohort["_ignition"] = ignition
     return cohort

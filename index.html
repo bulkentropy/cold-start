@@ -177,24 +177,32 @@ svg text{font-family:inherit}
 
 <div id="pane-ign" style="display:none">
   <div class="card section">
-    <div class="label">CSP status — where each enrolled CSP stands</div>
+    <div class="label">CSP status — moved vs stuck, before → after</div>
     <div class="sub" id="ign-sub"></div>
-    <div class="meter" id="ign-meter" style="margin-top:14px"></div>
+    <div style="background:#FFE6CC;color:#B85C00;border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:500;margin-top:10px">
+      ⚠ The July window is still maturing — a booking from early July may still install over the next week or two,
+      so <b>moved-after undercounts</b> today and will rise (a ▼ here is likely a maturity effect, not a real drop).
+      The June window is fully matured. Read the direction once July's bookings are ~2+ weeks old.
+    </div>
     <div class="strip" id="ign-tiles" style="margin-top:16px"></div>
+    <div style="margin-top:16px" id="ign-meters"></div>
   </div>
   <div class="card section" style="margin-top:20px">
-    <div class="label">Split by belief check</div>
-    <div class="sub">How each belief cohort divides across the three outcomes — does belief predict ignition?</div>
-    <div id="ign-belief" style="margin-top:14px"></div>
-    <div class="tablewrap" style="margin-top:16px"><table class="board" id="ign-table" style="min-width:640px"></table></div>
+    <div class="label">Moved, before → after — by belief cohort</div>
+    <div class="sub">Did more CSPs in each belief cohort install after the intervention than before?</div>
+    <div class="tablewrap" style="margin-top:14px"><table class="board" id="ign-table" style="min-width:720px"></table></div>
+    <div style="margin-top:20px">
+      <div class="label" style="margin-bottom:8px">Composition now (first week of July) by belief</div>
+      <div id="ign-belief"></div>
+    </div>
   </div>
   <div class="foot card">
-    <b>Definitions.</b> Over the post window, per enrolled CSP:
-    <b>Demand failure</b> = 0 bookings assigned — nothing reached the CSP (the demand engine isn't
-    routing to them). <b>Ignition failure</b> = bookings assigned but 0 installs — leads arrived but
-    none converted. <b>Moved</b> = ≥1 install. "Bookings assigned" = the CSP is the current TAS task's
-    CSP for a booking (same Q11528 chain as L1). The window is short, so a CSP with no bookings in it
-    isn't necessarily a permanent demand failure — read it as the current-window state.
+    <b>Definitions.</b> Per enrolled CSP, in each 7-day window:
+    <b>Moved</b> = ≥1 install. <b>Ignition failure</b> = bookings assigned but 0 installs — leads
+    arrived, none converted. <b>Demand failure</b> = 0 bookings assigned — nothing reached the CSP
+    (demand engine not routing to them). "Bookings assigned" = the CSP is the current TAS task's CSP
+    for a booking (same Q11528 chain as L1). <b>Before</b> = 24–30 Jun (last week of June, matured),
+    <b>after</b> = 1–7 Jul (first week of July) — equal windows, same CSPs, current belief.
   </div>
 </div>
 
@@ -697,40 +705,52 @@ function render(d){
 const IGN=[['moved','var(--green)','Moved','≥1 install'],
            ['ignition','var(--amber)','Ignition failure','bookings assigned, 0 installs'],
            ['demand','var(--red)','Demand failure','0 bookings assigned']];
+function ignMeter(t,n){return IGN.map(([k,c])=>`<div style="width:${100*t[k]/(n||1)}%;background:${c};border-radius:0"></div>`).join('');}
 function renderIgnition(g){
-  const t=g.totals, n=t.enrolled||1;
-  $('ign-sub').innerHTML=`Post window <b>${g.window[0]} → ${g.window[1]}</b> (${g.days} complete days) ·
-    all <b>${fmt(t.enrolled)}</b> enrolled CSPs classified by their outcome`;
-  $('ign-meter').innerHTML=IGN.map(([k,c])=>`<div style="width:${100*t[k]/n}%;background:${c};border-radius:0"></div>`).join('');
-  $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>
-    tile(`${fmt(t[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*t[k]/n)}%</span>`,
-         label,sub,'color:'+c)).join('');
+  const n=g.enrolled||1, b=g.totals_before, a=g.totals_after;
+  $('ign-sub').innerHTML=`All <b>${fmt(g.enrolled)}</b> enrolled CSPs classified in each 7-day window ·
+    before <b>${g.before_window[0]} → ${g.before_window[1]}</b> vs after <b>${g.after_window[0]} → ${g.after_window[1]}</b>`;
+  $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>{
+    const d=a[k]-b[k], good=k==='moved'?d>=0:d<=0;
+    const col=Math.abs(d)===0?'var(--muted)':(good?'var(--green)':'var(--red)');
+    return tile(`<span style="color:var(--muted);font-size:1.4rem">${b[k]}</span> → ${a[k]}
+      <span style="font-size:.9rem;color:${col};font-weight:700">${d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0'}</span>`,
+      label,sub+' · before → after','color:'+c);}).join('');
+  $('ign-meters').innerHTML=
+    `<div class="sub" style="margin-bottom:4px">Before — ${g.before_window[0]} → ${g.before_window[1]}</div>
+     <div class="meter">${ignMeter(b,n)}</div>
+     <div class="sub" style="margin:12px 0 4px">After — ${g.after_window[0]} → ${g.after_window[1]}</div>
+     <div class="meter">${ignMeter(a,n)}</div>
+     <div class="legend" style="margin-top:8px">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
 
-  // 100%-stacked bar per belief cohort
+  // moved before -> after per belief cohort
   const rows=g.by_belief;
+  $('ign-table').innerHTML=`<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
+    <th style="text-align:right">Moved before</th><th style="text-align:right">Moved after</th>
+    <th style="text-align:right">Δ moved</th><th style="text-align:right">% moved now</th></tr>`+
+    rows.map(r=>{const d=r.after.moved-r.before.moved, col=d>0?'var(--green)':d<0?'var(--red)':'var(--muted)';
+      return `<tr style="${r.small?'opacity:.6':''}">
+      <td class="tt2">${esc(r.label)}${r.small?' <span style="font-weight:400;color:var(--muted);font-size:11px">small</span>':''}</td>
+      <td style="text-align:right">${fmt(r.csps)}</td>
+      <td style="text-align:right;color:var(--muted)">${r.before.moved}</td>
+      <td style="text-align:right;font-weight:600">${r.after.moved}</td>
+      <td style="text-align:right;color:${col};font-weight:700">${d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0'}</td>
+      <td style="text-align:right">${r.csps?Math.round(100*r.after.moved/r.csps):0}%</td></tr>`;}).join('');
+
+  // after-window composition: 100%-stacked bar per belief cohort
   const W=760,rowH=34,padL=120,barW=W-padL-70,H=rows.length*rowH+20;
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:760px;height:auto">`;
   rows.forEach((r,i)=>{
     const y=14+i*rowH, tot=r.csps||1; let x=padL;
     svg+=`<text x="0" y="${y+14}" font-size="12" font-weight="600" fill="var(--text)" ${r.small?'opacity=".6"':''}>${esc(r.label)} <tspan fill="${MUTED}" font-weight="400">(${r.csps})</tspan></text>`;
-    IGN.forEach(([k,c])=>{const w=barW*r[k]/tot; if(w<=0)return;
+    IGN.forEach(([k,c])=>{const w=barW*r.after[k]/tot; if(w<=0)return;
       svg+=`<rect x="${x}" y="${y}" width="${Math.max(w-1,0.5)}" height="20" fill="${c}" ${r.small?'opacity=".6"':''}/>`;
-      if(w>26)svg+=`<text x="${x+w/2}" y="${y+14}" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">${r[k]}</text>`;
+      if(w>26)svg+=`<text x="${x+w/2}" y="${y+14}" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">${r.after[k]}</text>`;
       x+=w;});
-    const mp=r.csps?Math.round(100*r.moved/r.csps):0;
-    svg+=`<text x="${W-4}" y="${y+14}" font-size="11" fill="${MUTED}" text-anchor="end">${mp}% moved</text>`;
+    svg+=`<text x="${W-4}" y="${y+14}" font-size="11" fill="${MUTED}" text-anchor="end">${r.csps?Math.round(100*r.after.moved/r.csps):0}% moved</text>`;
   });
   svg+=`</svg><div class="legend">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
   $('ign-belief').innerHTML=svg;
-
-  $('ign-table').innerHTML=`<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
-    <th style="text-align:right">Moved</th><th style="text-align:right">Ignition fail</th>
-    <th style="text-align:right">Demand fail</th></tr>`+
-    rows.map(r=>`<tr style="${r.small?'opacity:.6':''}">
-      <td class="tt2">${esc(r.label)}</td><td style="text-align:right">${fmt(r.csps)}</td>
-      <td style="text-align:right;color:var(--green)">${r.moved} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.moved/r.csps):0}%</span></td>
-      <td style="text-align:right;color:var(--amber)">${r.ignition} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.ignition/r.csps):0}%</span></td>
-      <td style="text-align:right;color:var(--red)">${r.demand} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.demand/r.csps):0}%</span></td></tr>`).join('');
 }
 
 // green wash scaled within a column; invert=true means lower is better
