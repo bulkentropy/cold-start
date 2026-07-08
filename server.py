@@ -500,17 +500,21 @@ def compute_cohort(enrolled_ids, latest):
                           "before": split(out_b, {k}), "after": split(out_a, {k})})
     allk = {k for k, _ in COHORT_ORDER}
 
-    # demand-coverage transition: active == received tasks (non-zero) that window
-    tb_of = {p: (sraw.get(p, {}).get("tb") or 0) for p in enrolled_ids}
-    ta_of = {p: (sraw.get(p, {}).get("ta") or 0) for p in enrolled_ids}
-    tr = {"aa": 0, "da": 0, "ad": 0, "dd": 0}   # before→after: a=available, d=deficit
+    # installation-behaviour transition: state per window is moved / ignition
+    # (available demand, no install) / demand (demand deficit). before -> after.
+    STATES = ("moved", "ignition", "demand")
+    matrix = {s: {s2: 0 for s2 in STATES} for s in STATES}
     for p in enrolled_ids:
-        b = "a" if tb_of[p] > 0 else "d"
-        a = "a" if ta_of[p] > 0 else "d"
-        tr[b + a] += 1
-    transition = {"activated": tr["da"], "lost": tr["ad"],
-                  "stayed_available": tr["aa"], "stayed_deficit": tr["dd"],
-                  "available_before": tr["aa"] + tr["ad"], "available_after": tr["aa"] + tr["da"]}
+        matrix[out_b[p]][out_a[p]] += 1
+    transition = {
+        "matrix": matrix,
+        "newly_installing": {"from_available": matrix["ignition"]["moved"],
+                             "from_deficit": matrix["demand"]["moved"],
+                             "total": matrix["ignition"]["moved"] + matrix["demand"]["moved"]},
+        "stopped_installing": {"to_available": matrix["moved"]["ignition"],
+                               "to_deficit": matrix["moved"]["demand"],
+                               "total": matrix["moved"]["ignition"] + matrix["moved"]["demand"]},
+        "stayed_installing": matrix["moved"]["moved"]}
 
     # maturity of the after window (tasks created 1-7 Jul; ~14-day install runway)
     today = datetime.now(IST).date()

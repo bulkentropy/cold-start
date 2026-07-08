@@ -184,10 +184,11 @@ svg text{font-family:inherit}
     <div style="margin-top:16px" id="ign-meters"></div>
   </div>
   <div class="card section" style="margin-top:20px" id="ign-transition-card">
-    <div class="label">Demand coverage — who moved in/out of demand, before → after</div>
-    <div class="sub">"Active" = received ≥1 task that window. Did the demand engine start (or stop) reaching CSPs?</div>
+    <div class="label">Installation behaviour — who started / stopped installing, before → after</div>
+    <div class="sub">"Active" = ≥1 install that window. Of those not installing, split by whether they had
+      demand: available demand (got tasks, didn't convert) vs demand deficit (0 tasks).</div>
     <div class="strip" id="ign-transition" style="margin-top:14px"></div>
-    <div class="tablewrap" style="margin-top:14px"><table class="board" id="ign-tr-table" style="min-width:520px;max-width:560px"></table></div>
+    <div class="tablewrap" style="margin-top:14px"><table class="board" id="ign-tr-table" style="min-width:640px"></table></div>
   </div>
   <div class="card section" style="margin-top:20px">
     <div class="label">Moved, before → after — by belief cohort</div>
@@ -720,22 +721,30 @@ function renderIgnition(g){
     mel.innerHTML=`⚠ July window <b>~${m.pct}% matured</b> — a task created in early July may still install, so
       <b>moved-after undercounts</b> today and will rise (a ▼ is likely a maturity effect, not a real drop).
       June is fully matured. Fully readable after <b>${m.fully_on}</b>.`;}
-  // demand transition
-  const t=g.transition;
+  // installation-behaviour transition
+  const t=g.transition, mx=t.matrix, ni=t.newly_installing, so=t.stopped_installing;
   $('ign-transition').innerHTML=
-    tile(`${fmt(t.activated)}`,'Newly reached','demand deficit → active (0 tasks → tasks)','color:var(--green)')+
-    tile(`${fmt(t.lost)}`,'Lost demand','active → demand deficit (tasks → 0 tasks)','color:var(--red)')+
-    tile(`${fmt(t.stayed_available)}`,'Consistently reached','active both windows')+
-    tile(`${fmt(t.stayed_deficit)}`,'Never reached','demand deficit both windows','color:var(--muted)')+
-    tile(`${fmt(t.available_before)} → ${fmt(t.available_after)}`,'CSPs with demand','active before → after');
+    tile(`${fmt(ni.total)}`,'Started installing','not installing → installing',' color:var(--green)')+
+    tile(`${fmt(so.total)}`,'Stopped installing','installing → not (maturity-affected)','color:var(--red)')+
+    tile(`${fmt(t.stayed_installing)}`,'Kept installing','installed both windows')+
+    tile(`${fmt(ni.from_available)} / ${fmt(ni.from_deficit)}`,'Started: from where','was available-demand / demand-deficit')+
+    tile(`${fmt(so.to_available)} / ${fmt(so.to_deficit)}`,'Stopped: to where','now available-demand / demand-deficit');
+  // 3x3 before -> after matrix
+  const SL={moved:'Installing',ignition:'Available demand, not installing',demand:'Demand deficit (0 tasks)'};
+  const SC={moved:'var(--green)',ignition:'var(--amber)',demand:'var(--red)'};
+  const S=['moved','ignition','demand'];
+  const cell=(bs,as)=>{const v=mx[bs][as],diag=bs===as;
+    const emph=(bs!=='moved'&&as==='moved')?'color:var(--green);font-weight:700'
+      :(bs==='moved'&&as!=='moved')?'color:var(--red);font-weight:700':(diag?'font-weight:600':'color:var(--muted)');
+    return `<td style="text-align:right;${emph}">${fmt(v)}</td>`;};
   $('ign-tr-table').innerHTML=
-    `<tr><th></th><th style="text-align:right">After: active</th><th style="text-align:right">After: 0 tasks</th></tr>
-     <tr><td class="tt2">Before: active</td>
-       <td style="text-align:right">${fmt(t.stayed_available)}</td>
-       <td style="text-align:right;color:var(--red)">${fmt(t.lost)} <span style="font-size:11px;color:var(--muted)">lost</span></td></tr>
-     <tr><td class="tt2">Before: 0 tasks</td>
-       <td style="text-align:right;color:var(--green)">${fmt(t.activated)} <span style="font-size:11px;color:var(--muted)">activated</span></td>
-       <td style="text-align:right;color:var(--muted)">${fmt(t.stayed_deficit)}</td></tr>`;
+    `<tr><th>Before ↓ \\ After →</th>`+S.map(s=>`<th style="text-align:right;color:${SC[s]}">${SL[s]}</th>`).join('')+`<th style="text-align:right">Total</th></tr>`+
+    S.map(bs=>`<tr><td class="tt2" style="color:${SC[bs]}">${SL[bs]}</td>`+
+      S.map(as=>cell(bs,as)).join('')+
+      `<td style="text-align:right;color:var(--muted)">${fmt(S.reduce((a,s)=>a+mx[bs][s],0))}</td></tr>`).join('')+
+    `<tr style="border-top:2px solid var(--n300)"><td class="tt2">Total</td>`+
+      S.map(as=>`<td style="text-align:right;color:var(--muted)">${fmt(S.reduce((a,s)=>a+mx[s][as],0))}</td>`).join('')+
+      `<td style="text-align:right;font-weight:600">${fmt(g.enrolled)}</td></tr>`;
   $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>{
     const d=a[k]-b[k], good=k==='moved'?d>=0:d<=0;
     const col=Math.abs(d)===0?'var(--muted)':(good?'var(--green)':'var(--red)');
