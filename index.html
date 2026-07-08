@@ -391,7 +391,7 @@ svg text{font-family:inherit}
 <div id="pane-l2" style="display:none">
   <div class="card" style="margin-bottom:20px">
     <div class="label">L2 · Target metric — did the intervention do its job?</div>
-    <div class="sub">Install Ratio = installs ÷ slots confirmed by customer, MG cohort, by booking day (Q11528 depths: 6 ÷ ≥4)</div>
+    <div class="sub">Install Ratio = installs ÷ slots confirmed by customer, MG cohort, by customer slot-confirmed day (Q11528 depths: 6 ÷ ≥4) — the ratio's own denominator basis</div>
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
   </div>
   <div class="l1grid" id="l2grid"></div>
@@ -984,7 +984,7 @@ async function saveCall(pid,name,answer){
 }
 
 function renderL2(l1,meta){
-  const daily=l1.modes.cohort.daily;
+  const daily=(l1.modes.confirm_cohort||l1.modes.cohort).daily;
   const pool=rows=>{
     const c=rows.reduce((a,r)=>a+(r.cust_confirmed||0),0), i=rows.reduce((a,r)=>a+(r.installs||0),0);
     return {c,i,ratio:c?Math.round(1000*i/c)/10:null};
@@ -1000,15 +1000,15 @@ function renderL2(l1,meta){
   const verdict=d==null?'':(immature?'post bookings still installing — judge in a few days'
     :(d>0?`moving the right way`:(d<0?`not yet`:'flat')));
   $('l2-hero').innerHTML=
-    tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · 24–30 Jun`)+
-    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · since 1 Jul${immature?' (maturing)':''}`,'color:'+col)+
+    tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · confirmed 24–30 Jun`)+
+    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · confirmed since 1 Jul${immature?' (maturing)':''}`,'color:'+col)+
     tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
   const g=$('l2grid'); g.innerHTML='';
-  const m=l1.modes.cohort;
-  [{title:'Install Ratio by booking day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,
-    tip:r=>`${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed`},
-   {title:'Installs by booking day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,
-    tip:r=>`${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed: ${fmt(r.cust_confirmed)}`}
+  const m=l1.modes.confirm_cohort||l1.modes.cohort;
+  [{title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,
+    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed`},
+   {title:'Installs by slot-confirmed day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,
+    tip:r=>`slots confirmed ${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed that day: ${fmt(r.cust_confirmed)}`}
   ].forEach(s=>g.appendChild(chartCard(s,m,meta)));
 }
 

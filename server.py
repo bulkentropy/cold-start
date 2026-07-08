@@ -285,6 +285,7 @@ def compute_l1(enrolled_ids):
                 for r in raw if r["mode"] == mode and r["day_ist"]}
 
     coh, eacc, econf = bucket("cohort"), bucket("event_accept"), bucket("event_confirm")
+    ccoh = bucket("confirm_cohort")
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
     total = {str(r["day_ist"])[:10]: r["bookings"] for r in raw
              if r["mode"] == "total" and r["day_ist"]}
@@ -329,6 +330,18 @@ def compute_l1(enrolled_ids):
                         "total_bookings": total.get(d)})
         return out
 
+    def agg_confirm():   # install ratio by customer-slot-confirmed day
+        out = []
+        for d in days:
+            e, s = ccoh.get((d, 1), {}), ccoh.get((d, 0), {})
+            cnf, ins = e.get("confirmed", 0), e.get("installed", 0)
+            scnf, sins = s.get("confirmed", 0), s.get("installed", 0)
+            out.append({"day_ist": d, "cust_confirmed": cnf, "installs": ins,
+                        "install_ratio": pct(ins, cnf),
+                        "sh_cust_confirmed": scnf, "sh_installs": sins,
+                        "sh_install_ratio": pct(sins, scnf)})
+        return out
+
     def block(rows):
         def avg(k):
             vals = [r[k] for r in rows if r.get(k) is not None]
@@ -336,7 +349,8 @@ def compute_l1(enrolled_ids):
         return {k: avg(k) for k in L1_KEYS}
 
     modes = {}
-    for mode, rows in (("cohort", agg_cohort()), ("event", agg_event())):
+    for mode, rows in (("cohort", agg_cohort()), ("event", agg_event()),
+                       ("confirm_cohort", agg_confirm())):
         pre = [r for r in rows if L1_START <= r["day_ist"] <= PRE_END]
         post = [r for r in rows if r["day_ist"] >= POST_START]
         modes[mode] = {"daily": rows, "pre_avg": block(pre), "post_avg": block(post)}

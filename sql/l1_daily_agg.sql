@@ -114,6 +114,13 @@ UNION ALL
 SELECT 'csps', NULL, enr, NULL, NULL, NULL, NULL, COUNT(DISTINCT CSP_ID), NULL, NULL
 FROM full_j GROUP BY 3
 UNION ALL
+-- install ratio anchored on the CUSTOMER-SLOT-CONFIRMED day (the ratio's own
+-- denominator basis): confirmed = slots confirmed that IST day, installed = of
+-- those, how many reached install. day = TO_DATE(CONFIRMED_SLOT_AT IST).
+SELECT 'confirm_cohort', TO_DATE(DATEADD(minute, 330, confirmed_at))::STRING, enr,
+       NULL, NULL, COUNT(*), SUM(IFF(depth >= 6, 1, 0)), NULL, NULL, NULL
+FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
+UNION ALL
 -- all qualified bookings created that day (Q11528 stage 1), whether or not
 -- they ever reached a connection or CSP task
 SELECT 'total', booking_date::STRING, NULL, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL
