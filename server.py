@@ -370,7 +370,87 @@ def compute_feedback(enrolled_ids):
          for p, a in latest.items() if a != "excited"),
         key=lambda r: ({"dontcare": 0, "dontknow": 1, "questions": 2}[r["answer"]], r["name"]))
     return {"counts": counts, "answered": len(latest), "enrolled_n": len(enrolled),
-            "call_list": call_list}
+            "call_list": call_list, "latest": latest}
+
+
+# ----------------------------------------------------------------------------
+# Belief-cohort segmentation of L1 metrics — how each belief group performs.
+# ----------------------------------------------------------------------------
+COHORT_ORDER = [("excited", "Excited"), ("questions", "Has questions"),
+                ("dontknow", "Unaware"), ("dontcare", "Indifferent"),
+                ("no_response", "No response")]
+SMALL_COHORT = 30   # flag cohorts below this many CSPs as noisy
+
+
+def compute_cohort(enrolled_ids, latest):
+    """L1 funnel per belief cohort, over the post period, per-CSP-normalised.
+
+    Cohort = the CSP's latest belief answer (response supersedes no-response,
+    already enforced by `latest`); enrolled CSPs with no answer = 'no_response'.
+    """
+    if not enrolled_ids:
+        raise RuntimeError("no enrolled partners — cohort view skipped")
+    # partner -> cohort key
+    cohort_of = {p: latest.get(p, "no_response") for p in enrolled_ids}
+
+    sql = open(os.path.join(BASE_DIR, "sql", "l1_cohort.sql"), encoding="utf-8").read()
+    sql = sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+    sql = sql.replace("{START_DATE}", POST_START)
+    raw = metabase_sql(sql)
+
+    yday = (datetime.now(IST).date() - timedelta(days=1)).isoformat()
+    ndays = len(_daterange(POST_START, yday))
+
+    # aggregate booking rows by cohort (complete days only)
+    agg = {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
+               "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
+    for r in raw:
+        if str(r["booking_date"])[:10] > yday:
+            continue
+        pid = str(r["partner_id"])   # Metabase returns it numeric; keys are strings
+        ck = cohort_of.get(pid)
+        if ck is None:
+            continue
+        a = agg[ck]
+        d = r["depth"]
+        a["bookings"] += 1
+        a["csps"].add(pid)
+        if d >= 3:
+            a["accepted"] += 1
+        if d >= 4:
+            a["confirmed"] += 1
+        if d >= 6:
+            a["installed"] += 1
+        if r["accept_epoch"] and r["task_epoch"]:
+            a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
+
+    # cohort-size denominators (every enrolled CSP has a cohort, even with 0 bookings)
+    cohort_size = {k: 0 for k, _ in COHORT_ORDER}
+    for p in enrolled_ids:
+        cohort_size[cohort_of[p]] += 1
+
+    def pct(a, b):
+        return round(100 * a / b, 1) if b else None
+
+    def rows_for(keys, label, size):
+        agg_keys = [agg[k] for k in keys]
+        bk = sum(a["bookings"] for a in agg_keys)
+        acc = sum(a["accepted"] for a in agg_keys)
+        cnf = sum(a["confirmed"] for a in agg_keys)
+        ins = sum(a["installed"] for a in agg_keys)
+        recv = len(set().union(*[a["csps"] for a in agg_keys])) if agg_keys else 0
+        mins = [m for a in agg_keys for m in a["accept_mins"]]
+        med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
+        return {"label": label, "csps": size, "csps_receiving": recv,
+                "bookings": bk,
+                "bk_per_csp_day": round(bk / size / ndays, 2) if (size and ndays) else None,
+                "accept_pct": pct(acc, bk), "confirm_pct": pct(cnf, acc),
+                "install_ratio": pct(ins, cnf), "med_hrs_to_accept": med,
+                "small": size < SMALL_COHORT}
+
+    rows = [rows_for([k], lbl, cohort_size[k]) for k, lbl in COHORT_ORDER]
+    rows.append(rows_for([k for k, _ in COHORT_ORDER], "All enrolled", len(enrolled_ids)))
+    return {"window": [POST_START, yday], "days": ndays, "rows": rows}
 
 
 def compute_nsm(enrolled_ids):
@@ -750,10 +830,19 @@ def refresh(force=False):
 
         try:
             payload["feedback"] = compute_feedback(enrolled)
+            latest = payload["feedback"].pop("latest", {})
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"feedback: {type(e).__name__}: {e}")
             payload["feedback"] = prev.get("feedback")
+            latest = {}
+
+        try:
+            payload["cohort"] = compute_cohort(enrolled, latest) if latest else prev.get("cohort")
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
+            payload["cohort"] = prev.get("cohort")
 
         try:
             payload["l1"] = compute_l1(enrolled)
