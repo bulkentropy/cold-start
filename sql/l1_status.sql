@@ -19,7 +19,13 @@ SELECT mg.PARTNER_ID AS partner_id,
           AND c.CREATED_AT < DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ),1,0)) AS ta,
   SUM(IFF(c.CREATED_AT >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
           AND c.CREATED_AT < DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
-          AND c.INSTALLATION_COMPLETED_AT IS NOT NULL,1,0)) AS ia
+          AND c.INSTALLATION_COMPLETED_AT IS NOT NULL,1,0)) AS ia,
+  -- calendar-month-to-date gate (task level): customer-slot-confirmed tasks the
+  -- CSP received this month, and how many of those it installed. One row per
+  -- CSP-task, so reassignments count against each CSP that received the task.
+  COUNT_IF(c.CONFIRMED_SLOT_AT >= DATEADD(minute,-330,'{MONTH_START} 00:00:00'::TIMESTAMP_NTZ)) AS recv_m,
+  COUNT_IF(c.CONFIRMED_SLOT_AT >= DATEADD(minute,-330,'{MONTH_START} 00:00:00'::TIMESTAMP_NTZ)
+           AND c.INSTALLATION_COMPLETED_AT IS NOT NULL) AS inst_m
 FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
 JOIN mg ON mg.CSP_ID = c.CSP_ID
 WHERE c.ETL_CURRENT = TRUE

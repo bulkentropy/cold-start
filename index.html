@@ -395,6 +395,13 @@ svg text{font-family:inherit}
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
   </div>
   <div class="l1grid" id="l2grid"></div>
+  <div class="card section" style="margin-top:20px" id="l2-gate" hidden>
+    <div class="label">Install-rate gate — enrolled CSPs, this month</div>
+    <div class="sub" id="gate-sub"></div>
+    <div class="meter" id="gate-meter" style="margin-top:12px"></div>
+    <div class="strip" id="gate-tiles" style="margin-top:14px"></div>
+    <div class="foot" style="margin-top:10px" id="gate-foot"></div>
+  </div>
   <div class="card section" style="margin-top:20px" id="l2-feedback" hidden>
     <div class="label">Enrolled CSP feedback — belief check (in-app, since 2 Jul)</div>
     <div class="sub" id="fb-cov"></div>
@@ -701,6 +708,26 @@ function render(d){
   if(d.feedback)renderFeedback(d.feedback);
   if(d.cohort)renderCohort(d.cohort);
   if(d.ignition)renderIgnition(d.ignition);
+  if(d.gate)renderGate(d.gate);
+}
+
+function renderGate(g){
+  const box=$('l2-gate'); box.hidden=false;
+  const n=g.enrolled||1;
+  $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: install tasks completed ÷
+    customer-slot-confirmed tasks received, over <b>${g.month}</b> to date (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b>`;
+  const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ confirmed ≥ '+g.gate_pct+'%'],
+             ['below','var(--amber)','Below the gate','installing, but under '+g.gate_pct+'%'],
+             ['zero','var(--red)','Zero installs','no installs this month']];
+  $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*g[k]/n}%;background:${c};border-radius:0"></div>`).join('');
+  $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
+    tile(`${fmt(g[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*g[k]/n)}%</span>`,
+         label,sub,'color:'+c)).join('');
+  $('gate-foot').innerHTML=`⚠ Month-to-date and <b>still maturing</b> — a confirmed-slot task received early in the month may
+    still install, so "zero installs" is inflated now and shrinks through the month; the above/below ratios firm up as tasks
+    mature. Of the ${fmt(g.zero)} at zero installs: <b>${fmt(g.zero_had_confirmed)}</b> received customer-slot-confirmed tasks
+    but completed no install (ignition/maturity gap); <b>${fmt(g.zero_no_confirmed)}</b> received no confirmed-slot task this
+    month. Counted per CSP-task (a reassigned task counts for each CSP that received it), from the current TAS candidates.`;
 }
 
 const IGN=[['moved','var(--green)','Moved','≥1 install'],

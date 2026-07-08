@@ -471,8 +471,10 @@ def compute_cohort(enrolled_ids, latest):
               "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
 
     # ----- CSP-status split: TASK-ACTIVITY based (matches the team cross-tab) --
+    month_start = datetime.now(IST).date().replace(day=1).isoformat()
     ssql = open(os.path.join(BASE_DIR, "sql", "l1_status.sql"), encoding="utf-8").read()
     ssql = ssql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+    ssql = ssql.replace("{MONTH_START}", month_start)
     sraw = {str(r["partner_id"]): r for r in metabase_sql(ssql)}
 
     def classify(p, tk, ik):
@@ -533,7 +535,32 @@ def compute_cohort(enrolled_ids, latest):
                 "totals_before": split(out_b, allk), "totals_after": split(out_a, allk),
                 "by_belief": by_belief, "transition": transition, "maturity": maturity}
 
+    # ----- install-rate gate (TASK level), calendar-month-to-date -------------
+    # Per enrolled CSP: install tasks it completed / customer-slot-confirmed
+    # tasks it received this month. Task level, so reassignments count against
+    # each CSP that received the task. Sourced from l1_status (recv_m / inst_m).
+    GATE = 0.60
+    g = {"zero": 0, "above": 0, "below": 0,
+         "zero_had_confirmed": 0, "zero_no_confirmed": 0}
+    for p in enrolled_ids:
+        r = sraw.get(p)
+        recv = (r.get("recv_m") or 0) if r else 0
+        inst = (r.get("inst_m") or 0) if r else 0
+        if inst == 0:
+            g["zero"] += 1
+            if recv > 0:
+                g["zero_had_confirmed"] += 1      # received confirmed tasks, installed none
+            else:
+                g["zero_no_confirmed"] += 1       # received no confirmed task this month
+        elif inst / recv >= GATE:
+            g["above"] += 1
+        else:
+            g["below"] += 1
+    gate = {"gate_pct": int(GATE * 100), "month": today.strftime("%B %Y"),
+            "window": [month_start, today.isoformat()], "enrolled": len(enrolled_ids), **g}
+
     cohort["_ignition"] = ignition
+    cohort["_gate"] = gate
     return cohort
 
 
@@ -925,15 +952,18 @@ def refresh(force=False):
             coh = compute_cohort(enrolled, latest) if latest else None
             if coh is not None:
                 payload["ignition"] = coh.pop("_ignition", None)
+                payload["gate"] = coh.pop("_gate", None)
                 payload["cohort"] = coh
             else:
                 payload["cohort"] = prev.get("cohort")
                 payload["ignition"] = prev.get("ignition")
+                payload["gate"] = prev.get("gate")
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
             payload["cohort"] = prev.get("cohort")
             payload["ignition"] = prev.get("ignition")
+            payload["gate"] = prev.get("gate")
 
         try:
             payload["l1"] = compute_l1(enrolled)
