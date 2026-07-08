@@ -8,7 +8,7 @@
 :root{
   --accent:#D9008D; --purple:#6D17CE; --deep:#443152; --dark:#161021;
   --text:#161021; --muted:#665E75; --bg:#F1EDF7; --card:#FAF9FC;
-  --green:#008043; --red:#E01E00;
+  --green:#008043; --red:#E01E00; --amber:#C77700;
   --n200:#E8E4F0; --n300:#D7D3E0; --grid:#E8E4F0; --baseline:#D7D3E0;
   --shadow:0 4px 24px rgba(22,16,33,.07); --radius:16px;
 }
@@ -171,6 +171,30 @@ svg text{font-family:inherit}
     <button class="on" data-m="l0" onclick="showMetric('l0')">L0 · Enrolment</button>
     <button data-m="l1" onclick="showMetric('l1')">L1 · Leading</button>
     <button data-m="l2" onclick="showMetric('l2')">L2 · Target</button>
+    <button data-m="ign" onclick="showMetric('ign')">CSP status</button>
+  </div>
+</div>
+
+<div id="pane-ign" style="display:none">
+  <div class="card section">
+    <div class="label">CSP status — where each enrolled CSP stands</div>
+    <div class="sub" id="ign-sub"></div>
+    <div class="meter" id="ign-meter" style="margin-top:14px"></div>
+    <div class="strip" id="ign-tiles" style="margin-top:16px"></div>
+  </div>
+  <div class="card section" style="margin-top:20px">
+    <div class="label">Split by belief check</div>
+    <div class="sub">How each belief cohort divides across the three outcomes — does belief predict ignition?</div>
+    <div id="ign-belief" style="margin-top:14px"></div>
+    <div class="tablewrap" style="margin-top:16px"><table class="board" id="ign-table" style="min-width:640px"></table></div>
+  </div>
+  <div class="foot card">
+    <b>Definitions.</b> Over the post window, per enrolled CSP:
+    <b>Demand failure</b> = 0 bookings assigned — nothing reached the CSP (the demand engine isn't
+    routing to them). <b>Ignition failure</b> = bookings assigned but 0 installs — leads arrived but
+    none converted. <b>Moved</b> = ≥1 install. "Bookings assigned" = the CSP is the current TAS task's
+    CSP for a booking (same Q11528 chain as L1). The window is short, so a CSP with no bookings in it
+    isn't necessarily a permanent demand failure — read it as the current-window state.
   </div>
 </div>
 
@@ -396,7 +420,7 @@ const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort';
 
 const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
-const METRICS=['l0','l1','l2'];
+const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
 function showTab(t){
   if(METRICS.includes(t)){MTAB=t;t='metrics';}
@@ -667,6 +691,46 @@ function render(d){
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.feedback)renderFeedback(d.feedback);
   if(d.cohort)renderCohort(d.cohort);
+  if(d.ignition)renderIgnition(d.ignition);
+}
+
+const IGN=[['moved','var(--green)','Moved','≥1 install'],
+           ['ignition','var(--amber)','Ignition failure','bookings assigned, 0 installs'],
+           ['demand','var(--red)','Demand failure','0 bookings assigned']];
+function renderIgnition(g){
+  const t=g.totals, n=t.enrolled||1;
+  $('ign-sub').innerHTML=`Post window <b>${g.window[0]} → ${g.window[1]}</b> (${g.days} complete days) ·
+    all <b>${fmt(t.enrolled)}</b> enrolled CSPs classified by their outcome`;
+  $('ign-meter').innerHTML=IGN.map(([k,c])=>`<div style="width:${100*t[k]/n}%;background:${c};border-radius:0"></div>`).join('');
+  $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>
+    tile(`${fmt(t[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*t[k]/n)}%</span>`,
+         label,sub,'color:'+c)).join('');
+
+  // 100%-stacked bar per belief cohort
+  const rows=g.by_belief;
+  const W=760,rowH=34,padL=120,barW=W-padL-70,H=rows.length*rowH+20;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:760px;height:auto">`;
+  rows.forEach((r,i)=>{
+    const y=14+i*rowH, tot=r.csps||1; let x=padL;
+    svg+=`<text x="0" y="${y+14}" font-size="12" font-weight="600" fill="var(--text)" ${r.small?'opacity=".6"':''}>${esc(r.label)} <tspan fill="${MUTED}" font-weight="400">(${r.csps})</tspan></text>`;
+    IGN.forEach(([k,c])=>{const w=barW*r[k]/tot; if(w<=0)return;
+      svg+=`<rect x="${x}" y="${y}" width="${Math.max(w-1,0.5)}" height="20" fill="${c}" ${r.small?'opacity=".6"':''}/>`;
+      if(w>26)svg+=`<text x="${x+w/2}" y="${y+14}" font-size="11" font-weight="600" fill="#fff" text-anchor="middle">${r[k]}</text>`;
+      x+=w;});
+    const mp=r.csps?Math.round(100*r.moved/r.csps):0;
+    svg+=`<text x="${W-4}" y="${y+14}" font-size="11" fill="${MUTED}" text-anchor="end">${mp}% moved</text>`;
+  });
+  svg+=`</svg><div class="legend">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
+  $('ign-belief').innerHTML=svg;
+
+  $('ign-table').innerHTML=`<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
+    <th style="text-align:right">Moved</th><th style="text-align:right">Ignition fail</th>
+    <th style="text-align:right">Demand fail</th></tr>`+
+    rows.map(r=>`<tr style="${r.small?'opacity:.6':''}">
+      <td class="tt2">${esc(r.label)}</td><td style="text-align:right">${fmt(r.csps)}</td>
+      <td style="text-align:right;color:var(--green)">${r.moved} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.moved/r.csps):0}%</span></td>
+      <td style="text-align:right;color:var(--amber)">${r.ignition} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.ignition/r.csps):0}%</span></td>
+      <td style="text-align:right;color:var(--red)">${r.demand} <span style="color:var(--muted);font-size:11px">${r.csps?Math.round(100*r.demand/r.csps):0}%</span></td></tr>`).join('');
 }
 
 // green wash scaled within a column; invert=true means lower is better

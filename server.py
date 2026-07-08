@@ -415,6 +415,7 @@ def compute_cohort(enrolled_ids, latest):
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
     before, after = fresh(), fresh()
+    per_csp = {}   # partner -> {bk, inst} over the AFTER window (for the ignition split)
     for r in raw:
         d = str(r["booking_date"])[:10]
         if COHORT_BEFORE[0] <= d <= COHORT_BEFORE[1]:
@@ -423,13 +424,14 @@ def compute_cohort(enrolled_ids, latest):
             bucket = after
         else:
             continue
-        ck = cohort_of.get(str(r["partner_id"]))
+        pid = str(r["partner_id"])
+        ck = cohort_of.get(pid)
         if ck is None:
             continue
         a = bucket[ck]
         dep = r["depth"]
         a["bookings"] += 1
-        a["csps"].add(str(r["partner_id"]))
+        a["csps"].add(pid)
         if dep >= 3:
             a["accepted"] += 1
         if dep >= 4:
@@ -438,6 +440,11 @@ def compute_cohort(enrolled_ids, latest):
             a["installed"] += 1
         if r["accept_epoch"] and r["task_epoch"]:
             a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
+        if bucket is after:
+            c = per_csp.setdefault(pid, {"bk": 0, "inst": 0})
+            c["bk"] += 1
+            if dep >= 6:
+                c["inst"] += 1
 
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
@@ -463,8 +470,38 @@ def compute_cohort(enrolled_ids, latest):
 
     rows = [row_for([k], lbl, cohort_size[k]) for k, lbl in COHORT_ORDER]
     rows.append(row_for([k for k, _ in COHORT_ORDER], "All enrolled", len(enrolled_ids)))
-    return {"after_window": list(after_win), "after_days": after_days,
-            "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
+    cohort = {"after_window": list(after_win), "after_days": after_days,
+              "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
+
+    # ----- ignition split: classify every enrolled CSP over the after window --
+    received = set(per_csp)
+    outcome_of = {}
+    for p in enrolled_ids:
+        if p not in received:
+            outcome_of[p] = "demand"          # 0 bookings assigned — nothing reached the CSP
+        elif per_csp[p]["inst"] == 0:
+            outcome_of[p] = "ignition"        # bookings assigned, 0 installs
+        else:
+            outcome_of[p] = "moved"           # >= 1 install
+
+    def split(keys):
+        s = {"moved": 0, "ignition": 0, "demand": 0}
+        for p in enrolled_ids:
+            if cohort_of[p] in keys:
+                s[outcome_of[p]] += 1
+        return s
+
+    by_belief = []
+    for k, lbl in COHORT_ORDER:
+        s = split({k})
+        by_belief.append({"cohort": k, "label": lbl, "csps": cohort_size[k],
+                          "small": cohort_size[k] < SMALL_COHORT, **s})
+    tot = split({k for k, _ in COHORT_ORDER})
+    ignition = {"window": list(after_win), "days": after_days,
+                "totals": {**tot, "enrolled": len(enrolled_ids)}, "by_belief": by_belief}
+
+    cohort["_ignition"] = ignition
+    return cohort
 
 
 def compute_nsm(enrolled_ids):
@@ -852,11 +889,18 @@ def refresh(force=False):
             latest = {}
 
         try:
-            payload["cohort"] = compute_cohort(enrolled, latest) if latest else prev.get("cohort")
+            coh = compute_cohort(enrolled, latest) if latest else None
+            if coh is not None:
+                payload["ignition"] = coh.pop("_ignition", None)
+                payload["cohort"] = coh
+            else:
+                payload["cohort"] = prev.get("cohort")
+                payload["ignition"] = prev.get("ignition")
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
             payload["cohort"] = prev.get("cohort")
+            payload["ignition"] = prev.get("ignition")
 
         try:
             payload["l1"] = compute_l1(enrolled)
