@@ -21,37 +21,37 @@ bookings AS (
     FROM PROD_DB.DBT.fct_booking_window
     WHERE BOOKING_CONFIRM_DATE >= '{START_DATE}'
 ),
-acc AS (
-    SELECT b.*, dr.ACCOUNT_ID::STRING AS account_id, dr.LCO_ACCOUNT_ID AS lco
+acc AS (   -- Q11528 fix (7 Jul): journey-specific account_id — the audit
+    -- (DYNAMODB.BOOKING) row active at THIS booking's confirm time. Fixes
+    -- re-bookings (each journey mints its own account) and recovers account_id
+    -- the read snapshot nulled on cancel. Booking key = (mobile, confirm-time).
+    SELECT b.mobile, b.booking_date, b.bt, b.nb,
+           ad.ACCOUNT_ID::STRING AS account_id, ad.LCO_ACCOUNT_ID AS lco
     FROM bookings b
-    LEFT JOIN PROD_DB.DYNAMODB_read.BOOKING dr
-      ON dr.MOBILE = b.mobile AND dr._FIVETRAN_DELETED = FALSE
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY b.mobile, b.booking_date
-                               ORDER BY dr.ADDED_TIME DESC NULLS LAST) = 1
+    LEFT JOIN PROD_DB.DYNAMODB.BOOKING ad
+      ON ad.MOBILE::STRING = b.mobile AND ad.ACCOUNT_ID IS NOT NULL
+     AND DATEADD(minute, 330, ad.modified_time) <= b.bt
+     AND (b.nb IS NULL OR DATEADD(minute, 330, ad.modified_time) < b.nb)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY b.mobile, b.bt
+                               ORDER BY ad.modified_time DESC NULLS LAST) = 1
 ),
 acc_clean AS (
-    SELECT * FROM acc
+    SELECT mobile, booking_date, bt, nb, account_id FROM acc
     WHERE lco IS NULL OR lco NOT IN
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
-),
-mobile_accounts AS (   -- Q11528 fix (3 Jul): ALL account ids per mobile from raw
-    SELECT DISTINCT MOBILE AS mobile, ACCOUNT_ID::STRING AS account_id   -- booking, so re-book
-    FROM PROD_DB.DYNAMODB.BOOKING                                        -- customers match their
-    WHERE ACCOUNT_ID IS NOT NULL AND MOBILE > '5999999999'               -- older account's connection
 ),
 conn AS (
     SELECT a.mobile, a.booking_date, c.CONNECTION_ID
     FROM acc_clean a
-    JOIN mobile_accounts ma ON ma.mobile = a.mobile
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
       ON ceh.EVENT_TYPE = 'CONNECTION_REQUEST' AND ceh._FIVETRAN_DELETED = FALSE
      AND ceh.EVENT_TIMESTAMP BETWEEN DATEADD(hour, -2, DATEADD(minute, -330, a.bt))
                                  AND DATEADD(hour, 24 * 14, DATEADD(minute, -330, a.bt))
      AND (a.nb IS NULL OR DATEADD(minute, 330, ceh.EVENT_TIMESTAMP) < a.nb)
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTIONS c
-      ON c.CONNECTION_ID = ceh.CONNECTION_ID AND c.CUSTOMER_ID::STRING = ma.account_id
+      ON c.CONNECTION_ID = ceh.CONNECTION_ID AND c.CUSTOMER_ID::STRING = a.account_id
      AND c._fivetran_active = TRUE
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY a.mobile, a.booking_date ORDER BY ceh.EVENT_TIMESTAMP) = 1
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY a.mobile, a.bt ORDER BY ceh.EVENT_TIMESTAMP) = 1
 ),
 tl AS (
     SELECT CONNECTION_ID, CSP_ID, CREATED_AT,
