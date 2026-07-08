@@ -66,6 +66,8 @@ BANNER_F2 = ["1782823566"]
 L1_START = "2026-06-24"        # pre-period start (last 7 days of June)
 PRE_END = "2026-06-30"         # inclusive
 POST_START = "2026-07-01"
+# Belief-cohort before/after cut: matured pre-window vs the live post-window.
+COHORT_BEFORE = ("2026-06-01", "2026-06-15")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -395,62 +397,74 @@ def compute_cohort(enrolled_ids, latest):
 
     sql = open(os.path.join(BASE_DIR, "sql", "l1_cohort.sql"), encoding="utf-8").read()
     sql = sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
-    sql = sql.replace("{START_DATE}", POST_START)
+    sql = sql.replace("{START_DATE}", COHORT_BEFORE[0])   # pull from 1 Jun to cover before + after
     raw = metabase_sql(sql)
 
     yday = (datetime.now(IST).date() - timedelta(days=1)).isoformat()
-    ndays = len(_daterange(POST_START, yday))
-
-    # aggregate booking rows by cohort (complete days only)
-    agg = {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
-               "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
-    for r in raw:
-        if str(r["booking_date"])[:10] > yday:
-            continue
-        pid = str(r["partner_id"])   # Metabase returns it numeric; keys are strings
-        ck = cohort_of.get(pid)
-        if ck is None:
-            continue
-        a = agg[ck]
-        d = r["depth"]
-        a["bookings"] += 1
-        a["csps"].add(pid)
-        if d >= 3:
-            a["accepted"] += 1
-        if d >= 4:
-            a["confirmed"] += 1
-        if d >= 6:
-            a["installed"] += 1
-        if r["accept_epoch"] and r["task_epoch"]:
-            a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
+    after_win = (POST_START, yday)
+    after_days = len(_daterange(*after_win))
+    before_days = len(_daterange(*COHORT_BEFORE))
 
     # cohort-size denominators (every enrolled CSP has a cohort, even with 0 bookings)
     cohort_size = {k: 0 for k, _ in COHORT_ORDER}
     for p in enrolled_ids:
         cohort_size[cohort_of[p]] += 1
 
+    def fresh():
+        return {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
+                    "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
+
+    before, after = fresh(), fresh()
+    for r in raw:
+        d = str(r["booking_date"])[:10]
+        if COHORT_BEFORE[0] <= d <= COHORT_BEFORE[1]:
+            bucket = before
+        elif after_win[0] <= d <= after_win[1]:
+            bucket = after
+        else:
+            continue
+        ck = cohort_of.get(str(r["partner_id"]))
+        if ck is None:
+            continue
+        a = bucket[ck]
+        dep = r["depth"]
+        a["bookings"] += 1
+        a["csps"].add(str(r["partner_id"]))
+        if dep >= 3:
+            a["accepted"] += 1
+        if dep >= 4:
+            a["confirmed"] += 1
+        if dep >= 6:
+            a["installed"] += 1
+        if r["accept_epoch"] and r["task_epoch"]:
+            a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
+
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
 
-    def rows_for(keys, label, size):
-        agg_keys = [agg[k] for k in keys]
-        bk = sum(a["bookings"] for a in agg_keys)
-        acc = sum(a["accepted"] for a in agg_keys)
-        cnf = sum(a["confirmed"] for a in agg_keys)
-        ins = sum(a["installed"] for a in agg_keys)
-        recv = len(set().union(*[a["csps"] for a in agg_keys])) if agg_keys else 0
-        mins = [m for a in agg_keys for m in a["accept_mins"]]
+    def block(bucket, keys, size, days):
+        aks = [bucket[k] for k in keys]
+        bk = sum(a["bookings"] for a in aks)
+        acc = sum(a["accepted"] for a in aks)
+        cnf = sum(a["confirmed"] for a in aks)
+        ins = sum(a["installed"] for a in aks)
+        recv = len(set().union(*[a["csps"] for a in aks])) if aks else 0
+        mins = [m for a in aks for m in a["accept_mins"]]
         med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
-        return {"label": label, "csps": size, "csps_receiving": recv,
-                "bookings": bk,
-                "bk_per_csp_day": round(bk / size / ndays, 2) if (size and ndays) else None,
+        return {"csps_receiving": recv, "bookings": bk,
+                "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
                 "accept_pct": pct(acc, bk), "confirm_pct": pct(cnf, acc),
-                "install_ratio": pct(ins, cnf), "med_hrs_to_accept": med,
-                "small": size < SMALL_COHORT}
+                "install_ratio": pct(ins, cnf), "med_hrs_to_accept": med}
 
-    rows = [rows_for([k], lbl, cohort_size[k]) for k, lbl in COHORT_ORDER]
-    rows.append(rows_for([k for k, _ in COHORT_ORDER], "All enrolled", len(enrolled_ids)))
-    return {"window": [POST_START, yday], "days": ndays, "rows": rows}
+    def row_for(keys, label, size):
+        return {"label": label, "csps": size, "small": size < SMALL_COHORT,
+                "before": block(before, keys, size, before_days),
+                "after": block(after, keys, size, after_days)}
+
+    rows = [row_for([k], lbl, cohort_size[k]) for k, lbl in COHORT_ORDER]
+    rows.append(row_for([k for k, _ in COHORT_ORDER], "All enrolled", len(enrolled_ids)))
+    return {"after_window": list(after_win), "after_days": after_days,
+            "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
 
 
 def compute_nsm(enrolled_ids):

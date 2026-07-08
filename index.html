@@ -318,8 +318,13 @@ svg text{font-family:inherit}
   <div class="l1grid" id="l1grid"></div>
 
   <div class="card section" id="l1-cohort" style="margin-top:20px" hidden>
-    <div class="label">L1 performance by belief cohort</div>
-    <div class="sub" id="coh-sub"></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div><div class="label">L1 performance by belief cohort</div><div class="sub" id="coh-sub"></div></div>
+      <div class="toggle" id="coh-mode">
+        <button class="on" data-m="now" onclick="setCohMode('now')">Now</button>
+        <button data-m="ba" onclick="setCohMode('ba')">Before → After</button>
+      </div>
+    </div>
     <div class="tablewrap"><table class="board" id="coh-table" style="min-width:820px"></table></div>
     <div style="margin-top:20px">
       <div class="label" style="margin-bottom:8px">Conversion ladder — accepted → confirmed → installed, by cohort</div>
@@ -327,10 +332,12 @@ svg text{font-family:inherit}
     </div>
     <div class="foot" style="margin-top:12px">
       Belief is a CSP property (latest in-app answer; response supersedes no-response). Metrics are
-      the same Q11528 funnel as above, restricted to the post period and normalised
-      <b>per CSP per day</b> so cohort size doesn't distort the counts. Belief is self-selected, not
-      assigned — a gap shows association, not proof the intervention caused it; the pre→post movement
-      is the causal signal. Cohorts under 30 CSPs (dimmed) are small — read their rates with caution.
+      the same Q11528 funnel as above, normalised <b>per CSP per day</b> so cohort size doesn't
+      distort the counts. <b>Now</b> = the post period; <b>Before → After</b> = these same CSPs in
+      1–15 Jun (matured) vs 1 Jul onward. Belief is self-selected, not assigned — a gap shows
+      association, not proof the intervention caused it. June booking volume per CSP was far lower
+      than now (see bookings/CSP/day), so June rates sit on thinner bases — read the small cohorts
+      and the confirmed-% column with caution. Cohorts under 30 CSPs are dimmed.
     </div>
   </div>
 
@@ -670,18 +677,23 @@ function heat(v,vals,invert){
   let t=(v-lo)/(hi-lo); if(invert)t=1-t;
   return `background:rgba(0,128,67,${(0.10+0.42*t).toFixed(3)})`;
 }
+let COH=null, COHMODE='now';
+function setCohMode(m){COHMODE=m;document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));if(COH)renderCohort(COH);}
+document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===COHMODE)));
+const COLS=[['bk_per_csp_day','Bookings / CSP / day',false,''],
+            ['accept_pct','Accepted %',false,'%'],
+            ['confirm_pct','Confirmed %',false,'%'],
+            ['install_ratio','Install ratio',false,'%'],
+            ['med_hrs_to_accept','Median hrs to accept',true,' h']];
 function renderCohort(c){
-  const box=$('l1-cohort'); box.hidden=false;
-  $('coh-sub').innerHTML=`Post period <b>${c.window[0]} → ${c.window[1]}</b> (${c.days} complete days) ·
+  COH=c; const box=$('l1-cohort'); box.hidden=false;
+  const rows=c.rows;
+  if(COHMODE==='ba')return renderCohortBA(c);
+  $('coh-sub').innerHTML=`Post period <b>${c.after_window[0]} → ${c.after_window[1]}</b> (${c.after_days} complete days) ·
     metrics per CSP per day where counts · "All enrolled" row is the benchmark`;
-  const rows=c.rows, data=rows.slice(0,-1), all=rows[rows.length-1];
-  const col=k=>data.map(r=>r[k]);
-  const COLS=[['bk_per_csp_day','Bookings / CSP / day',false,''],
-              ['accept_pct','Accepted %',false,'%'],
-              ['confirm_pct','Confirmed %',false,'%'],
-              ['install_ratio','Install ratio',false,'%'],
-              ['med_hrs_to_accept','Median hrs to accept',true,' h']];
-  const cell=(r,k,inv,u,vals)=>`<td style="${heat(r[k],vals,inv)};text-align:right;font-variant-numeric:tabular-nums">${r[k]==null?'–':r[k]+u}</td>`;
+  const data=rows.slice(0,-1);
+  const col=k=>data.map(r=>r.after[k]);
+  const cell=(r,k,inv,u,vals)=>{const v=r.after[k];return `<td style="${heat(v,vals,inv)};text-align:right;font-variant-numeric:tabular-nums">${v==null?'–':v+u}</td>`;};
   $('coh-table').innerHTML=
     `<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
       <th style="text-align:right">got bookings</th>`+
@@ -691,10 +703,40 @@ function renderCohort(c){
       return `<tr style="${bench?'border-top:2px solid var(--n300);font-weight:600':''};${r.small?'opacity:.6':''}">
         <td class="tt2">${esc(r.label)}${r.small&&!bench?' <span style="font-weight:400;color:var(--muted);font-size:11px">small</span>':''}</td>
         <td style="text-align:right">${fmt(r.csps)}</td>
-        <td style="text-align:right;color:var(--muted)">${fmt(r.csps_receiving)}</td>`+
+        <td style="text-align:right;color:var(--muted)">${fmt(r.after.csps_receiving)}</td>`+
         COLS.map(cc=>cell(r,cc[0],cc[2],cc[3],bench?[]:col(cc[0]))).join('')+`</tr>`;
     }).join('');
+  renderLadder(c,'after');
+}
 
+function renderCohortBA(c){
+  $('coh-sub').innerHTML=`Before <b>${c.before_window[0]} → ${c.before_window[1]}</b> (${c.before_days}d, matured)
+    vs after <b>${c.after_window[0]} → ${c.after_window[1]}</b> (${c.after_days}d) · same CSPs (current belief), their behaviour then vs now`;
+  const dcell=(r,k,inv,u)=>{
+    const b=r.before[k], a=r.after[k];
+    if(b==null&&a==null)return '<td style="text-align:right;color:var(--muted)">–</td>';
+    let chip='';
+    if(b!=null&&a!=null){const d=Math.round((a-b)*10)/10, good=inv?d<0:d>0;
+      const col=Math.abs(d)<1e-9?'var(--muted)':(good?'var(--green)':'var(--red)');
+      chip=`<div style="font-size:11px;font-weight:700;color:${col}">${d>0?'▲+':'▼'}${d>0?d:Math.abs(d)}${u.trim()||'pp'}</div>`;}
+    return `<td style="text-align:right;font-variant-numeric:tabular-nums">
+      <span style="color:var(--muted)">${b==null?'–':b+u}</span> → <b>${a==null?'–':a+u}</b>${chip}</td>`;
+  };
+  $('coh-table').innerHTML=
+    `<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>`+
+      COLS.map(c=>`<th style="text-align:right">${c[1]}<br><span style="font-weight:400;text-transform:none;letter-spacing:0">before → after</span></th>`).join('')+`</tr>`+
+    c.rows.map((r,i)=>{
+      const bench=i===c.rows.length-1;
+      return `<tr style="${bench?'border-top:2px solid var(--n300);font-weight:600':''};${r.small?'opacity:.6':''}">
+        <td class="tt2">${esc(r.label)}${r.small&&!bench?' <span style="font-weight:400;color:var(--muted);font-size:11px">small</span>':''}</td>
+        <td style="text-align:right">${fmt(r.csps)}</td>`+
+        COLS.map(cc=>dcell(r,cc[0],cc[2],cc[3])).join('')+`</tr>`;
+    }).join('');
+  renderLadder(c,'after');
+}
+
+function renderLadder(c,win){
+  const data=c.rows.slice(0,-1).map(r=>({label:r.label,small:r.small,...r[win]}));
   // conversion ladder: accepted% / confirmed% / installed% per cohort (of bookings)
   const asPct=(r,k)=>r.bookings? (k==='accept'?r.accept_pct
       :k==='confirm'?(r.accept_pct==null?null:Math.round(r.accept_pct*r.confirm_pct/10)/10)
