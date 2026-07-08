@@ -499,10 +499,35 @@ def compute_cohort(enrolled_ids, latest):
                           "small": cohort_size[k] < SMALL_COHORT,
                           "before": split(out_b, {k}), "after": split(out_a, {k})})
     allk = {k for k, _ in COHORT_ORDER}
+
+    # demand-coverage transition: active == received tasks (non-zero) that window
+    tb_of = {p: (sraw.get(p, {}).get("tb") or 0) for p in enrolled_ids}
+    ta_of = {p: (sraw.get(p, {}).get("ta") or 0) for p in enrolled_ids}
+    tr = {"aa": 0, "da": 0, "ad": 0, "dd": 0}   # before→after: a=available, d=deficit
+    for p in enrolled_ids:
+        b = "a" if tb_of[p] > 0 else "d"
+        a = "a" if ta_of[p] > 0 else "d"
+        tr[b + a] += 1
+    transition = {"activated": tr["da"], "lost": tr["ad"],
+                  "stayed_available": tr["aa"], "stayed_deficit": tr["dd"],
+                  "available_before": tr["aa"] + tr["ad"], "available_after": tr["aa"] + tr["da"]}
+
+    # maturity of the after window (tasks created 1-7 Jul; ~14-day install runway)
+    today = datetime.now(IST).date()
+    runway = 14
+    ws = datetime.fromisoformat(IGN_AFTER[0]).date()
+    we = datetime.fromisoformat(IGN_AFTER[1]).date()
+    fracs, d = [], ws
+    while d <= we:
+        fracs.append(min(1.0, max(0.0, (today - d).days / runway)))
+        d += timedelta(days=1)
+    maturity = {"pct": round(100 * sum(fracs) / len(fracs)),
+                "fully_on": (we + timedelta(days=runway)).isoformat()}
+
     ignition = {"before_window": list(IGN_BEFORE), "after_window": list(IGN_AFTER), "days": 7,
                 "enrolled": len(enrolled_ids),
                 "totals_before": split(out_b, allk), "totals_after": split(out_a, allk),
-                "by_belief": by_belief}
+                "by_belief": by_belief, "transition": transition, "maturity": maturity}
 
     cohort["_ignition"] = ignition
     return cohort
