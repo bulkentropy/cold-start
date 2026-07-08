@@ -400,6 +400,7 @@ svg text{font-family:inherit}
     <div class="sub" id="gate-sub"></div>
     <div class="meter" id="gate-meter" style="margin-top:12px"></div>
     <div class="strip" id="gate-tiles" style="margin-top:14px"></div>
+    <div id="gate-nudge" style="margin-top:14px"></div>
     <div class="foot" style="margin-top:10px" id="gate-foot"></div>
   </div>
   <div class="card section" style="margin-top:20px" id="l2-feedback" hidden>
@@ -723,6 +724,12 @@ function renderGate(g){
   $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
     tile(`${fmt(g[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*g[k]/n)}%</span>`,
          label,sub,'color:'+c)).join('');
+  const om=g.one_more||0;
+  $('gate-nudge').innerHTML=`<div style="background:#E1FAED;border:1px solid #9BE3BE;border-radius:10px;padding:12px 16px">
+    <span style="font-size:1.5rem;font-weight:800;color:var(--green)">🎯 ${fmt(om)}</span>
+    <span style="font-weight:600">of the ${fmt(g.below)} below-gate CSPs are <b>one install away</b> from clearing the ${g.gate_pct}% gate</span>
+    <div class="sub" style="margin-top:4px">A single install — from a pending confirmed slot or a new confirm — pushes each of these over.
+    Highest-ROI nudge: (installs + 1) ÷ confirmed-received ≥ ${g.gate_pct}%.</div></div>`;
   $('gate-foot').innerHTML=`Denominator = customer-slot-confirmed tasks received this month; a CSP with none is in
     <b>No confirmed-slot tasks</b> (gate undefined), not "below". <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)}
     below-gate CSPs received confirmed tasks but completed <b>zero</b> installs (the ignition worklist).
