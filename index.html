@@ -180,9 +180,9 @@ svg text{font-family:inherit}
     <div class="label">CSP status — moved vs stuck, before → after</div>
     <div class="sub" id="ign-sub"></div>
     <div style="background:#FFE6CC;color:#B85C00;border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:500;margin-top:10px">
-      ⚠ The July window is still maturing — a booking from early July may still install over the next week or two,
+      ⚠ The July window is still maturing — a task created in early July may still install over the next week or two,
       so <b>moved-after undercounts</b> today and will rise (a ▼ here is likely a maturity effect, not a real drop).
-      The June window is fully matured. Read the direction once July's bookings are ~2+ weeks old.
+      The June window is fully matured. Read the direction once July's tasks are ~2+ weeks old.
     </div>
     <div class="strip" id="ign-tiles" style="margin-top:16px"></div>
     <div style="margin-top:16px" id="ign-meters"></div>
@@ -197,12 +197,13 @@ svg text{font-family:inherit}
     </div>
   </div>
   <div class="foot card">
-    <b>Definitions.</b> Per enrolled CSP, in each 7-day window:
-    <b>Moved</b> = ≥1 install. <b>Ignition failure</b> = bookings assigned but 0 installs — leads
-    arrived, none converted. <b>Demand failure</b> = 0 bookings assigned — nothing reached the CSP
-    (demand engine not routing to them). "Bookings assigned" = the CSP is the current TAS task's CSP
-    for a booking (same Q11528 chain as L1). <b>Before</b> = 24–30 Jun (last week of June, matured),
-    <b>after</b> = 1–7 Jul (first week of July) — equal windows, same CSPs, current belief.
+    <b>Definitions — task-activity based (matches the team's tasks × installs cross-tab).</b>
+    Per enrolled CSP, counted by TAS install tasks <b>created</b> in the window (any booking vintage,
+    not booking-confirm anchored like the L1 funnel): <b>Moved</b> = ≥1 of those tasks installed.
+    <b>Ignition failure</b> = ≥1 task received, none installed. <b>Demand failure</b> = 0 tasks
+    received — nothing reached the CSP (demand engine not routing to them). <b>Before</b> = 24–30 Jun
+    (last week of June, matured), <b>after</b> = 1–7 Jul (first week of July) — equal windows, same
+    CSPs, current belief.
   </div>
 </div>
 
@@ -703,8 +704,8 @@ function render(d){
 }
 
 const IGN=[['moved','var(--green)','Moved','≥1 install'],
-           ['ignition','var(--amber)','Ignition failure','bookings assigned, 0 installs'],
-           ['demand','var(--red)','Demand failure','0 bookings assigned']];
+           ['ignition','var(--amber)','Ignition failure','tasks received, 0 installs'],
+           ['demand','var(--red)','Demand failure','0 tasks received']];
 function ignMeter(t,n){return IGN.map(([k,c])=>`<div style="width:${100*t[k]/(n||1)}%;background:${c};border-radius:0"></div>`).join('');}
 function renderIgnition(g){
   const n=g.enrolled||1, b=g.totals_before, a=g.totals_after;

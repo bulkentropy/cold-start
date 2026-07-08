@@ -470,34 +470,21 @@ def compute_cohort(enrolled_ids, latest):
     cohort = {"after_window": list(after_win), "after_days": after_days,
               "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
 
-    # ----- CSP-status split: classify each enrolled CSP in BOTH 7-day windows --
-    def per_csp_window(win):
-        m = {}
-        for r in raw:
-            if not (win[0] <= str(r["booking_date"])[:10] <= win[1]):
-                continue
-            pid = str(r["partner_id"])
-            if cohort_of.get(pid) is None:
-                continue
-            c = m.setdefault(pid, {"bk": 0, "inst": 0})
-            c["bk"] += 1
-            if r["depth"] >= 6:
-                c["inst"] += 1
-        return m
+    # ----- CSP-status split: TASK-ACTIVITY based (matches the team cross-tab) --
+    ssql = open(os.path.join(BASE_DIR, "sql", "l1_status.sql"), encoding="utf-8").read()
+    ssql = ssql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+    sraw = {str(r["partner_id"]): r for r in metabase_sql(ssql)}
 
-    def outcomes(per):
-        o = {}
-        for p in enrolled_ids:
-            if p not in per:
-                o[p] = "demand"       # 0 bookings assigned — nothing reached the CSP
-            elif per[p]["inst"] == 0:
-                o[p] = "ignition"     # bookings assigned, 0 installs
-            else:
-                o[p] = "moved"        # >= 1 install
-        return o
+    def classify(p, tk, ik):
+        r = sraw.get(p)
+        if r and (r[ik] or 0) > 0:
+            return "moved"           # >= 1 install (from tasks created in the window)
+        if r and (r[tk] or 0) > 0:
+            return "ignition"        # tasks created, none installed
+        return "demand"              # 0 tasks — nothing reached the CSP
 
-    out_b = outcomes(per_csp_window(IGN_BEFORE))
-    out_a = outcomes(per_csp_window(IGN_AFTER))
+    out_b = {p: classify(p, "tb", "ib") for p in enrolled_ids}
+    out_a = {p: classify(p, "ta", "ia") for p in enrolled_ids}
 
     def split(out, keys):
         s = {"moved": 0, "ignition": 0, "demand": 0}
