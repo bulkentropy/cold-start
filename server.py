@@ -348,12 +348,22 @@ def compute_l1(enrolled_ids):
             return round(sum(vals) / len(vals), 1) if vals else None
         return {k: avg(k) for k in L1_KEYS}
 
+    # Install ratio has a lead time: the majority of installs land within 2-3
+    # days of the customer confirming a slot. Slot-confirmed days newer than
+    # this cutoff are still installing, so they are EXCLUDED from the post
+    # average (they only understate it). The daily series still carries them so
+    # the tail is visible on the chart, just greyed as "maturing".
+    mature_cutoff = (datetime.now(IST).date() - timedelta(days=3)).isoformat()
+
     modes = {}
     for mode, rows in (("cohort", agg_cohort()), ("event", agg_event()),
                        ("confirm_cohort", agg_confirm())):
         pre = [r for r in rows if L1_START <= r["day_ist"] <= PRE_END]
         post = [r for r in rows if r["day_ist"] >= POST_START]
+        if mode == "confirm_cohort":
+            post = [r for r in post if r["day_ist"] <= mature_cutoff]
         modes[mode] = {"daily": rows, "pre_avg": block(pre), "post_avg": block(post)}
+    modes["confirm_cohort"]["mature_cutoff"] = mature_cutoff
 
     return {"modes": modes, "enrolled_n": len(enrolled_ids),
             "csps_receiving": {"enrolled": csps.get(1), "non_enrolled": csps.get(0)},

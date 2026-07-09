@@ -393,6 +393,7 @@ svg text{font-family:inherit}
     <div class="label">L2 · Target metric — did the intervention do its job?</div>
     <div class="sub">Install Ratio = installs ÷ slots confirmed by customer, MG cohort, by customer slot-confirmed day (Q11528 depths: 6 ÷ ≥4) — the ratio's own denominator basis</div>
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
+    <div class="sub" id="l2-foot" style="margin-top:12px"></div>
   </div>
   <div class="l1grid" id="l2grid"></div>
   <div class="card section" style="margin-top:20px" id="l2-gate" hidden>
@@ -507,13 +508,14 @@ async function renderOverview(){
   const overdue=actions.filter(a=>isOpen(a)&&a.due_date&&a.due_date<today).length;
   let l2='–',l2col='var(--muted)';
   if(DATA&&DATA.l1){
-    const daily=DATA.l1.modes.cohort.daily;
+    const m=DATA.l1.modes.confirm_cohort||DATA.l1.modes.cohort, daily=m.daily;
+    const cutoff=m.mature_cutoff||new Date(Date.now()-3*864e5).toISOString().slice(0,10);
     const pool=rs=>{const c=rs.reduce((x,r)=>x+(r.cust_confirmed||0),0),i=rs.reduce((x,r)=>x+(r.installs||0),0);return c?Math.round(1000*i/c)/10:null;};
-    const pre=pool(daily.filter(r=>r.day_ist<=DATA.meta.pre[1])),post=pool(daily.filter(r=>r.day_ist>=DATA.meta.post_start));
-    if(pre!=null&&post!=null){const dd=Math.round(10*(post-pre))/10;l2=(dd>0?'+':'')+dd+' pp';l2col=dd>=0?'var(--green)':'var(--amber)';}
+    const pre=pool(daily.filter(r=>r.day_ist<=DATA.meta.pre[1])),post=pool(daily.filter(r=>r.day_ist>=DATA.meta.post_start&&r.day_ist<=cutoff));
+    if(pre!=null&&post!=null){const dd=Math.round(10*(post-pre))/10;l2=(dd>0?'+':'')+dd+' pp';l2col=dd>=0?'var(--green)':'var(--red)';}
   }
   $('ov-pulse').innerHTML=
-    tile(l2,'L2 movement','install ratio, post vs pre (maturing)','color:'+l2col)+
+    tile(l2,'L2 movement','install ratio, post vs pre · 3+ day mature','color:'+l2col)+
     tile(openA,'Open tasks','on the command board')+
     tile(openD,'Open decision points','waiting on a call','color:var(--purple)')+
     tile(overdue,'Overdue','past their board timeline','color:'+(overdue?'var(--red)':'var(--green)'))+
@@ -984,31 +986,38 @@ async function saveCall(pid,name,answer){
 }
 
 function renderL2(l1,meta){
-  const daily=(l1.modes.confirm_cohort||l1.modes.cohort).daily;
+  const m=l1.modes.confirm_cohort||l1.modes.cohort;
+  const daily=m.daily;
+  // Install ratio lags slot-confirmation by ~2-3 days (most installs land in
+  // that window). Days newer than the cutoff are still installing, so they are
+  // held out of BOTH the pre/post ratio and the movement — including them only
+  // understates the post number. Server sends the same cutoff it uses for the
+  // chart post-average, so the headline and the chart badge agree.
+  const cutoff=m.mature_cutoff||new Date(Date.now()-3*864e5).toISOString().slice(0,10);
   const pool=rows=>{
     const c=rows.reduce((a,r)=>a+(r.cust_confirmed||0),0), i=rows.reduce((a,r)=>a+(r.installs||0),0);
     return {c,i,ratio:c?Math.round(1000*i/c)/10:null};
   };
   const pre=pool(daily.filter(r=>r.day_ist<=meta.pre[1]));
-  const post=pool(daily.filter(r=>r.day_ist>=meta.post_start));
+  const post=pool(daily.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
+  const held=daily.filter(r=>r.day_ist>=meta.post_start&&r.day_ist>cutoff).length;
   const d=(pre.ratio!=null&&post.ratio!=null)?Math.round(10*(post.ratio-pre.ratio))/10:null;
-  // post window is immature until its newest booking day has had ~3 days to install
-  const cutoff=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
-  const newest=daily.length?daily[daily.length-1].day_ist:null;
-  const immature=newest!=null&&newest>cutoff;
-  const col=d==null?'inherit':(immature?'var(--amber)':(d>=0?'var(--green)':'var(--red)'));
-  const verdict=d==null?'':(immature?'post bookings still installing — judge in a few days'
-    :(d>0?`moving the right way`:(d<0?`not yet`:'flat')));
+  const col=d==null?'inherit':(d>=0?'var(--green)':'var(--red)');
+  const verdict=d==null?'':(d>0?'moving the right way':(d<0?'not yet':'flat'));
+  const _mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const _cp=cutoff.split('-'), cutLbl=(+_cp[2])+' '+_mn[+_cp[1]-1];
   $('l2-hero').innerHTML=
     tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · confirmed 24–30 Jun`)+
-    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · confirmed since 1 Jul${immature?' (maturing)':''}`,'color:'+col)+
+    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · confirmed 1 Jul–${cutLbl} (mature)`,'color:'+col)+
     tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
+  $('l2-foot').innerHTML=`Averages count only slot-confirmed days that are <b>3+ days old</b> (through ${cutLbl}), since
+    most installs land within 2–3 days of confirmation.${held?` The last <b>${held}</b> day${held>1?'s are':' is'} still
+    maturing (shaded on the chart) and held out of the ratio — they only rise as installs land.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
-  const m=l1.modes.confirm_cohort||l1.modes.cohort;
-  [{title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,
-    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed`},
-   {title:'Installs by slot-confirmed day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,
-    tip:r=>`slots confirmed ${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed that day: ${fmt(r.cust_confirmed)}`}
+  [{title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
+    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`},
+   {title:'Installs by slot-confirmed day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,mature:cutoff,
+    tip:r=>`slots confirmed ${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed that day: ${fmt(r.cust_confirmed)}${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}
   ].forEach(s=>g.appendChild(chartCard(s,m,meta)));
 }
 
@@ -1136,6 +1145,14 @@ function chartCard(s,m,meta){
     const x0=s.kind==='bar'?xb(0):x(0), x1=s.kind==='bar'?xb(preIdx+1):x(preIdx);
     svg+=`<rect x="${x0}" y="${T}" width="${x1-x0}" height="${H-T-B}" fill="#F1EDF7"/>
       <text x="${x0+5}" y="${T+13}" font-size="10" font-weight="700" letter-spacing="1" fill="${MUTED}">PRE</text>`;
+  }
+  if(s.mature){   // trailing days newer than the maturity cutoff — held out of averages
+    let mi=-1; for(let i=0;i<rows.length;i++){if(rows[i].day_ist>s.mature){mi=i;break;}}
+    if(mi>=0){
+      const x0=s.kind==='bar'?xb(mi):x(mi), x1=W-R;
+      svg+=`<rect x="${x0}" y="${T}" width="${x1-x0}" height="${H-T-B}" fill="#FBF3E4"/>
+        <text x="${x1-5}" y="${T+13}" font-size="10" font-weight="700" letter-spacing="1" fill="#C77700" text-anchor="end">MATURING</text>`;
+    }
   }
   for(let i=0;i<=4;i++){
     const v=ymax*i/4, yy=y(v);
