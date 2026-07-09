@@ -384,12 +384,13 @@ def compute_l1(enrolled_ids):
             return round(sum(vals) / len(vals), 1) if vals else None
         return {k: avg(k) for k in L1_KEYS}
 
-    # Install ratio has a lead time: the majority of installs land within 2-3
-    # days of the customer confirming a slot. Slot-confirmed days newer than
-    # this cutoff are still installing, so they are EXCLUDED from the post
-    # average (they only understate it). The daily series still carries them so
-    # the tail is visible on the chart, just greyed as "maturing".
-    mature_cutoff = (datetime.now(IST).date() - timedelta(days=3)).isoformat()
+    # Install ratio has a lead time: while most installs complete within 2-3
+    # days, the ratio itself keeps rising for longer (future-dated slots), so we
+    # hold out the 3 MOST RECENT slot-confirmed days as still-maturing and
+    # exclude them from the post average (they only understate it). The daily
+    # series ends yesterday (today-1), so the last mature day = today-4. The
+    # tail stays on the chart, greyed as "maturing".
+    mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
 
     modes = {}
     for mode, rows in (("cohort", agg_cohort()), ("event", agg_event()),

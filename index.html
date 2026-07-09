@@ -515,7 +515,7 @@ async function renderOverview(){
   let l2='–',l2col='var(--muted)';
   if(DATA&&DATA.l1){
     const m=DATA.l1.modes.confirm_cohort||DATA.l1.modes.cohort, daily=m.daily;
-    const cutoff=m.mature_cutoff||new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+    const cutoff=m.mature_cutoff||new Date(Date.now()-4*864e5).toISOString().slice(0,10);
     const pool=rs=>{const c=rs.reduce((x,r)=>x+(r.cust_confirmed||0),0),i=rs.reduce((x,r)=>x+(r.installs||0),0);return c?Math.round(1000*i/c)/10:null;};
     const pre=pool(daily.filter(r=>r.day_ist<=DATA.meta.pre[1])),post=pool(daily.filter(r=>r.day_ist>=DATA.meta.post_start&&r.day_ist<=cutoff));
     if(pre!=null&&post!=null){const dd=Math.round(10*(post-pre))/10;l2=(dd>0?'+':'')+dd+' pp';l2col=dd>=0?'var(--green)':'var(--red)';}
@@ -999,7 +999,7 @@ function renderL2(l1,meta){
   // held out of BOTH the pre/post ratio and the movement — including them only
   // understates the post number. Server sends the same cutoff it uses for the
   // chart post-average, so the headline and the chart badge agree.
-  const cutoff=m.mature_cutoff||new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+  const cutoff=m.mature_cutoff||new Date(Date.now()-4*864e5).toISOString().slice(0,10);
   const pool=rows=>{
     const c=rows.reduce((a,r)=>a+(r.cust_confirmed||0),0), i=rows.reduce((a,r)=>a+(r.installs||0),0);
     return {c,i,ratio:c?Math.round(1000*i/c)/10:null};
@@ -1016,9 +1016,9 @@ function renderL2(l1,meta){
     tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · confirmed 24–30 Jun`)+
     tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · confirmed 1 Jul–${cutLbl} (mature)`,'color:'+col)+
     tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
-  $('l2-foot').innerHTML=`Averages count only slot-confirmed days that are <b>3+ days old</b> (through ${cutLbl}), since
-    most installs land within 2–3 days of confirmation.${held?` The last <b>${held}</b> day${held>1?'s are':' is'} still
-    maturing (shaded on the chart) and held out of the ratio — they only rise as installs land.`:''}`;
+  $('l2-foot').innerHTML=`Averages hold out the <b>3 most recent</b> slot-confirmed days (through ${cutLbl}) as still
+    maturing — the install ratio keeps rising for a few days after a slot is confirmed.${held?` The last <b>${held}</b>
+    day${held>1?'s are':' is'} shaded on the chart and excluded from the ratio.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
   [{title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
     tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`},
