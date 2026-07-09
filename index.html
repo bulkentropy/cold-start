@@ -395,12 +395,6 @@ svg text{font-family:inherit}
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
     <div class="sub" id="l2-foot" style="margin-top:12px"></div>
   </div>
-  <div class="card" id="l2-lead" style="margin-bottom:20px;display:none">
-    <div class="label">Install lead time — customer slot-confirmed → installation completed</div>
-    <div class="sub">Per task, MG cohort, installs completed in the last 15 days (Q11528: depth 6 timestamp − depth ≥4 timestamp)</div>
-    <div class="strip" id="l2-lead-hero" style="margin-top:14px"></div>
-    <div class="sub" id="l2-lead-foot" style="margin-top:12px"></div>
-  </div>
   <div class="l1grid" id="l2grid"></div>
   <div class="card section" style="margin-top:20px" id="l2-gate" hidden>
     <div class="label">Install-rate gate — enrolled CSPs, this month</div>
@@ -433,6 +427,12 @@ svg text{font-family:inherit}
     so the post ratio and the last few daily points drift <i>upward</i> as tasks complete. Compare
     trend direction early; trust the level only once days are ~3+ days old. Same cohort of
     enrolled CSPs in both windows.
+  </div>
+  <div class="card section" id="l2-lead" style="margin-top:20px;display:none">
+    <div class="label">Install lead time — customer slot-confirmed → installation completed</div>
+    <div class="sub">Per task, MG cohort, installs completed in the last 15 days (Q11528: depth 6 timestamp − depth ≥4 timestamp)</div>
+    <div class="strip" id="l2-lead-hero" style="margin-top:14px"></div>
+    <div class="sub" id="l2-lead-foot" style="margin-top:12px"></div>
   </div>
 </div>
 <div class="tt" id="tt"></div>
