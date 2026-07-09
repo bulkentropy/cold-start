@@ -395,6 +395,12 @@ svg text{font-family:inherit}
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
     <div class="sub" id="l2-foot" style="margin-top:12px"></div>
   </div>
+  <div class="card" id="l2-lead" style="margin-bottom:20px;display:none">
+    <div class="label">Install lead time — customer slot-confirmed → installation completed</div>
+    <div class="sub">Per task, MG cohort, installs completed in the last 15 days (Q11528: depth 6 timestamp − depth ≥4 timestamp)</div>
+    <div class="strip" id="l2-lead-hero" style="margin-top:14px"></div>
+    <div class="sub" id="l2-lead-foot" style="margin-top:12px"></div>
+  </div>
   <div class="l1grid" id="l2grid"></div>
   <div class="card section" style="margin-top:20px" id="l2-gate" hidden>
     <div class="label">Install-rate gate — enrolled CSPs, this month</div>
@@ -1019,6 +1025,21 @@ function renderL2(l1,meta){
    {title:'Installs by slot-confirmed day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,mature:cutoff,
     tip:r=>`slots confirmed ${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed that day: ${fmt(r.cust_confirmed)}${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}
   ].forEach(s=>g.appendChild(chartCard(s,m,meta)));
+  renderLeadtime(l1.leadtime);
+}
+
+function renderLeadtime(lt){
+  const box=$('l2-lead');
+  if(!lt||!lt.n){box.style.display='none';return;}
+  box.style.display='';
+  const hh=h=>h==null?'–':(h>=24?`${(h/24).toFixed(1)} d`:`${Math.round(h)} h`);
+  $('l2-lead-hero').innerHTML=
+    tile(hh(lt.p50_h),'P50 · median',`${Math.round(lt.p50_h)} h from slot-confirmation`)+
+    tile(hh(lt.p90_h),'P90',`${Math.round(lt.p90_h)} h · 9 in 10 done by here`)+
+    tile(hh(lt.p99_h),'P99',`${Math.round(lt.p99_h)} h · practically all done`);
+  const w2=Math.round(100*lt.within_2d/lt.n), w3=Math.round(100*lt.within_3d/lt.n);
+  $('l2-lead-foot').innerHTML=`Based on <b>${fmt(lt.n)}</b> installs completed in the last 15 days · mean ${hh(lt.mean_h)} ·
+    <b>${w2}%</b> land within 2 days, <b>${w3}%</b> within 3 days — which is why the install-ratio averages above hold out the most recent 3 days.`;
 }
 
 function renderNsm(n){

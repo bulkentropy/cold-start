@@ -269,6 +269,42 @@ def _daterange(start, end):
     return out
 
 
+def _leadtime_stats(enrolled_ids):
+    # Install lead time = INSTALLATION_COMPLETED_AT - CONFIRMED_SLOT_AT per task,
+    # for MG-cohort installs COMPLETED in the last 15 days (dedup to the
+    # completing row per connection; drop negatives). Percentiles in hours.
+    inlist = ",".join(f"'{p}'" for p in enrolled_ids)
+    sql = f"""
+    WITH acct AS (
+      SELECT CSP_ID, PARTNER_ID::STRING AS pid
+      FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
+      WHERE _fivetran_active = TRUE
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY CSP_ID ORDER BY 1) = 1
+    ),
+    t AS (
+      SELECT c.CONNECTION_ID,
+        DATEDIFF('minute', c.CONFIRMED_SLOT_AT, c.INSTALLATION_COMPLETED_AT) AS dmin
+      FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
+      JOIN acct a ON a.CSP_ID = c.CSP_ID AND a.pid IN ({inlist})
+      WHERE c.ETL_CURRENT = TRUE
+        AND c.CONFIRMED_SLOT_AT IS NOT NULL
+        AND c.INSTALLATION_COMPLETED_AT IS NOT NULL
+        AND c.INSTALLATION_COMPLETED_AT >= DATEADD(day, -15, DATEADD(minute, -330, CURRENT_TIMESTAMP()))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY c.CONNECTION_ID ORDER BY c.INSTALLATION_COMPLETED_AT DESC) = 1
+    ),
+    pos AS (SELECT dmin FROM t WHERE dmin >= 0)
+    SELECT COUNT(*) AS n,
+      ROUND(AVG(dmin)/60.0, 1) AS mean_h,
+      ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY dmin)/60.0, 1) AS p50_h,
+      ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY dmin)/60.0, 1) AS p90_h,
+      ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY dmin)/60.0, 1) AS p99_h,
+      COUNT_IF(dmin <= 2880) AS within_2d,
+      COUNT_IF(dmin <= 4320) AS within_3d
+    FROM pos"""
+    rows = metabase_sql(sql)
+    return rows[0] if rows and rows[0].get("n") else None
+
+
 def compute_l1(enrolled_ids):
     if not enrolled_ids:
         raise RuntimeError("no enrolled partners — L1 skipped")
@@ -365,7 +401,13 @@ def compute_l1(enrolled_ids):
         modes[mode] = {"daily": rows, "pre_avg": block(pre), "post_avg": block(post)}
     modes["confirm_cohort"]["mature_cutoff"] = mature_cutoff
 
-    return {"modes": modes, "enrolled_n": len(enrolled_ids),
+    try:
+        leadtime = _leadtime_stats(enrolled_ids)
+    except Exception:
+        traceback.print_exc()
+        leadtime = None
+
+    return {"modes": modes, "enrolled_n": len(enrolled_ids), "leadtime": leadtime,
             "csps_receiving": {"enrolled": csps.get(1), "non_enrolled": csps.get(0)},
             "complete_through": yday}
 
