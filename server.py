@@ -478,7 +478,12 @@ def compute_cohort(enrolled_ids, latest):
     # here (unlike L2's slot-confirmed anchor) — both definitions kept as-is.
     mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
     after_days = len(_daterange(*after_win))
-    before_days = len(_daterange(*COHORT_BEFORE))
+    # Selectable "before" baselines. 1-15 Jun predates the CSP-TAS migration
+    # (~17-22 Jun) so its install data is under-recorded; 24-30 Jun is fully
+    # post-migration (clean) — the honest install-ratio baseline.
+    BEFORE_WINDOWS = [("a", tuple(COHORT_BEFORE), "1–15 Jun · pre-migration (install data under-recorded)"),
+                      ("b", ("2026-06-24", "2026-06-30"), "24–30 Jun · post-migration (clean baseline)")]
+    before_days = {wid: len(_daterange(*win)) for wid, win, _ in BEFORE_WINDOWS}
 
     # cohort-size denominators (every enrolled CSP has a cohort, even with 0 bookings)
     cohort_size = {k: 0 for k, _ in COHORT_ORDER}
@@ -490,15 +495,20 @@ def compute_cohort(enrolled_ids, latest):
                     "confirmed_mat": 0, "installed_mat": 0,
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
-    before, after = fresh(), fresh()
+    befores = {wid: fresh() for wid, _, _ in BEFORE_WINDOWS}
+    after = fresh()
     for r in raw:
         d = str(r["booking_date"])[:10]
-        if COHORT_BEFORE[0] <= d <= COHORT_BEFORE[1]:
-            bucket = before
-        elif after_win[0] <= d <= after_win[1]:
-            bucket = after
-        else:
-            continue
+        bucket = None
+        for wid, win, _ in BEFORE_WINDOWS:
+            if win[0] <= d <= win[1]:
+                bucket = befores[wid]
+                break
+        if bucket is None:
+            if after_win[0] <= d <= after_win[1]:
+                bucket = after
+            else:
+                continue
         pid = str(r["partner_id"])
         ck = cohort_of.get(pid)
         if ck is None:
@@ -544,13 +554,16 @@ def compute_cohort(enrolled_ids, latest):
 
     def row_for(keys, label, size):
         return {"label": label, "csps": size, "small": size < SMALL_COHORT,
-                "before": block(before, keys, size, before_days),
+                "befores": {wid: block(befores[wid], keys, size, before_days[wid])
+                            for wid, _, _ in BEFORE_WINDOWS},
                 "after": block(after, keys, size, after_days)}
 
     rows = [row_for([k], lbl, cohort_size[k]) for k, lbl in COHORT_ORDER]
     rows.append(row_for([k for k, _ in COHORT_ORDER], "All enrolled", len(enrolled_ids)))
     cohort = {"after_window": list(after_win), "after_days": after_days,
-              "before_window": list(COHORT_BEFORE), "before_days": before_days, "rows": rows}
+              "before_options": [{"id": wid, "window": list(win), "days": before_days[wid], "label": lbl}
+                                 for wid, win, lbl in BEFORE_WINDOWS],
+              "rows": rows}
 
     # ----- CSP-status split: TASK-ACTIVITY based (matches the team cross-tab) --
     month_start = datetime.now(IST).date().replace(day=1).isoformat()
