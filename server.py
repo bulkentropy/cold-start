@@ -1066,6 +1066,77 @@ _cache = {"payload": None, "at": 0.0}
 _lock = threading.Lock()
 
 
+FAIL_STATES = "('DECLINED','CANCELLED_BY_UPSTREAM','CANCELLED_BY_CUSTOMER'," \
+              "'INSTALLATION_REPORTED_FAILED','INSTALLATION_EXPIRED')"
+
+
+def _fail_owner(reason):
+    """Map a terminal-failure reason -> (owner, bucket, plain-English why)."""
+    k = (reason or "").upper()
+    if "SUPERSEDED" in k or "REOPEN" in k: return ("exclude", "", "")
+    if "NO_SHOW" in k: return ("csp", "CSP no-show", "Technician assigned but did not show up.")
+    if "TIMEOUT" in k or "RETRY_EXHAUST" in k: return ("csp", "Timeout / inaction", "CSP did not accept/act within the SLA window; the booking timed out.")
+    if "ROUTING" in k: return ("wiom", "Routing failure", "Platform failed to route the booking to a CSP.")
+    if "DEVICE" in k: return ("wiom", "Device unavailable", "Required device was unavailable (device ordering held).")
+    if "SCHEDUL" in k: return ("wiom", "Scheduling", "Installation could not be scheduled.")
+    if "SERVICE NOT AVAILABLE" in k or "COVERAGE" in k: return ("wiom", "No coverage", "Declared not serviceable at the address — booking routed where it cannot be served (serviceability / planning gap).")
+    if "NETWORK SETUP" in k: return ("wiom", "Network setup not possible", "Network setup not possible at the location.")
+    if "BACKHAUL" in k: return ("wiom", "Backhaul not ready", "Backhaul / network not ready.")
+    if "PRICE" in k or "PLAN PRI" in k: return ("customer", "Price", "Customer did not agree with the plan price.")
+    if "NOT INTERESTED" in k: return ("customer", "Not interested", "Customer reported not interested.")
+    if "CANCEL" in k: return ("customer", "Cancelled", "Customer cancelled the booking.")
+    return ("unclassified", str(reason or "?"), "")
+
+
+def compute_failures(days_n=15):
+    """Daily failed installs by owner (CSP/Wiom/Customer), absolute-terminal per
+    Connection ID (last transition is a terminal failure, never installed), plus
+    the full Wiom-attributed booking list. Re-farm aware."""
+    today = datetime.now(IST).date()
+    start = (today - timedelta(days=days_n)).isoformat()
+    yday = (today - timedelta(days=1)).isoformat()
+    cte = f"""
+    WITH cc AS (SELECT DISTINCT EXECUTION_CANDIDATE_ID, CONNECTION_ID FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES),
+    inst AS (SELECT DISTINCT CONNECTION_ID FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES WHERE INSTALLATION_COMPLETED_AT IS NOT NULL),
+    tr AS (SELECT cc.CONNECTION_ID, t.TO_STATE, t.REASON_CODE, t.OCCURRED_AT
+           FROM PROD_DB.CSP_TAS_SERVICE_CSP_TAS_SERVICE.INSTALL_STATE_TRANSITION_LOG t
+           JOIN cc ON cc.EXECUTION_CANDIDATE_ID = t.EXECUTION_CANDIDATE_ID
+           WHERE t._FIVETRAN_DELETED = FALSE AND t.OCCURRED_AT >= DATEADD(day, -35, CURRENT_TIMESTAMP())),
+    final AS (SELECT CONNECTION_ID, TO_STATE, REASON_CODE, OCCURRED_AT FROM tr
+              QUALIFY ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID ORDER BY OCCURRED_AT DESC) = 1),
+    failed AS (SELECT CONVERT_TIMEZONE('Asia/Kolkata', f.OCCURRED_AT)::DATE::STRING AS day,
+                      f.CONNECTION_ID::STRING AS conn, f.REASON_CODE AS reason
+               FROM final f
+               WHERE f.CONNECTION_ID NOT IN (SELECT CONNECTION_ID FROM inst)
+                 AND f.TO_STATE IN {FAIL_STATES}
+                 AND CONVERT_TIMEZONE('Asia/Kolkata', f.OCCURRED_AT)::DATE >= '{start}')"""
+    agg = metabase_sql(cte + " SELECT day, reason, COUNT(DISTINCT conn) n FROM failed GROUP BY 1,2")
+
+    days = _daterange(start, yday)
+    daily = {d: {"day": d, "csp": 0, "wiom": 0, "customer": 0} for d in days}
+    for r in agg:
+        owner = _fail_owner(r["reason"])[0]
+        d = str(r["day"])[:10]
+        if d in daily and owner in ("csp", "wiom", "customer"):
+            daily[d][owner] += r["n"] or 0
+    for v in daily.values():
+        v["total"] = v["csp"] + v["wiom"] + v["customer"]
+
+    lst = metabase_sql(cte + """ SELECT day, conn, reason FROM failed
+        WHERE reason ILIKE '%service not available%' OR reason ILIKE '%network setup%'
+           OR reason ILIKE '%device%' OR reason ILIKE '%schedul%' OR reason ILIKE '%coverage%'
+           OR reason ILIKE '%backhaul%' OR reason ILIKE '%routing%'
+        ORDER BY day DESC, conn""")
+    wiom = []
+    for r in lst:
+        owner, bucket, why = _fail_owner(r["reason"])
+        if owner != "wiom":
+            continue
+        wiom.append({"day": str(r["day"])[:10], "conn": r["conn"], "bucket": bucket,
+                     "reason": r["reason"], "why": why})
+    return {"daily": [daily[d] for d in days], "wiom_list": wiom, "through": yday}
+
+
 def refresh(force=False):
     with _lock:
         if (not force and _cache["payload"]
@@ -1125,6 +1196,13 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"L1: {type(e).__name__}: {e}")
             payload["l1"] = prev.get("l1")
+
+        try:
+            payload["failures"] = compute_failures()
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"failures: {type(e).__name__}: {e}")
+            payload["failures"] = prev.get("failures")
 
         if payload.get("l0") is not None:
             payload["l0"].pop("enrolled_partner_ids", None)

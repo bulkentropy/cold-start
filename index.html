@@ -397,6 +397,17 @@ svg text{font-family:inherit}
     <div class="sub" id="l2-foot" style="margin-top:12px"></div>
   </div>
   <div class="l1grid" id="l2grid"></div>
+  <div class="card section" id="l2-fail" style="margin-top:20px" hidden>
+    <div class="label">Failed installs by owner — daily</div>
+    <div class="sub" id="fail-sub"></div>
+    <div id="fail-chart" style="margin-top:14px;overflow-x:auto"></div>
+    <div class="strip" id="fail-latest" style="margin-top:14px"></div>
+    <div class="foot" id="fail-foot" style="margin-top:10px"></div>
+    <details id="fail-details" style="margin-top:14px">
+      <summary class="label" style="cursor:pointer">▸ Wiom-attributed failures — the bookings &amp; why (<span id="fail-wn">—</span>)</summary>
+      <div class="tablewrap" style="margin-top:10px"><table class="board" id="fail-table" style="min-width:660px"></table></div>
+    </details>
+  </div>
   <div class="card section" style="margin-top:20px" id="l2-gate" hidden>
     <div class="label">Install-rate gate — enrolled CSPs, this month</div>
     <div class="sub" id="gate-sub"></div>
@@ -715,6 +726,7 @@ function render(d){
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0);}
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
+  if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);
   if(d.cohort)renderCohort(d.cohort);
   if(d.ignition)renderIgnition(d.ignition);
@@ -1063,6 +1075,39 @@ function renderLeadtime(lt){
   const w2=Math.round(100*lt.within_2d/lt.n), w3=Math.round(100*lt.within_3d/lt.n);
   $('l2-lead-foot').innerHTML=`Based on <b>${fmt(lt.n)}</b> installs completed in the last 15 days · mean ${hh(lt.mean_h)} ·
     <b>${w2}%</b> land within 2 days, <b>${w3}%</b> within 3 days — which is why the install-ratio averages above hold out the most recent 3 days.`;
+}
+
+function renderFailures(f){
+  const box=$('l2-fail');
+  if(!f||!f.daily||!f.daily.length){box.hidden=true;return;}
+  box.hidden=false;
+  const d=f.daily, last=d[d.length-1];
+  $('fail-sub').innerHTML=`Bookings whose <b>absolute-final</b> state is a terminal failure — one per Connection ID, never installed, re-farm-aware — split by who owns the failure. Through ${f.through}.`;
+  const COL={csp:'#6D17CE',wiom:'#D9008D',customer:'#9A93AD'};
+  const W=760,H=200,L=34,R=10,T=10,B=26,n=d.length;
+  const ymax=Math.max(1,...d.map(x=>x.total))*1.12, y=v=>T+(H-T-B)*(1-v/ymax);
+  const step=(W-L-R)/n, bw=Math.max(4,step-4);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
+  for(let i=0;i<=4;i++){const v=ymax*i/4,yy=y(v);
+    svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${L-5}" y="${yy+3}" font-size="10" fill="${MUTED}" text-anchor="end">${Math.round(v)}</text>`;}
+  d.forEach((x,i)=>{const bx=L+step*i+2; let yb=H-B;
+    [['csp',x.csp],['wiom',x.wiom],['customer',x.customer]].forEach(([k,v])=>{if(v>0){const h=(H-T-B)*v/ymax; yb-=h;
+      svg+=`<rect x="${bx}" y="${yb}" width="${bw}" height="${h}" fill="${COL[k]}"><title>${x.day} · ${k}: ${v}</title></rect>`;}});
+    if(i===0||i===n-1||i%5===0)svg+=`<text x="${bx+bw/2}" y="${H-9}" font-size="10" fill="${MUTED}" text-anchor="middle">${x.day.slice(5)}</text>`;});
+  svg+='</svg>';
+  const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
+  $('fail-chart').innerHTML=svg+`<div style="display:flex;gap:18px;margin-top:6px;font-size:12px;color:var(--ink2)">${key(COL.csp,'CSP')}${key(COL.wiom,'Wiom')}${key(COL.customer,'Customer')}</div>`;
+  const pc=t=>last.total?Math.round(100*t/last.total):0;
+  $('fail-latest').innerHTML=
+    tile(last.total,'Failed installs',`${f.through} · absolute terminal`)+
+    tile(last.csp+' ('+pc(last.csp)+'%)','CSP','no-show / timeout / inaction','color:'+COL.csp)+
+    tile(last.wiom+' ('+pc(last.wiom)+'%)','Wiom','device / scheduling / coverage','color:'+COL.wiom)+
+    tile(last.customer+' ('+pc(last.customer)+'%)','Customer','cancelled / not interested','color:'+COL.customer);
+  $('fail-foot').innerHTML=`Owner from the booking's final terminal reason. CSP reasons are self-reported, so <b>CSP is a floor and Customer a ceiling</b> (a CSP can log "not interested" or let it time out to mask a no-show). Recent days' CSP-timeout counts firm up as bookings resolve.`;
+  const wl=f.wiom_list||[];
+  $('fail-wn').textContent=wl.length;
+  $('fail-table').innerHTML=`<tr><th>Day</th><th>Connection ID</th><th>Bucket</th><th>Why it's Wiom's</th></tr>`+
+    wl.map(w=>`<tr><td>${w.day}</td><td style="font-family:monospace;font-size:12px">${esc(w.conn)}</td><td><b>${esc(w.bucket)}</b></td><td style="color:var(--ink2)">${esc(w.why)}</td></tr>`).join('');
 }
 
 function renderNsm(n){
