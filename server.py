@@ -408,7 +408,38 @@ def compute_l1(enrolled_ids):
         traceback.print_exc()
         leadtime = None
 
+    # task-level: customer-slot-confirmed TASKS (each CSP-task, re-farm counted)
+    # vs installs among them, by slot-confirmed day. This is the per-CSP-task
+    # basis MG is paid on — confirm_cohort dedups to the customer's latest CSP;
+    # here EVERY task counts, so re-farming carries its weight.
+    task_confirm = None
+    try:
+        inlist = ",".join(f"'{p}'" for p in enrolled_ids)
+        tsql = f"""
+        WITH mg AS (SELECT CSP_ID FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
+          WHERE _fivetran_active=TRUE AND PARTNER_ID IN ({inlist})
+          QUALIFY ROW_NUMBER() OVER (PARTITION BY CSP_ID ORDER BY 1)=1)
+        SELECT TO_DATE(DATEADD(minute,330,c.CONFIRMED_SLOT_AT))::STRING day,
+          COUNT(*) confirmed_tasks,
+          SUM(IFF(c.INSTALLATION_COMPLETED_AT IS NOT NULL,1,0)) installs
+        FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
+        JOIN mg ON mg.CSP_ID = c.CSP_ID
+        WHERE c.ETL_CURRENT=TRUE AND c.CONFIRMED_SLOT_AT IS NOT NULL
+          AND c.CONFIRMED_SLOT_AT >= DATEADD(minute,-330,'{L1_START} 00:00:00'::TIMESTAMP_NTZ)
+        GROUP BY 1"""
+        tmap = {str(r["day"])[:10]: r for r in metabase_sql(tsql)}
+        tdaily = []
+        for d in days:
+            r = tmap.get(d, {})
+            ct = r.get("confirmed_tasks") or 0
+            ins = r.get("installs") or 0
+            tdaily.append({"day_ist": d, "confirmed_tasks": ct, "installs": ins, "install_ratio": pct(ins, ct)})
+        task_confirm = {"daily": tdaily, "mature_cutoff": mature_cutoff}
+    except Exception:
+        traceback.print_exc()
+
     return {"modes": modes, "enrolled_n": len(enrolled_ids), "leadtime": leadtime,
+            "task_confirm": task_confirm,
             "csps_receiving": {"enrolled": csps.get(1), "non_enrolled": csps.get(0)},
             "complete_through": yday}
 

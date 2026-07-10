@@ -1024,6 +1024,34 @@ async function saveCall(pid,name,answer){
   renderCallList(DATA.feedback.call_list);
 }
 
+function taskCard(tc,meta){
+  const card=document.createElement('div'); card.className='card';
+  const cutoff=tc.mature_cutoff, rows=tc.daily;
+  const pool=rs=>{const t=rs.reduce((a,r)=>a+(r.confirmed_tasks||0),0), i=rs.reduce((a,r)=>a+(r.installs||0),0);return{t,i,ratio:t?Math.round(1000*i/t)/10:null};};
+  const pre=pool(rows.filter(r=>r.day_ist<=meta.pre[1]));
+  const post=pool(rows.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
+  const postAll=pool(rows.filter(r=>r.day_ist>=meta.post_start));
+  card.innerHTML=`<div class="chart-head"><h2>Install ratio by task — slot-confirmed tasks → installs</h2>${deltaChip(pre.ratio,post.ratio,true,' pp')}</div>
+    <div class="sub">installs ÷ customer-slot-confirmed <b>tasks</b> (re-farm counted · the per-CSP-task basis MG is paid on) · pre <b>${pre.ratio??'–'}%</b> → post <b>${post.ratio??'–'}%</b> <span style="opacity:.55">· total incl. maturing ${postAll.ratio??'–'}%</span></div>`;
+  const W=760,H=280,L=42,R=12,T=16,B=30, LT='#F2B8DE';
+  const ymax=Math.max(1,...rows.map(r=>r.confirmed_tasks||0))*1.12;
+  const xb=i=>L+(W-L-R)*(i/rows.length), bw=(W-L-R)/rows.length-2, y=v=>T+(H-T-B)*(1-v/ymax);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;margin-top:8px">`;
+  const preIdx=rows.reduce((a,r,i)=>r.day_ist<=meta.pre[1]?i:a,-1);
+  if(preIdx>=0)svg+=`<rect x="${xb(0)}" y="${T}" width="${xb(preIdx+1)-xb(0)}" height="${H-T-B}" fill="#F1EDF7"/><text x="${xb(0)+5}" y="${T+13}" font-size="10" font-weight="700" letter-spacing="1" fill="${MUTED}">PRE</text>`;
+  let mi=-1; for(let i=0;i<rows.length;i++){if(rows[i].day_ist>cutoff){mi=i;break;}}
+  if(mi>=0)svg+=`<rect x="${xb(mi)}" y="${T}" width="${W-R-xb(mi)}" height="${H-T-B}" fill="#FBF3E4"/><text x="${W-R-5}" y="${T+13}" font-size="10" font-weight="700" letter-spacing="1" fill="#C77700" text-anchor="end">MATURING</text>`;
+  for(let i=0;i<=4;i++){const v=ymax*i/4,yy=y(v);svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${L-6}" y="${yy+3}" font-size="11" fill="${MUTED}" text-anchor="end">${Math.round(v)}</text>`;}
+  rows.forEach((r,i)=>{const ct=r.confirmed_tasks||0, ins=r.installs||0, x=xb(i)+1;
+    if(ct>0)svg+=`<rect x="${x}" y="${y(ct)}" width="${bw}" height="${H-B-y(ct)}" rx="3" fill="${LT}"><title>${r.day_ist} · tasks ${ct} · installs ${ins} · ${r.install_ratio??'–'}%</title></rect>`;
+    if(ins>0)svg+=`<rect x="${x}" y="${y(ins)}" width="${bw}" height="${H-B-y(ins)}" rx="3" fill="${PINK}" pointer-events="none"/>`;});
+  rows.forEach((r,i)=>{if(i===0||i===rows.length-1||r.day_ist===meta.post_start)svg+=`<text x="${xb(i)+bw/2}" y="${H-9}" font-size="11" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;});
+  svg+='</svg>';
+  const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
+  card.insertAdjacentHTML('beforeend', svg+`<div style="display:flex;gap:18px;margin-top:6px;font-size:12px;color:var(--ink2)">${key(LT,'slot-confirmed tasks received')}${key(PINK,'installed')}</div>`);
+  return card;
+}
+
 function renderL2(l1,meta){
   const m=l1.modes.confirm_cohort||l1.modes.cohort;
   const daily=m.daily;
@@ -1054,11 +1082,9 @@ function renderL2(l1,meta){
     maturing — the install ratio keeps rising for a few days after a slot is confirmed.${held?` The last <b>${held}</b>
     day${held>1?'s are':' is'} shaded on the chart and excluded from the ratio.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
-  [{title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
-    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`},
-   {title:'Installs by slot-confirmed day (count)',kind:'bar',key:'installs',color:PINK,goodUp:true,mature:cutoff,
-    tip:r=>`slots confirmed ${r.day_ist}<br>installed: <b>${fmt(r.installs)}</b><br>confirmed that day: ${fmt(r.cust_confirmed)}${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}
-  ].forEach(s=>g.appendChild(chartCard(s,m,meta)));
+  g.appendChild(chartCard({title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
+    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
+  if(l1.task_confirm) g.appendChild(taskCard(l1.task_confirm, meta));
   renderLeadtime(l1.leadtime);
 }
 
