@@ -889,9 +889,13 @@ function renderCohortBA(c){
     const b=bef[k], a=r.after[k];
     if(b==null&&a==null)return '<td style="text-align:right;color:var(--muted)">–</td>';
     let chip='';
-    if(b!=null&&a!=null){const d=Math.round((a-b)*10)/10, good=inv?d<0:d>0;
-      const col=Math.abs(d)<1e-9?'var(--muted)':(good?'var(--green)':'var(--red)');
-      chip=`<div style="font-size:11px;font-weight:700;color:${col}">${d>0?'▲+':'▼'}${d>0?d:Math.abs(d)}${u.trim()||'pp'}</div>`;}
+    if(b!=null&&a!=null){
+      const dec=(u==='%'||u.trim()==='h')?1:2, f=Math.pow(10,dec);
+      const d=Math.round((a-b)*f)/f, flat=d===0, good=inv?d<0:d>0;
+      const col=flat?'var(--muted)':(good?'var(--green)':'var(--red)');
+      const us=(u==='%')?' pp':(u.trim()?' '+u.trim():'');
+      const arrow=flat?'→ ':(d>0?'▲ +':'▼ ');
+      chip=`<div style="font-size:11px;font-weight:700;color:${col}">${arrow}${Math.abs(d)}${us}</div>`;}
     return `<td style="text-align:right;font-variant-numeric:tabular-nums">
       <span style="color:var(--muted)">${b==null?'–':b+u}</span> → <b>${a==null?'–':a+u}</b>${chip}${totCell(r.after,k)}</td>`;
   };
