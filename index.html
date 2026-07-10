@@ -356,10 +356,6 @@ svg text{font-family:inherit}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <select id="coh-before" onchange="setCohBefore(this.value)" title="which before-baseline to compare against"
           style="display:none;padding:5px 8px;border-radius:6px;border:1px solid var(--n300);background:var(--card);font-size:12px;color:var(--ink)"></select>
-        <div class="toggle" id="coh-mode">
-          <button class="on" data-m="now" onclick="setCohMode('now')">Now</button>
-          <button data-m="ba" onclick="setCohMode('ba')">Before → After</button>
-        </div>
       </div>
     </div>
     <div class="tablewrap"><table class="board" id="coh-table" style="min-width:820px"></table></div>
@@ -841,7 +837,7 @@ function heat(v,vals,invert){
   let t=(v-lo)/(hi-lo); if(invert)t=1-t;
   return `background:rgba(0,128,67,${(0.10+0.42*t).toFixed(3)})`;
 }
-let COH=null, COHMODE='now', BEFORE_SEL='a';
+let COH=null, COHMODE='ba', BEFORE_SEL='a';
 function setCohMode(m){COHMODE=m;document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));if(COH)renderCohort(COH);}
 function setCohBefore(id){BEFORE_SEL=id;if(COH)renderCohort(COH);}
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===COHMODE)));
@@ -859,7 +855,7 @@ function renderCohort(c){
   if(sel&&c.before_options){
     if(!c.before_options.some(o=>o.id===BEFORE_SEL))BEFORE_SEL=c.before_options[0].id;
     sel.innerHTML=c.before_options.map(o=>`<option value="${o.id}"${o.id===BEFORE_SEL?' selected':''}>Before: ${esc(o.label)}</option>`).join('');
-    sel.style.display=(COHMODE==='ba')?'':'none';
+    sel.style.display=(c.before_options.length>1)?'':'none';
   }
   const rows=c.rows;
   if(COHMODE==='ba')return renderCohortBA(c);

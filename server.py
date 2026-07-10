@@ -481,8 +481,7 @@ def compute_cohort(enrolled_ids, latest):
     # Selectable "before" baselines. 1-15 Jun predates the CSP-TAS migration
     # (~17-22 Jun) so its install data is under-recorded; 24-30 Jun is fully
     # post-migration (clean) — the honest install-ratio baseline.
-    BEFORE_WINDOWS = [("a", tuple(COHORT_BEFORE), "1–15 Jun · pre-migration (install data under-recorded)"),
-                      ("b", ("2026-06-24", "2026-06-30"), "24–30 Jun · post-migration (clean baseline)")]
+    BEFORE_WINDOWS = [("a", ("2026-06-24", "2026-06-30"), "24–30 Jun · post-migration (clean baseline)")]
     before_days = {wid: len(_daterange(*win)) for wid, win, _ in BEFORE_WINDOWS}
 
     # cohort-size denominators (every enrolled CSP has a cohort, even with 0 bookings)
