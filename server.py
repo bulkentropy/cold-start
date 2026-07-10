@@ -492,7 +492,7 @@ def compute_cohort(enrolled_ids, latest):
 
     def fresh():
         return {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
-                    "confirmed_mat": 0, "installed_mat": 0,
+                    "bookings_mat": 0, "accepted_mat": 0, "confirmed_mat": 0, "installed_mat": 0,
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
     befores = {wid: fresh() for wid, _, _ in BEFORE_WINDOWS}
@@ -523,7 +523,10 @@ def compute_cohort(enrolled_ids, latest):
             a["confirmed"] += 1
         if dep >= 6:
             a["installed"] += 1
-        if d <= mature_cutoff:                 # matured subset for the install ratio
+        if d <= mature_cutoff:                 # matured subset (last 3 booking-days held out)
+            a["bookings_mat"] += 1
+            if dep >= 3:
+                a["accepted_mat"] += 1
             if dep >= 4:
                 a["confirmed_mat"] += 1
             if dep >= 6:
@@ -540,6 +543,8 @@ def compute_cohort(enrolled_ids, latest):
         acc = sum(a["accepted"] for a in aks)
         cnf = sum(a["confirmed"] for a in aks)
         ins = sum(a["installed"] for a in aks)
+        bk_m = sum(a["bookings_mat"] for a in aks)
+        acc_m = sum(a["accepted_mat"] for a in aks)
         cnf_m = sum(a["confirmed_mat"] for a in aks)
         ins_m = sum(a["installed_mat"] for a in aks)
         recv = len(set().union(*[a["csps"] for a in aks])) if aks else 0
@@ -547,9 +552,10 @@ def compute_cohort(enrolled_ids, latest):
         med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
         return {"csps_receiving": recv, "bookings": bk,
                 "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
-                "accept_pct": pct(acc, bk), "confirm_pct": pct(cnf, acc),
-                "install_ratio": pct(ins_m, cnf_m),          # matured = headline
-                "install_ratio_total": pct(ins, cnf),        # full incl. maturing = faint
+                # each rate: matured (headline) + full-window total (faint)
+                "accept_pct": pct(acc_m, bk_m), "accept_pct_total": pct(acc, bk),
+                "confirm_pct": pct(cnf_m, acc_m), "confirm_pct_total": pct(cnf, acc),
+                "install_ratio": pct(ins_m, cnf_m), "install_ratio_total": pct(ins, cnf),
                 "med_hrs_to_accept": med}
 
     def row_for(keys, label, size):

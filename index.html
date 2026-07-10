@@ -363,6 +363,7 @@ svg text{font-family:inherit}
       </div>
     </div>
     <div class="tablewrap"><table class="board" id="coh-table" style="min-width:820px"></table></div>
+    <div class="foot" style="margin-top:8px"><b>Matured</b> = only bookings whose confirm-day is 4+ days old (the 3 most recent booking-days are held out), so each stage has had time to happen — accept → confirm → install. Bookings from the last 3 days are still moving through the funnel and only drag the rates down, so the headline rate excludes them. The faint <b>total</b> under each rate is the full-window figure <i>including</i> those still-maturing bookings. Booking-anchored (bucketed by booking-confirm day).</div>
     <div style="margin-top:20px">
       <div class="label" style="margin-bottom:8px">Conversion ladder — accepted → confirmed → installed, by cohort</div>
       <div id="coh-ladder"></div>
@@ -845,10 +846,13 @@ function setCohMode(m){COHMODE=m;document.querySelectorAll('#coh-mode button').f
 function setCohBefore(id){BEFORE_SEL=id;if(COH)renderCohort(COH);}
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===COHMODE)));
 const COLS=[['bk_per_csp_day','Bookings / CSP / day',false,''],
-            ['accept_pct','Accepted %',false,'%'],
-            ['confirm_pct','Confirmed %',false,'%'],
+            ['accept_pct','Accepted % (matured)',false,'%'],
+            ['confirm_pct','Confirmed % (matured)',false,'%'],
             ['install_ratio','Install ratio (matured)',false,'%'],
             ['med_hrs_to_accept','Median hrs to accept',true,' h']];
+const TOTKEY={accept_pct:'accept_pct_total',confirm_pct:'confirm_pct_total',install_ratio:'install_ratio_total'};
+const totCell=(after,k)=>{const tk=TOTKEY[k],tv=(tk&&after)?after[tk]:null;
+  return tv!=null?`<div style="opacity:.5;font-size:10px;font-weight:600" title="full-window rate incl. still-maturing bookings">total ${tv}%</div>`:'';};
 function renderCohort(c){
   COH=c; const box=$('l1-cohort'); box.hidden=false;
   const sel=$('coh-before');
@@ -864,8 +868,7 @@ function renderCohort(c){
   const data=rows.slice(0,-1);
   const col=k=>data.map(r=>r.after[k]);
   const cell=(r,k,inv,u,vals)=>{const v=r.after[k];
-    const tot=(k==='install_ratio'&&r.after.install_ratio_total!=null)?`<div style="opacity:.5;font-size:10px;font-weight:600" title="full conversion incl. still-maturing bookings">total ${r.after.install_ratio_total}%</div>`:'';
-    return `<td style="${heat(v,vals,inv)};text-align:right;font-variant-numeric:tabular-nums">${v==null?'–':v+u}${tot}</td>`;};
+    return `<td style="${heat(v,vals,inv)};text-align:right;font-variant-numeric:tabular-nums">${v==null?'–':v+u}${totCell(r.after,k)}</td>`;};
   $('coh-table').innerHTML=
     `<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
       <th style="text-align:right">got bookings</th>`+
@@ -893,10 +896,8 @@ function renderCohortBA(c){
     if(b!=null&&a!=null){const d=Math.round((a-b)*10)/10, good=inv?d<0:d>0;
       const col=Math.abs(d)<1e-9?'var(--muted)':(good?'var(--green)':'var(--red)');
       chip=`<div style="font-size:11px;font-weight:700;color:${col}">${d>0?'▲+':'▼'}${d>0?d:Math.abs(d)}${u.trim()||'pp'}</div>`;}
-    const tot=(k==='install_ratio'&&r.after&&r.after.install_ratio_total!=null)
-      ?`<div style="opacity:.5;font-size:10px;font-weight:600" title="full conversion incl. still-maturing bookings">total ${r.after.install_ratio_total}%</div>`:'';
     return `<td style="text-align:right;font-variant-numeric:tabular-nums">
-      <span style="color:var(--muted)">${b==null?'–':b+u}</span> → <b>${a==null?'–':a+u}</b>${chip}${tot}</td>`;
+      <span style="color:var(--muted)">${b==null?'–':b+u}</span> → <b>${a==null?'–':a+u}</b>${chip}${totCell(r.after,k)}</td>`;
   };
   $('coh-table').innerHTML=
     `<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>`+
