@@ -1122,11 +1122,11 @@ def compute_failures(days_n=15):
     for v in daily.values():
         v["total"] = v["csp"] + v["wiom"] + v["customer"]
 
-    lst = metabase_sql(cte + """ SELECT day, conn, reason FROM failed
-        WHERE reason ILIKE '%service not available%' OR reason ILIKE '%network setup%'
+    lst = metabase_sql(cte + f""" SELECT day, conn, reason FROM failed
+        WHERE day = '{yday}' AND (reason ILIKE '%service not available%' OR reason ILIKE '%network setup%'
            OR reason ILIKE '%device%' OR reason ILIKE '%schedul%' OR reason ILIKE '%coverage%'
-           OR reason ILIKE '%backhaul%' OR reason ILIKE '%routing%'
-        ORDER BY day DESC, conn""")
+           OR reason ILIKE '%backhaul%' OR reason ILIKE '%routing%')
+        ORDER BY conn""")
     wiom = []
     for r in lst:
         owner, bucket, why = _fail_owner(r["reason"])
