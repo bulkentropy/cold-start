@@ -570,6 +570,53 @@ def compute_cohort(enrolled_ids, latest):
                                  for wid, win, lbl in BEFORE_WINDOWS],
               "rows": rows}
 
+    # ----- comparison rows: eligible-not-enrolled + non-eligible CSPs ----------
+    # eligible = frozen launch cohort (offered MG); enrolled is its opted-in
+    # subset. Aggregated in Snowflake (l1_groups.sql) so the network-wide
+    # non-eligible set stays under the row cap. CSPs shown = distinct receiving.
+    try:
+        eligible_ids = sorted(F1 | F2)
+        gsql = open(os.path.join(BASE_DIR, "sql", "l1_groups.sql"), encoding="utf-8").read()
+        gsql = gsql.replace("{ENROLLED_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+        gsql = gsql.replace("{ELIGIBLE_IN_LIST}", ",".join(f"'{p}'" for p in eligible_ids))
+        gsql = gsql.replace("{START_DATE}", "2026-06-24")
+        graw = metabase_sql(gsql)
+        funnel = {}
+        meta = {}
+        for r in graw:
+            if r["mode"] == "funnel":
+                funnel.setdefault(r["grp"], []).append(r)
+            elif r["mode"] == "meta" and r.get("win"):
+                meta[(r["grp"], r["win"])] = r
+        b_wid, b_win, _ = BEFORE_WINDOWS[0]
+        b_days = before_days[b_wid]
+
+        def grp_block(grp, win_name, win_range, days):
+            rs = [x for x in funnel.get(grp, []) if win_range[0] <= x["day_ist"] <= win_range[1]]
+            def s(k, mat=False):
+                return sum((x[k] or 0) for x in rs if (not mat or x["day_ist"] <= mature_cutoff))
+            bk, acc, cnf, ins = s("bookings"), s("accepted"), s("confirmed"), s("installed")
+            bk_m, acc_m, cnf_m, ins_m = s("bookings", 1), s("accepted", 1), s("confirmed", 1), s("installed", 1)
+            m = meta.get((grp, win_name), {})
+            csps = m.get("csps") or 0
+            return {"csps_receiving": csps, "bookings": bk,
+                    "bk_per_csp_day": round(bk / csps / days, 2) if (csps and days) else None,
+                    "accept_pct": pct(acc_m, bk_m), "accept_pct_total": pct(acc, bk),
+                    "confirm_pct": pct(cnf_m, acc_m), "confirm_pct_total": pct(cnf, acc),
+                    "install_ratio": pct(ins_m, cnf_m), "install_ratio_total": pct(ins, cnf),
+                    "med_hrs_to_accept": m.get("med_hrs")}
+
+        extra = []
+        for grp, label in [("eligible_ne", "Non-enrolled · eligible"), ("non_eligible", "Non-eligible")]:
+            after_csps = (meta.get((grp, "after")) or {}).get("csps") or 0
+            extra.append({"label": label, "csps": after_csps, "small": False, "group": grp,
+                          "befores": {b_wid: grp_block(grp, "before", b_win, b_days)},
+                          "after": grp_block(grp, "after", after_win, after_days)})
+        cohort["extra_rows"] = extra
+    except Exception:
+        traceback.print_exc()
+        cohort["extra_rows"] = []
+
     # ----- CSP-status split: TASK-ACTIVITY based (matches the team cross-tab) --
     month_start = datetime.now(IST).date().replace(day=1).isoformat()
     ssql = open(os.path.join(BASE_DIR, "sql", "l1_status.sql"), encoding="utf-8").read()
