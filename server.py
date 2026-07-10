@@ -591,27 +591,35 @@ def compute_cohort(enrolled_ids, latest):
         b_wid, b_win, _ = BEFORE_WINDOWS[0]
         b_days = before_days[b_wid]
 
-        def grp_block(grp, win_name, win_range, days):
+        def grp_block(grp, win_name, win_range, days, fixed_size=None):
             rs = [x for x in funnel.get(grp, []) if win_range[0] <= x["day_ist"] <= win_range[1]]
             def s(k, mat=False):
                 return sum((x[k] or 0) for x in rs if (not mat or x["day_ist"] <= mature_cutoff))
             bk, acc, cnf, ins = s("bookings"), s("accepted"), s("confirmed"), s("installed")
             bk_m, acc_m, cnf_m, ins_m = s("bookings", 1), s("accepted", 1), s("confirmed", 1), s("installed", 1)
             m = meta.get((grp, win_name), {})
-            csps = m.get("csps") or 0
-            return {"csps_receiving": csps, "bookings": bk,
-                    "bk_per_csp_day": round(bk / csps / days, 2) if (csps and days) else None,
+            recv = m.get("csps") or 0
+            size = fixed_size if fixed_size is not None else recv   # per-CSP-day denominator
+            return {"csps_receiving": recv, "bookings": bk,
+                    "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
                     "accept_pct": pct(acc_m, bk_m), "accept_pct_total": pct(acc, bk),
                     "confirm_pct": pct(cnf_m, acc_m), "confirm_pct_total": pct(cnf, acc),
                     "install_ratio": pct(ins_m, cnf_m), "install_ratio_total": pct(ins, cnf),
                     "med_hrs_to_accept": m.get("med_hrs")}
 
-        extra = []
-        for grp, label in [("eligible_ne", "Non-enrolled · eligible"), ("non_eligible", "Non-eligible")]:
-            after_csps = (meta.get((grp, "after")) or {}).get("csps") or 0
-            extra.append({"label": label, "csps": after_csps, "small": False, "group": grp,
-                          "befores": {b_wid: grp_block(grp, "before", b_win, b_days)},
-                          "after": grp_block(grp, "after", after_win, after_days)})
+        # eligible-not-enrolled: fixed universe (offered MG per the sheet, not
+        # enrolled). non-eligible: no bounded universe -> distinct receiving CSPs.
+        elig_ne_n = len(set(eligible_ids) - set(enrolled_ids))
+        extra = [
+            {"label": "Non-enrolled · eligible", "csps": elig_ne_n, "small": False, "group": "eligible_ne",
+             "befores": {b_wid: grp_block("eligible_ne", "before", b_win, b_days, elig_ne_n)},
+             "after": grp_block("eligible_ne", "after", after_win, after_days, elig_ne_n)},
+        ]
+        ne_after = (meta.get(("non_eligible", "after")) or {}).get("csps") or 0
+        extra.append(
+            {"label": "Non-eligible", "csps": ne_after, "small": False, "group": "non_eligible",
+             "befores": {b_wid: grp_block("non_eligible", "before", b_win, b_days)},
+             "after": grp_block("non_eligible", "after", after_win, after_days)})
         cohort["extra_rows"] = extra
     except Exception:
         traceback.print_exc()
