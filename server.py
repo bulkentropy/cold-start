@@ -472,6 +472,11 @@ def compute_cohort(enrolled_ids, latest):
 
     yday = (datetime.now(IST).date() - timedelta(days=1)).isoformat()
     after_win = (POST_START, yday)
+    # Install-ratio maturity: bookings from the last 3 days haven't had time to
+    # install, so the HEADLINE install ratio holds them out (same rule as L2);
+    # a faint "total conversion" keeps the full-window ratio. Booking-anchored
+    # here (unlike L2's slot-confirmed anchor) — both definitions kept as-is.
+    mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
     after_days = len(_daterange(*after_win))
     before_days = len(_daterange(*COHORT_BEFORE))
 
@@ -482,6 +487,7 @@ def compute_cohort(enrolled_ids, latest):
 
     def fresh():
         return {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
+                    "confirmed_mat": 0, "installed_mat": 0,
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
     before, after = fresh(), fresh()
@@ -507,6 +513,11 @@ def compute_cohort(enrolled_ids, latest):
             a["confirmed"] += 1
         if dep >= 6:
             a["installed"] += 1
+        if d <= mature_cutoff:                 # matured subset for the install ratio
+            if dep >= 4:
+                a["confirmed_mat"] += 1
+            if dep >= 6:
+                a["installed_mat"] += 1
         if r["accept_epoch"] and r["task_epoch"]:
             a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
 
@@ -519,13 +530,17 @@ def compute_cohort(enrolled_ids, latest):
         acc = sum(a["accepted"] for a in aks)
         cnf = sum(a["confirmed"] for a in aks)
         ins = sum(a["installed"] for a in aks)
+        cnf_m = sum(a["confirmed_mat"] for a in aks)
+        ins_m = sum(a["installed_mat"] for a in aks)
         recv = len(set().union(*[a["csps"] for a in aks])) if aks else 0
         mins = [m for a in aks for m in a["accept_mins"]]
         med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
         return {"csps_receiving": recv, "bookings": bk,
                 "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
                 "accept_pct": pct(acc, bk), "confirm_pct": pct(cnf, acc),
-                "install_ratio": pct(ins, cnf), "med_hrs_to_accept": med}
+                "install_ratio": pct(ins_m, cnf_m),          # matured = headline
+                "install_ratio_total": pct(ins, cnf),        # full incl. maturing = faint
+                "med_hrs_to_accept": med}
 
     def row_for(keys, label, size):
         return {"label": label, "csps": size, "small": size < SMALL_COHORT,
