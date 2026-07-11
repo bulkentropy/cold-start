@@ -34,6 +34,22 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .cta-card:hover .cta-btn{background:#b80078}
 .cta-card:hover .cta-btn span{transform:translateX(3px);transition:transform .15s ease;display:inline-block}
 .sub{font-size:13px;color:var(--muted);line-height:1.5}
+/* WIP matrix */
+table.wipx{border-collapse:collapse;width:100%;min-width:640px}
+.wipx th{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 10px;border-bottom:1px solid var(--n300);vertical-align:bottom}
+.wipx th.l{text-align:left}
+.wipx th.gh{color:var(--text);font-size:13.5px;border-left:1px solid var(--n200);min-width:210px}
+.wipx th.gh .gn{font-size:10.5px;color:var(--muted);font-weight:700;margin-top:2px}
+.wipx td{padding:9px 10px;border-bottom:1px solid var(--n200);text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+.wipx tr:last-child td{border-bottom:none}
+.wipx td.l{text-align:left;font-size:12.5px;color:#4A4258;font-weight:650;padding-right:16px}
+.wipx td.prc{color:#948DA5;font-weight:700;font-size:12.5px;border-left:1px solid var(--n200)}
+.wipx td.poc .pa{font-weight:800;font-size:14.5px;color:var(--text)}
+.wipx td.poc sup{font-size:9.5px;margin-left:3px}
+.wmf{display:flex;flex-direction:column;gap:4px;width:190px;margin:0 auto 8px}
+.wmf .r{position:relative;height:13px;width:100%}
+.wmf .b2{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;background:var(--accent);border-radius:4px}
+.wmf .o2{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;border:1.5px dashed #3A3348;border-radius:3px;opacity:.5}
 /* tabs */
 .tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
 .tab{border:none;background:var(--card);color:var(--muted);border-radius:40px;padding:9px 18px;
@@ -177,6 +193,7 @@ svg text{font-family:inherit}
 <div class="tabs">
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
   <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
+  <button class="tab" id="tab-wip" onclick="showTab('wip')">WIP</button>
   <button class="tab" id="tab-docs" onclick="showTab('docs')">Knowledge repository</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
@@ -241,6 +258,24 @@ svg text{font-family:inherit}
     <div class="card"><div class="label">Latest decisions</div><div id="ov-decisions"></div></div>
     <div class="card"><div class="label">Open actions &amp; decision points</div><div id="ov-actions"></div></div>
   </div>
+</div>
+
+<div id="pane-wip" style="display:none">
+  <div class="card" style="margin-bottom:20px">
+    <div class="label">WIP · Per-CSP-anchored PRE vs POST — 48h-matured funnel <span style="color:var(--accent)">experimental</span></div>
+    <div class="sub" id="wip-sub"></div>
+  </div>
+  <div class="card section">
+    <div class="label">By enrolment cohort</div>
+    <div class="sub">Each CSP is its own control: POST = its days since enrolment · PRE = the equal span just before · both 48h-capped.</div>
+    <div class="tablewrap" style="margin-top:12px"><div id="wip-main"></div></div>
+  </div>
+  <div class="card section" style="margin-top:20px">
+    <div class="label">By belief cohort</div>
+    <div class="sub">Same per-CSP-anchored, 48h-capped basis, split by the CSP's latest in-app belief answer.</div>
+    <div class="tablewrap" style="margin-top:12px"><div id="wip-belief"></div></div>
+  </div>
+  <div class="foot card" id="wip-foot"></div>
 </div>
 
 <div id="pane-edu" style="display:none">
@@ -507,7 +542,7 @@ const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-I
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort', BASIS='current';
 
-const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
+const TABS=['ov','metrics','wip','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
 function showTab(t){
@@ -789,6 +824,51 @@ function render(d){
   if(d.cohort)renderCohort(d.cohort);
   if(d.ignition)renderIgnition(d.ignition);
   if(d.gate)renderGate(d.gate);
+  if(d.wip)renderWip(d.wip);
+}
+
+/* ---------- WIP · per-CSP-anchored PRE vs POST (48h-matured) ---------- */
+function wipFmt(k,v){return k==='received'?fmt(v||0):(/tat/.test(k)?(v==null?'–':(v<90?v+'m':(v/60).toFixed(1)+'h')):(v==null?'–':v+'%'));}
+function wipDelta(pre,post,good,typ){
+  if(pre==null||post==null)return '';
+  const d=post-pre, eps=(typ==='%')?0.05:0.5;
+  if(Math.abs(d)<eps)return '<span style="color:var(--muted);font-weight:700">0</span>';
+  const up=d>0, ok=good?up:!up, c=ok?'var(--green)':'var(--red)';
+  const mag=(typ==='%')?(Math.round(Math.abs(d)*10)/10):Math.round(Math.abs(d));
+  const u=(typ==='%')?'pp':(typ==='tat')?'m':'';
+  return '<span style="color:'+c+';font-weight:700">'+(up?'▲':'▼')+mag+u+'</span>';
+}
+function wipMiniFunnel(P,Q){
+  const rows=[[100,100],[Q.confirm_pct||0,P.confirm_pct||0],[Q.install_pct||0,P.install_pct||0]];
+  return '<div class="wmf">'+rows.map(([q,p])=>{let pp=p;if(Math.abs(p-q)<3)pp=(p>=q)?q+3:Math.max(2,q-3);
+    return '<span class="r"><span class="b2" style="width:'+Math.max(4,Math.round(q))+'%"></span><span class="o2" style="width:'+Math.max(3,Math.min(100,Math.round(pp)))+'%"></span></span>';}).join('')+'</div>';
+}
+const WIPROWS=[['received','Bookings received','abs',true],
+  ['confirm_pct','Confirmed % (48h)','%',true],
+  ['install_pct','Installed % (48h)','%',true],
+  ['install_ratio','Install ÷ confirmed','%',true],
+  ['tat_tc','TAT task→confirm','tat',false],
+  ['tat_ci','TAT confirm→install','tat',false]];
+function wipMatrix(cohorts){
+  let h='<table class="wipx"><thead><tr><th class="l"></th>';
+  cohorts.forEach(c=>{h+='<th class="gh" colspan="2">'+wipMiniFunnel(c.PRE,c.POST)+esc(c.label)+'<div class="gn">'+fmt(c.csps)+' CSPs'+(c.small?' · small':'')+'</div></th>';});
+  h+='</tr><tr><th class="l">Metric</th>';
+  cohorts.forEach(()=>{h+='<th style="border-left:1px solid var(--n200)">PRE</th><th>POST</th>';});
+  h+='</tr></thead><tbody>';
+  WIPROWS.forEach(([k,lab,typ,good])=>{
+    h+='<tr><td class="l">'+lab+'</td>';
+    cohorts.forEach(c=>{const pv=c.PRE[k],qv=c.POST[k];
+      h+='<td class="prc">'+wipFmt(k,pv)+'</td><td class="poc"><span class="pa">'+wipFmt(k,qv)+'</span><sup>'+wipDelta(pv,qv,good,typ)+'</sup></td>';});
+    h+='</tr>';
+  });
+  return h+'</tbody></table>';
+}
+function renderWip(w){
+  if(!w||!w.cohorts)return;
+  $('wip-sub').innerHTML='Each of <b>'+fmt(w.enrolled_dated)+'</b> enrolled CSPs anchored on its own enrolment date ('+fmt(w.f1)+' audit-before · '+fmt(w.f2)+' after-audit) · POST through <b>'+w.yest+'</b> · every stage capped at <b>48h</b> from when the CSP received the booking (same cap PRE &amp; POST) · CSP-level, re-farm counted · <span style="color:var(--muted)">POST bar filled · PRE dashed outline</span>';
+  $('wip-main').innerHTML=wipMatrix(w.cohorts);
+  $('wip-belief').innerHTML=(w.belief&&w.belief.length)?wipMatrix(w.belief):'<div class="sub">No belief data.</div>';
+  $('wip-foot').innerHTML='<b>Why this exists.</b> Replicates the mbg-tv-wall method on our Q11528 data: instead of one fixed 24–30 Jun baseline, <b>each CSP is its own control</b> — its funnel in the N days after enrolment vs the same N days just before. The <b>48h maturity cap</b> gives every booking an equal window to progress on both sides, so a PRE→POST difference can’t be a maturity artefact and there’s no "which baseline" choice. <b>Stages are the timestamped ones</b> (received → customer-confirmed → installed); slot-proposed &amp; tech-assigned have no transition timestamp in TAS, so they’re omitted. <b>Install% reads low</b> because most installs finish after 48h — this is a <b>leading-velocity</b> view, not the final install rate. Experimental — work in progress.';
 }
 
 function renderGate(g){
