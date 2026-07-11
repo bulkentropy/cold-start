@@ -53,8 +53,11 @@ day, today + last 7 complete days) sits above the tabs on every view.
 | Metabase → Snowflake (db 113): `TAS_INSTALL_EXECUTION_CANDIDATES`, `CONNECTION_EVENT_HISTORY` | L1 (`sql/l1_daily.sql`, partner list injected per refresh) |
 
 Secrets come from `C:\credentials\.env`: `METABASE_API_KEY` and
-`PROD_SUPABASE_SERVICE_ROLE_KEY` (audit-tool). The mbg-portal is read with its
-public publishable (anon) key; set `SUPABASE_PORTAL_SERVICE_KEY` to override.
+`PROD_SUPABASE_SERVICE_ROLE_KEY` (audit-tool). The mbg-portal is read via
+`SUPABASE_PORTAL_SERVICE_KEY` — this **must be the portal's `service_role` key**:
+as of ~11 Jul 2026 `mbg_screen_log` has RLS enabled with no anon SELECT policy
+(anon can INSERT beacons but not read), so an anon/publishable key returns 0 rows
+and silently blanks the belief split and L0 funnel beacon stages.
 
 ## Known gaps / notes
 
