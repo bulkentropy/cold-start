@@ -1180,11 +1180,11 @@ function renderEngagement(e){
   box.hidden=false;
   const s=e.stages, first=s[0], last=s[s.length-1];
   const movedUp=s.reduce((a,r)=>a+(r.moved_up||0),0);
-  $('eng-sub').innerHTML=`457 MG CSPs classified daily by lead-stage — <b>No-leads → Keep-going → Almost → Secured</b> — over the in-app engagement campaign (${e.window}). Tracks cold CSPs activating up the ladder.`;
+  $('eng-sub').innerHTML=`457 MG CSPs classified daily against the <b>60% install gate</b> — <b>No-leads → Keep-going → Almost → Secured</b> — over the in-app engagement campaign (${e.window}). Definitions below; tracks CSPs moving up toward securing MG.`;
   const mv=(a,b,goodDown)=>{const d=b-a, up=d>0, good=goodDown?d<0:d>0; const c=Math.abs(d)<1?'var(--muted)':(good?'var(--green)':'var(--red)');
     return `was ${a} · <span style="color:${c};font-weight:700">${up?'▲+':(d<0?'▼':'')}${Math.abs(d)}</span>`;};
   $('eng-tiles').innerHTML=
-    tile(last.noleads,'No-leads (cold)',mv(first.noleads,last.noleads,true),'color:var(--green)')+
+    tile(last.noleads,'No-leads',mv(first.noleads,last.noleads,true),'color:var(--green)')+
     tile(last.withleads,'With-leads (active)',mv(first.withleads,last.withleads,false),'color:var(--green)')+
     tile(last.secured,'Secured',mv(first.secured,last.secured,false))+
     tile(movedUp,'Moved up','total up-stage moves, 8 days','color:var(--green)');
@@ -1210,7 +1210,12 @@ function renderEngagement(e){
   let fh=`<div class="label" style="font-size:12px;margin-bottom:8px">Banner engagement — campaign totals</div>`;
   steps.forEach(([l,v])=>{fh+=`<div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px"><div style="width:130px;color:var(--ink2)">${l}</div><div style="flex:1;background:#EEE8F7;border-radius:4px;height:16px"><div style="width:${Math.round(100*v/mx)}%;height:16px;background:var(--purple);border-radius:4px"></div></div><div style="width:56px;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)}</div></div>`;});
   $('eng-funnel').innerHTML=fh;
-  $('eng-foot').innerHTML=`Stages: <b>No-leads</b> = no leads assigned (cold) · <b>Keep-going</b> / <b>Almost</b> / <b>Secured</b> = has leads, rising toward securing MG. Total is 457 CSPs each day; the mix shifts as the campaign activates cold CSPs. One-off dataset (mbg_stage_movement.xlsx), not live.`;
+  $('eng-foot').innerHTML=`<b>Stages</b> (on the 60% install gate — installs vs matured + open leads):
+    <b>No-leads</b> — no lead currently counting (nothing matured or open). <i>Not</i> "never got a lead": most got leads that all lapsed before the customer confirmed a slot (CSP timeout / no-show / declined, or customer cancelled pre-slot); only ~19 truly never got any, ~130 got leads and lost them all.
+    · <b>Keep-going</b> — below 60% and can't reach it even if every open lead installs (installs + open ≤ 60% of total).
+    · <b>Almost</b> — below 60% now but still reachable: if the open/pending leads install, they cross 60% (installs + open > 60% of total).
+    · <b>Secured</b> — matured > 0 and rate > 60%: already above the gate, just needs to hold ≥ 60%.
+    Total 457 CSPs each day; the mix shifts as CSPs re-enter the counting funnel. One-off snapshot (mbg_stage_movement.xlsx), not live.`;
 }
 
 function renderFunnels(l0){
