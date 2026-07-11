@@ -542,6 +542,8 @@ def compute_cohort(enrolled_ids, latest):
     def fresh():
         return {k: {"bookings": 0, "accepted": 0, "confirmed": 0, "installed": 0,
                     "bookings_mat": 0, "accepted_mat": 0, "confirmed_mat": 0, "installed_mat": 0,
+                    "accepted_ever": 0, "confirmed_ever": 0, "installed_ever": 0,
+                    "accepted_ever_mat": 0, "confirmed_ever_mat": 0, "installed_ever_mat": 0,
                     "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
 
     befores = {wid: fresh() for wid, _, _ in BEFORE_WINDOWS}
@@ -564,6 +566,7 @@ def compute_cohort(enrolled_ids, latest):
             continue
         a = bucket[ck]
         dep = r["depth"]
+        depe = r.get("depth_ever", dep)
         a["bookings"] += 1
         a["csps"].add(pid)
         if dep >= 3:
@@ -572,6 +575,12 @@ def compute_cohort(enrolled_ids, latest):
             a["confirmed"] += 1
         if dep >= 6:
             a["installed"] += 1
+        if depe >= 3:
+            a["accepted_ever"] += 1
+        if depe >= 4:
+            a["confirmed_ever"] += 1
+        if depe >= 6:
+            a["installed_ever"] += 1
         if d <= mature_cutoff:                 # matured subset (last 3 booking-days held out)
             a["bookings_mat"] += 1
             if dep >= 3:
@@ -580,6 +589,12 @@ def compute_cohort(enrolled_ids, latest):
                 a["confirmed_mat"] += 1
             if dep >= 6:
                 a["installed_mat"] += 1
+            if depe >= 3:
+                a["accepted_ever_mat"] += 1
+            if depe >= 4:
+                a["confirmed_ever_mat"] += 1
+            if depe >= 6:
+                a["installed_ever_mat"] += 1
         if r["accept_epoch"] and r["task_epoch"]:
             a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
 
@@ -596,15 +611,24 @@ def compute_cohort(enrolled_ids, latest):
         acc_m = sum(a["accepted_mat"] for a in aks)
         cnf_m = sum(a["confirmed_mat"] for a in aks)
         ins_m = sum(a["installed_mat"] for a in aks)
+        acce = sum(a["accepted_ever"] for a in aks)
+        cnfe = sum(a["confirmed_ever"] for a in aks)
+        inse = sum(a["installed_ever"] for a in aks)
+        acce_m = sum(a["accepted_ever_mat"] for a in aks)
+        cnfe_m = sum(a["confirmed_ever_mat"] for a in aks)
+        inse_m = sum(a["installed_ever_mat"] for a in aks)
         recv = len(set().union(*[a["csps"] for a in aks])) if aks else 0
         mins = [m for a in aks for m in a["accept_mins"]]
         med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
         return {"csps_receiving": recv, "bookings": bk,
                 "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
-                # each rate: matured (headline) + full-window total (faint)
+                # each rate: matured (headline) + full-window total (faint), per basis
                 "accept_pct": pct(acc_m, bk_m), "accept_pct_total": pct(acc, bk),
                 "confirm_pct": pct(cnf_m, acc_m), "confirm_pct_total": pct(cnf, acc),
                 "install_ratio": pct(ins_m, cnf_m), "install_ratio_total": pct(ins, cnf),
+                "accept_pct_ever": pct(acce_m, bk_m), "accept_pct_ever_total": pct(acce, bk),
+                "confirm_pct_ever": pct(cnfe_m, acce_m), "confirm_pct_ever_total": pct(cnfe, acce),
+                "install_ratio_ever": pct(inse_m, cnfe_m), "install_ratio_ever_total": pct(inse, cnfe),
                 "med_hrs_to_accept": med}
 
     def row_for(keys, label, size):
@@ -647,6 +671,8 @@ def compute_cohort(enrolled_ids, latest):
                 return sum((x[k] or 0) for x in rs if (not mat or x["day_ist"] <= mature_cutoff))
             bk, acc, cnf, ins = s("bookings"), s("accepted"), s("confirmed"), s("installed")
             bk_m, acc_m, cnf_m, ins_m = s("bookings", 1), s("accepted", 1), s("confirmed", 1), s("installed", 1)
+            acce, cnfe, inse = s("accepted_ever"), s("confirmed_ever"), s("installed_ever")
+            acce_m, cnfe_m, inse_m = s("accepted_ever", 1), s("confirmed_ever", 1), s("installed_ever", 1)
             m = meta.get((grp, win_name), {})
             recv = m.get("csps") or 0
             size = fixed_size if fixed_size is not None else recv   # per-CSP-day denominator
@@ -655,6 +681,9 @@ def compute_cohort(enrolled_ids, latest):
                     "accept_pct": pct(acc_m, bk_m), "accept_pct_total": pct(acc, bk),
                     "confirm_pct": pct(cnf_m, acc_m), "confirm_pct_total": pct(cnf, acc),
                     "install_ratio": pct(ins_m, cnf_m), "install_ratio_total": pct(ins, cnf),
+                    "accept_pct_ever": pct(acce_m, bk_m), "accept_pct_ever_total": pct(acce, bk),
+                    "confirm_pct_ever": pct(cnfe_m, acce_m), "confirm_pct_ever_total": pct(cnfe, acce),
+                    "install_ratio_ever": pct(inse_m, cnfe_m), "install_ratio_ever_total": pct(inse, cnfe),
                     "med_hrs_to_accept": m.get("med_hrs")}
 
         # eligible-not-enrolled: fixed universe (offered MG per the sheet, not

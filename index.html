@@ -761,6 +761,7 @@ function setBasis(b){
   BASIS=b;
   document.querySelectorAll('#basistoggle button').forEach(x=>x.classList.toggle('on',x.dataset.basis===b));
   if(DATA&&DATA.l1)renderL1(DATA.l1,DATA.meta);
+  if(COH)renderCohort(COH);
 }
 async function load(force){
   const btn=$('refbtn'); btn.disabled=true;
@@ -923,7 +924,12 @@ const COLS=[['bk_per_csp_day','Bookings / CSP / day',false,''],
             ['confirm_pct','Confirmed % (matured)',false,'%'],
             ['install_ratio','Install ratio (matured)',false,'%'],
             ['med_hrs_to_accept','Median hrs to accept',true,' h']];
-const TOTKEY={accept_pct:'accept_pct_total',confirm_pct:'confirm_pct_total',install_ratio:'install_ratio_total'};
+const TOTKEY={accept_pct:'accept_pct_total',confirm_pct:'confirm_pct_total',install_ratio:'install_ratio_total',
+  accept_pct_ever:'accept_pct_ever_total',confirm_pct_ever:'confirm_pct_ever_total',install_ratio_ever:'install_ratio_ever_total'};
+// funnel-depth keys switch to their ever-reached variant when BASIS==='ever';
+// booking/speed keys are basis-independent and pass through unchanged.
+const EVERK={accept_pct:'accept_pct_ever',confirm_pct:'confirm_pct_ever',install_ratio:'install_ratio_ever'};
+const bkey=k=>(BASIS==='ever'&&EVERK[k])?EVERK[k]:k;
 const totCell=(after,k)=>{const tk=TOTKEY[k],tv=(tk&&after)?after[tk]:null;
   return tv!=null?`<div style="opacity:.5;font-size:10px;font-weight:600" title="full-window rate incl. still-maturing bookings">total ${tv}%</div>`:'';};
 function renderCohort(c){
@@ -937,7 +943,8 @@ function renderCohort(c){
   const rows=c.rows;
   if(COHMODE==='ba')return renderCohortBA(c);
   $('coh-sub').innerHTML=`Post period <b>${c.after_window[0]} → ${c.after_window[1]}</b> (${c.after_days} complete days) ·
-    metrics per CSP per day where counts · "All enrolled" row is the benchmark`;
+    metrics per CSP per day where counts · "All enrolled" row is the benchmark ·
+    <b>${BASIS==='ever'?'ever-reached':'live pipeline'}</b> basis`;
   const data=rows.slice(0,-1);
   const col=k=>data.map(r=>r.after[k]);
   const cell=(r,k,inv,u,vals)=>{const v=r.after[k];
@@ -952,7 +959,7 @@ function renderCohort(c){
         <td class="tt2">${esc(r.label)}${r.small&&!bench?' <span style="font-weight:400;color:var(--muted);font-size:11px">small</span>':''}</td>
         <td style="text-align:right">${fmt(r.csps)}</td>
         <td style="text-align:right;color:var(--muted)">${fmt(r.after.csps_receiving)}</td>`+
-        COLS.map(cc=>cell(r,cc[0],cc[2],cc[3],bench?[]:col(cc[0]))).join('')+`</tr>`;
+        COLS.map(cc=>cell(r,bkey(cc[0]),cc[2],cc[3],bench?[]:col(bkey(cc[0])))).join('')+`</tr>`;
     }).join('');
   renderLadder(c,'after');
 }
@@ -960,7 +967,8 @@ function renderCohort(c){
 function renderCohortBA(c){
   const bo=(c.before_options||[]).find(o=>o.id===BEFORE_SEL)||(c.before_options||[])[0]||{window:['',''],days:0,label:''};
   $('coh-sub').innerHTML=`Before <b>${esc(bo.label)}</b> (${bo.days}d, matured)
-    vs after <b>${c.after_window[0]} → ${c.after_window[1]}</b> (${c.after_days}d) · same CSPs (current belief), their behaviour then vs now`;
+    vs after <b>${c.after_window[0]} → ${c.after_window[1]}</b> (${c.after_days}d) · same CSPs (current belief), their behaviour then vs now ·
+    <b>${BASIS==='ever'?'ever-reached':'live pipeline'}</b> basis`;
   const dcell=(r,k,inv,u)=>{
     const bef=r.befores?(r.befores[BEFORE_SEL]||{}):{};
     const b=bef[k], a=r.after[k];
@@ -984,22 +992,23 @@ function renderCohortBA(c){
       return `<tr style="${bench?'border-top:2px solid var(--n300);font-weight:600':''};${r.small?'opacity:.6':''}">
         <td class="tt2">${esc(r.label)}${r.small&&!bench?' <span style="font-weight:400;color:var(--muted);font-size:11px">small</span>':''}</td>
         <td style="text-align:right">${fmt(r.csps)}</td>`+
-        COLS.map(cc=>dcell(r,cc[0],cc[2],cc[3])).join('')+`</tr>`;
+        COLS.map(cc=>dcell(r,bkey(cc[0]),cc[2],cc[3])).join('')+`</tr>`;
     }).join('')+
     (c.extra_rows||[]).map((r,i)=>`<tr style="${i===0?'border-top:2px solid var(--purple)':''};color:var(--ink2)">
         <td class="tt2">${esc(r.label)}</td>
         <td style="text-align:right">${fmt(r.csps)}</td>`+
-        COLS.map(cc=>dcell(r,cc[0],cc[2],cc[3])).join('')+`</tr>`).join('');
+        COLS.map(cc=>dcell(r,bkey(cc[0]),cc[2],cc[3])).join('')+`</tr>`).join('');
   renderLadder(c,'after');
 }
 
 function renderLadder(c,win){
   const data=c.rows.slice(0,-1).map(r=>({label:r.label,small:r.small,...r[win]}));
   // conversion ladder: accepted% / confirmed% / installed% per cohort (of bookings)
-  const asPct=(r,k)=>r.bookings? (k==='accept'?r.accept_pct
-      :k==='confirm'?(r.accept_pct==null?null:Math.round(r.accept_pct*r.confirm_pct/10)/10)
-      :(r.accept_pct==null||r.confirm_pct==null||r.install_ratio==null?null
-        :Math.round(r.accept_pct*r.confirm_pct*r.install_ratio/1000)/10)):null;
+  const A=r=>r[bkey('accept_pct')], C=r=>r[bkey('confirm_pct')], I=r=>r[bkey('install_ratio')];
+  const asPct=(r,k)=>r.bookings? (k==='accept'?A(r)
+      :k==='confirm'?(A(r)==null?null:Math.round(A(r)*C(r)/10)/10)
+      :(A(r)==null||C(r)==null||I(r)==null?null
+        :Math.round(A(r)*C(r)*I(r)/1000)/10)):null;
   const W=820,rowH=30,padL=110,barW=W-padL-60,H=data.length*rowH+34;
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:820px;height:auto">`;
   [0,25,50,75,100].forEach(g=>{const x=padL+barW*g/100;

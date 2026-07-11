@@ -55,6 +55,17 @@ tl AS (
     WHERE ETL_CURRENT = TRUE
     QUALIFY ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID ORDER BY UPDATED_AT DESC) = 1
 ),
+hw AS (   -- high-water per connection: deepest rung ever reached (ever-reached basis)
+    SELECT CONNECTION_ID,
+           MAX(IFF(OTP_VERIFIED = TRUE OR INSTALLATION_COMPLETED_AT IS NOT NULL OR COMPLETED_STEP >= 7, 1, 0)) AS hw_inst,
+           MAX(IFF(EXECUTOR_ID IS NOT NULL OR CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
+               'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'), 1, 0)) AS hw_tech,
+           MAX(IFF(CONFIRMED_SLOT_AT IS NOT NULL OR CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT', 1, 0)) AS hw_conf,
+           MAX(IFF(PROPOSED_SLOT_DATE IS NOT NULL OR CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION', 1, 0)) AS hw_prop
+    FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
+    WHERE ETL_CURRENT = TRUE
+    GROUP BY CONNECTION_ID
+),
 joined AS (
     SELECT cn.booking_date, cn.CONNECTION_ID, tl.CSP_ID, tl.CREATED_AT AS task_created_at,
            CASE WHEN tl.CSP_ID IN (SELECT CSP_ID FROM enr_csp)  THEN 'enrolled'
@@ -67,9 +78,17 @@ joined AS (
              WHEN tl.csa IS NOT NULL OR tl.cs = 'AWAITING_TECHNICIAN_ASSIGNMENT' THEN 4
              WHEN tl.psd IS NOT NULL OR tl.cs = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION' THEN 3
              ELSE 2
-           END AS depth
+           END AS depth,
+           CASE
+             WHEN hw.hw_inst = 1 THEN 6
+             WHEN hw.hw_tech = 1 THEN 5
+             WHEN hw.hw_conf = 1 THEN 4
+             WHEN hw.hw_prop = 1 THEN 3
+             ELSE 2
+           END AS depth_ever
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
+    LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
 ),
 accepts AS (
     SELECT j.CONNECTION_ID, MIN(e.EVENT_TIMESTAMP) AS accepted_at
@@ -86,13 +105,16 @@ full_j AS (
 SELECT 'funnel' AS mode, grp, booking_date::STRING AS day_ist, NULL AS win,
        COUNT(*) AS bookings, SUM(IFF(depth >= 3, 1, 0)) AS accepted,
        SUM(IFF(depth >= 4, 1, 0)) AS confirmed, SUM(IFF(depth >= 6, 1, 0)) AS installed,
+       SUM(IFF(depth_ever >= 3, 1, 0)) AS accepted_ever,
+       SUM(IFF(depth_ever >= 4, 1, 0)) AS confirmed_ever,
+       SUM(IFF(depth_ever >= 6, 1, 0)) AS installed_ever,
        NULL AS csps, NULL AS med_hrs
 FROM full_j GROUP BY 2, 3
 UNION ALL
 SELECT 'meta', grp, NULL,
        CASE WHEN booking_date BETWEEN '2026-06-24' AND '2026-06-30' THEN 'before'
             WHEN booking_date >= '2026-07-01' THEN 'after' END,
-       NULL, NULL, NULL, NULL,
+       NULL, NULL, NULL, NULL, NULL, NULL, NULL,
        COUNT(DISTINCT CSP_ID), ROUND(MEDIAN(mins_to_accept) / 60.0, 1)
 FROM full_j
 WHERE (booking_date BETWEEN '2026-06-24' AND '2026-06-30') OR booking_date >= '2026-07-01'

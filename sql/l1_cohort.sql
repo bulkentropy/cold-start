@@ -54,6 +54,17 @@ tl AS (
     WHERE ETL_CURRENT = TRUE
     QUALIFY ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID ORDER BY UPDATED_AT DESC) = 1
 ),
+hw AS (   -- high-water per connection: deepest rung ever reached (ever-reached basis)
+    SELECT CONNECTION_ID,
+           MAX(IFF(OTP_VERIFIED = TRUE OR INSTALLATION_COMPLETED_AT IS NOT NULL OR COMPLETED_STEP >= 7, 1, 0)) AS hw_inst,
+           MAX(IFF(EXECUTOR_ID IS NOT NULL OR CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
+               'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'), 1, 0)) AS hw_tech,
+           MAX(IFF(CONFIRMED_SLOT_AT IS NOT NULL OR CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT', 1, 0)) AS hw_conf,
+           MAX(IFF(PROPOSED_SLOT_DATE IS NOT NULL OR CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION', 1, 0)) AS hw_prop
+    FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
+    WHERE ETL_CURRENT = TRUE
+    GROUP BY CONNECTION_ID
+),
 joined AS (
     SELECT cn.booking_date, cn.CONNECTION_ID, mc.PARTNER_ID AS partner_id,
            tl.CREATED_AT AS task_created_at,
@@ -64,10 +75,18 @@ joined AS (
              WHEN tl.csa IS NOT NULL OR tl.cs = 'AWAITING_TECHNICIAN_ASSIGNMENT' THEN 4
              WHEN tl.psd IS NOT NULL OR tl.cs = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION' THEN 3
              ELSE 2
-           END AS depth
+           END AS depth,
+           CASE
+             WHEN hw.hw_inst = 1 THEN 6
+             WHEN hw.hw_tech = 1 THEN 5
+             WHEN hw.hw_conf = 1 THEN 4
+             WHEN hw.hw_prop = 1 THEN 3
+             ELSE 2
+           END AS depth_ever
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
     JOIN mg_csp mc ON mc.CSP_ID = tl.CSP_ID
+    LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
 ),
 accepts AS (
     SELECT j.CONNECTION_ID, MIN(e.EVENT_TIMESTAMP) AS accepted_at
@@ -81,6 +100,7 @@ accepts AS (
 SELECT j.partner_id                                       AS partner_id,
        j.booking_date::STRING                             AS booking_date,
        j.depth                                            AS depth,
+       j.depth_ever                                       AS depth_ever,
        DATE_PART(EPOCH_SECOND, j.task_created_at)         AS task_epoch,
        DATE_PART(EPOCH_SECOND, a.accepted_at)             AS accept_epoch
 FROM joined j
