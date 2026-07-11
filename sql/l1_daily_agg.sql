@@ -157,6 +157,19 @@ SELECT 'confirm_cohort_ever', TO_DATE(DATEADD(minute, 330, ever_confirmed_at))::
        NULL, NULL, COUNT(*), SUM(IFF(depth_ever >= 6, 1, 0)), NULL, NULL, NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
+-- EVER-REACHED leading funnel (booking day): each rung = deepest ever reached
+-- (>=3 ever slot-proposed, >=4 ever customer-confirmed, 6 ever installed), so a
+-- rung that later fell back still counts. Same booking-day anchor & accept-speed.
+SELECT 'cohort_ever', booking_date::STRING, enr,
+       COUNT(*),
+       SUM(IFF(depth_ever >= 3, 1, 0)),
+       SUM(IFF(depth_ever >= 4, 1, 0)),
+       SUM(IFF(depth_ever >= 6, 1, 0)),
+       NULL,
+       ROUND(MEDIAN(mins_to_accept) / 60, 1),
+       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1)
+FROM full_j GROUP BY 2, 3
+UNION ALL
 -- all qualified bookings created that day (Q11528 stage 1), whether or not
 -- they ever reached a connection or CSP task
 SELECT 'total', booking_date::STRING, NULL, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL

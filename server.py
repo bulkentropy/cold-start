@@ -329,6 +329,7 @@ def compute_l1(enrolled_ids):
                 for r in raw if r["mode"] == mode and r["day_ist"]}
 
     coh, eacc, econf = bucket("cohort"), bucket("event_accept"), bucket("event_confirm")
+    coh_ever = bucket("cohort_ever")
     ccoh = bucket("confirm_cohort")
     ccoh_ever = bucket("confirm_cohort_ever")
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
@@ -338,11 +339,11 @@ def compute_l1(enrolled_ids):
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
 
-    def agg_cohort():
+    def _agg_cohort(src):
         out = []
         for d in days:
-            e = coh.get((d, 1), {})
-            s = coh.get((d, 0), {})
+            e = src.get((d, 1), {})
+            s = src.get((d, 0), {})
             bks, acc, cnf, ins = (e.get("bookings", 0), e.get("accepted", 0),
                                   e.get("confirmed", 0), e.get("installed", 0))
             out.append({"day_ist": d, "bookings": bks, "slot_selected": acc,
@@ -356,6 +357,9 @@ def compute_l1(enrolled_ids):
                         "sh_med_hrs_to_accept": s.get("med_hrs"),
                         "total_bookings": total.get(d)})
         return out
+
+    def agg_cohort():        return _agg_cohort(coh)        # current-state (live pipeline)
+    def agg_cohort_ever():   return _agg_cohort(coh_ever)   # ever-reached (progression)
 
     def agg_event():
         out = []
@@ -405,7 +409,8 @@ def compute_l1(enrolled_ids):
     mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
 
     modes = {}
-    for mode, rows in (("cohort", agg_cohort()), ("event", agg_event()),
+    for mode, rows in (("cohort", agg_cohort()), ("cohort_ever", agg_cohort_ever()),
+                       ("event", agg_event()),
                        ("confirm_cohort", agg_confirm()),
                        ("confirm_cohort_ever", agg_confirm_ever())):
         pre = [r for r in rows if L1_START <= r["day_ist"] <= PRE_END]

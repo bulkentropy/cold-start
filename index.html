@@ -366,9 +366,15 @@ svg text{font-family:inherit}
       <div class="label">L1 · Leading metrics — enrolled CSPs</div>
       <div class="sub" id="l1sub"></div>
     </div>
-    <div class="toggle" id="modetoggle">
-      <button class="on" data-mode="cohort" onclick="setMode('cohort')">By booking day</button>
-      <button data-mode="event" onclick="setMode('event')">By event day</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div class="toggle" id="basistoggle">
+        <button class="on" data-basis="current" onclick="setBasis('current')" title="Where bookings sit right now (current TAS state)">Live pipeline</button>
+        <button data-basis="ever" onclick="setBasis('ever')" title="How far each booking ever got (high-water)">Ever reached</button>
+      </div>
+      <div class="toggle" id="modetoggle">
+        <button class="on" data-mode="cohort" onclick="setMode('cohort')">By booking day</button>
+        <button data-mode="event" onclick="setMode('event')">By event day</button>
+      </div>
     </div>
   </div>
   <div class="l1grid" id="l1grid"></div>
@@ -410,6 +416,12 @@ svg text{font-family:inherit}
     <b>By event day</b>: each event counts on the day it happened, shown as absolute counts/day
     (accepts and confirmations there can belong to bookings from earlier days). Only complete IST
     calendar days are shown. Pre = 24–30 Jun daily average (dashed); Post = from 1 Jul.
+    <br><b>Live pipeline vs Ever reached</b> (booking-day toggle): <b>Live pipeline</b> uses the
+    <i>current</i> TAS state (where each booking sits now) — a rung that later fell back isn't counted,
+    so proposal/confirm rates read where the queue is today. <b>Ever reached</b> uses the deepest rung
+    each booking <i>ever</i> hit (high-water over its candidate rows), so a slot that was proposed or
+    confirmed and then failed/re-farmed still counts — proposal/confirm rates rise and read true
+    progression. Same basis as the L2 Wiom view.
   </div>
 </div>
 <div id="pane-l2" style="display:none">
@@ -476,7 +488,7 @@ svg text{font-family:inherit}
 const $=id=>document.getElementById(id);
 const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-IN'));
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
-let DATA=null, MODE='cohort';
+let DATA=null, MODE='cohort', BASIS='current';
 
 const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
@@ -726,6 +738,11 @@ showTab(METRICS.find(m=>initHash.startsWith(m))||TABS.find(t=>initHash.startsWit
 function setMode(m){
   MODE=m;
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
+  if(DATA&&DATA.l1)renderL1(DATA.l1,DATA.meta);
+}
+function setBasis(b){
+  BASIS=b;
+  document.querySelectorAll('#basistoggle button').forEach(x=>x.classList.toggle('on',x.dataset.basis===b));
   if(DATA&&DATA.l1)renderL1(DATA.l1,DATA.meta);
 }
 async function load(force){
@@ -1271,10 +1288,13 @@ function funnelCard(title,rows,color){
 
 /* ---------- L1 charts ---------- */
 function renderL1(l1,meta){
-  const m=l1.modes[MODE];
+  const ever=MODE==='cohort'&&BASIS==='ever';
+  const m=l1.modes[ever?'cohort_ever':MODE]||l1.modes[MODE];
+  const bsuf=ever?' · ever-reached':'';
+  $('basistoggle').style.display=MODE==='cohort'?'':'none';
   $('l1sub').innerHTML=`Measured on <b>${fmt(l1.enrolled_n)}</b> enrolled CSPs (live set) ·
     complete days through <b>${l1.complete_through}</b> ·
-    ${MODE==='cohort'?'outcomes attributed to the booking’s confirm day':'each event counted on its own day'}`;
+    ${MODE==='cohort'?(ever?'<b>ever-reached</b> — each rung = the deepest stage the booking ever hit (high-water)':'<b>live pipeline</b> — where bookings sit right now (current state)'):'each event counted on its own day'}`;
   const g=$('l1grid'); g.innerHTML='';
   const SH='non-enrolled CSPs (absolute)';
   const dot=c=>`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin-right:6px"></span>`;
@@ -1287,14 +1307,14 @@ function renderL1(l1,meta){
      color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.med_hrs_to_accept??'–'} h</b> median<br>${N}non-enrolled: <b>${r.sh_med_hrs_to_accept??'–'} h</b>`},
     MODE==='cohort'
-    ?{title:'CSP accepted / slot proposed (%)',kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
+    ?{title:'CSP accepted / slot proposed (%)'+bsuf,kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
       shKey:'sh_slot_pct',
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.slot_pct??'–'}%</b> (${fmt(r.slot_selected)} of ${fmt(r.bookings)} bookings)<br>${N}non-enrolled: <b>${r.sh_slot_pct??'–'}%</b>`}
     :{title:'CSP accepted / slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
       shKey:'sh_slot_selected',shLabel:SH,
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> accepted (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled: <b>${fmt(r.sh_slot_selected)}</b>`},
     MODE==='cohort'
-    ?{title:'Slot confirmed by customer (%)',kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
+    ?{title:'Slot confirmed by customer (%)'+bsuf,kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
       shKey:'sh_confirm_pct',
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.confirm_pct??'–'}%</b> (${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} accepted)<br>${N}non-enrolled: <b>${r.sh_confirm_pct??'–'}%</b>`}
     :{title:'Slot confirmed by customer (count / day)',kind:'bar',key:'cust_confirmed',color:PINK,goodUp:true,
