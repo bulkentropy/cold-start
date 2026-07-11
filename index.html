@@ -1180,15 +1180,17 @@ function renderEngagement(e){
     tile(last.withleads,'With-leads (active)',mv(first.withleads,last.withleads,false),'color:var(--green)')+
     tile(last.secured,'Secured',mv(first.secured,last.secured,false))+
     tile(movedUp,'Moved up','total up-stage moves, 8 days','color:var(--green)');
-  // stacked stage-distribution chart
+  // stage-distribution line chart (one line per stage)
   const W=760,H=220,L=34,R=10,T=12,B=28, n=s.length;
-  const ymax=(s[0].total||457)*1.05, step=(W-L-R)/n, bw=Math.max(6,step-6), y=v=>T+(H-T-B)*(1-v/ymax);
   const SC={secured:['#1E9E6A','Secured'],almost:['#D9008D','Almost'],keepgoing:['#C77700','Keep-going'],noleads:['#9A93AD','No-leads']};
+  const ymax=Math.max(...s.flatMap(r=>[r.secured,r.almost,r.keepgoing,r.noleads]))*1.12;
+  const x=i=>L+(W-L-R)*(n===1?.5:i/(n-1)), y=v=>T+(H-T-B)*(1-v/ymax);
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
   for(let i=0;i<=4;i++){const v=ymax*i/4,yy=y(v);svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${L-5}" y="${yy+3}" font-size="10" fill="${MUTED}" text-anchor="end">${Math.round(v)}</text>`;}
-  s.forEach((r,i)=>{const x=L+step*i+3; let yb=H-B;
-    [['secured',r.secured],['almost',r.almost],['keepgoing',r.keepgoing],['noleads',r.noleads]].forEach(([k,v])=>{if(v>0){const h=(H-T-B)*v/ymax; yb-=h; svg+=`<rect x="${x}" y="${yb}" width="${bw}" height="${h}" fill="${SC[k][0]}"><title>${r.date.slice(5)} · ${SC[k][1]}: ${v}</title></rect>`;}});
-    svg+=`<text x="${x+bw/2}" y="${H-9}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.date.slice(5)}</text>`;});
+  s.forEach((r,i)=>{svg+=`<text x="${x(i)}" y="${H-9}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.date.slice(5)}</text>`;});
+  ['keepgoing','noleads','almost','secured'].forEach(k=>{
+    svg+=`<polyline points="${s.map((r,i)=>`${x(i)},${y(r[k])}`).join(' ')}" fill="none" stroke="${SC[k][0]}" stroke-width="2.5"/>`;
+    s.forEach((r,i)=>svg+=`<circle cx="${x(i)}" cy="${y(r[k])}" r="3" fill="${SC[k][0]}"><title>${r.date.slice(5)} · ${SC[k][1]}: ${r[k]}</title></circle>`);});
   svg+='</svg>';
   const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
   $('eng-chart').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${['secured','almost','keepgoing','noleads'].map(k=>key(SC[k][0],SC[k][1])).join('')}</div>`;
