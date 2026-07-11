@@ -1,0 +1,184 @@
+{
+ "window": "3–10 Jul 2026",
+ "total_csps": 457,
+ "stages": [
+  {
+   "date": "2026-07-03",
+   "secured": 50,
+   "almost": 144,
+   "keepgoing": 65,
+   "noleads": 198,
+   "withleads": 259,
+   "total": 457,
+   "moved_up": 46,
+   "moved_down": 38,
+   "newly_activated": 31,
+   "stayed": 373
+  },
+  {
+   "date": "2026-07-04",
+   "secured": 59,
+   "almost": 132,
+   "keepgoing": 88,
+   "noleads": 178,
+   "withleads": 279,
+   "total": 457,
+   "moved_up": 51,
+   "moved_down": 42,
+   "newly_activated": 31,
+   "stayed": 364
+  },
+  {
+   "date": "2026-07-05",
+   "secured": 68,
+   "almost": 115,
+   "keepgoing": 102,
+   "noleads": 172,
+   "withleads": 285,
+   "total": 457,
+   "moved_up": 46,
+   "moved_down": 44,
+   "newly_activated": 23,
+   "stayed": 367
+  },
+  {
+   "date": "2026-07-06",
+   "secured": 78,
+   "almost": 107,
+   "keepgoing": 112,
+   "noleads": 160,
+   "withleads": 297,
+   "total": 457,
+   "moved_up": 41,
+   "moved_down": 29,
+   "newly_activated": 21,
+   "stayed": 387
+  },
+  {
+   "date": "2026-07-07",
+   "secured": 76,
+   "almost": 110,
+   "keepgoing": 122,
+   "noleads": 149,
+   "withleads": 308,
+   "total": 457,
+   "moved_up": 44,
+   "moved_down": 43,
+   "newly_activated": 26,
+   "stayed": 370
+  },
+  {
+   "date": "2026-07-08",
+   "secured": 82,
+   "almost": 109,
+   "keepgoing": 130,
+   "noleads": 136,
+   "withleads": 321,
+   "total": 457,
+   "moved_up": 54,
+   "moved_down": 42,
+   "newly_activated": 29,
+   "stayed": 361
+  },
+  {
+   "date": "2026-07-09",
+   "secured": 81,
+   "almost": 119,
+   "keepgoing": 134,
+   "noleads": 123,
+   "withleads": 334,
+   "total": 457,
+   "moved_up": 42,
+   "moved_down": 31,
+   "newly_activated": 24,
+   "stayed": 384
+  },
+  {
+   "date": "2026-07-10",
+   "secured": 73,
+   "almost": 123,
+   "keepgoing": 143,
+   "noleads": 118,
+   "withleads": 339,
+   "total": 457,
+   "moved_up": 33,
+   "moved_down": 40,
+   "newly_activated": 19,
+   "stayed": 384
+  }
+ ],
+ "engagement": [
+  {
+   "date": "2026-07-03",
+   "views": 446,
+   "scrolls": 0,
+   "saw_guar": 0,
+   "tap_guar": 0,
+   "ticket_taps": 0,
+   "exits": 322
+  },
+  {
+   "date": "2026-07-04",
+   "views": 179,
+   "scrolls": 80,
+   "saw_guar": 169,
+   "tap_guar": 26,
+   "ticket_taps": 22,
+   "exits": 63
+  },
+  {
+   "date": "2026-07-05",
+   "views": 400,
+   "scrolls": 197,
+   "saw_guar": 392,
+   "tap_guar": 42,
+   "ticket_taps": 49,
+   "exits": 135
+  },
+  {
+   "date": "2026-07-06",
+   "views": 269,
+   "scrolls": 131,
+   "saw_guar": 264,
+   "tap_guar": 17,
+   "ticket_taps": 36,
+   "exits": 74
+  },
+  {
+   "date": "2026-07-07",
+   "views": 409,
+   "scrolls": 160,
+   "saw_guar": 402,
+   "tap_guar": 50,
+   "ticket_taps": 29,
+   "exits": 138
+  },
+  {
+   "date": "2026-07-08",
+   "views": 282,
+   "scrolls": 125,
+   "saw_guar": 277,
+   "tap_guar": 18,
+   "ticket_taps": 39,
+   "exits": 81
+  },
+  {
+   "date": "2026-07-09",
+   "views": 259,
+   "scrolls": 131,
+   "saw_guar": 258,
+   "tap_guar": 24,
+   "ticket_taps": 16,
+   "exits": 80
+  },
+  {
+   "date": "2026-07-10",
+   "views": 303,
+   "scrolls": 115,
+   "saw_guar": 292,
+   "tap_guar": 17,
+   "ticket_taps": 19,
+   "exits": 98
+  }
+ ]
+}

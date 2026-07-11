@@ -81,6 +81,13 @@ F1, F2 = set(FC["flow1"]), set(FC["flow2"])
 ID2P = {i: p for p, ids in MAP.items() for i in ids}
 ALLIDS = {i for p in F1 | F2 for i in MAP.get(p, [])}
 
+# Engagement campaign (CSP stage movement + banner engagement, 3-10 Jul) — a
+# fixed one-off dataset exported from mbg_stage_movement.xlsx; served as-is.
+try:
+    ENGAGEMENT = json.load(open(os.path.join(BASE_DIR, "data", "mbg_engagement.json"), encoding="utf-8"))
+except Exception:
+    ENGAGEMENT = None
+
 # PUBLIC publishable (anon) key for the mbg-portal project — not a secret, it
 # ships inside client apps. RLS permits the reads this dashboard needs. A
 # service key in the env (SUPABASE_PORTAL_SERVICE_KEY) overrides it.
@@ -241,6 +248,7 @@ def compute_l0():
                            {"stage": "Audit completed", "csps": len(audit_done)},
                            {"stage": "Enrolled (opt-in + audit)", "csps": f2_enr}]),
         "totals": {"joined": f1_enr + f2_opt, "enrolled_strict": f1_enr + f2_enr},
+        "engagement": ENGAGEMENT,
         # L1 base: strictly-enrolled CSPs (flow-1 audit was done at launch)
         "enrolled_partner_ids": sorted((opt & F1) | (opt & F2 & audit_done)),
         "l0_errors": errors,

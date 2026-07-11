@@ -326,6 +326,14 @@ svg text{font-family:inherit}
     <div class="strip" id="mig-strip"></div>
   </div>
   <div class="section two" id="funnels"></div>
+  <div class="section card" id="l0-eng" hidden>
+    <div class="label">Engagement campaign — CSP stage movement (3–10 Jul)</div>
+    <div class="sub" id="eng-sub"></div>
+    <div class="strip" id="eng-tiles" style="margin-top:14px"></div>
+    <div id="eng-chart" style="margin-top:14px;overflow-x:auto"></div>
+    <div id="eng-funnel" style="margin-top:18px"></div>
+    <div class="foot" id="eng-foot" style="margin-top:10px"></div>
+  </div>
   <div class="foot card">
     <b>Definitions (mirrors the mbg-tv-wall TV dashboard exactly).</b> All steps count distinct
     CSPs in the frozen launch cohort (469 + 100). <b>App Opened</b> = CleverTap “App Launched”
@@ -723,7 +731,7 @@ function render(d){
   $('banner').style.display=errs.length?'block':'none';
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
-  if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0);}
+  if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);
@@ -1157,6 +1165,43 @@ function renderMigration(m){
 }
 function tile(v,l,d,style){return `<div class="tile"><div class="v" style="${style||''}">${fmt(v)}</div>
   <div class="label">${l}</div><div class="d">${d}</div></div>`;}
+
+function renderEngagement(e){
+  const box=$('l0-eng');
+  if(!e||!e.stages||!e.stages.length){box.hidden=true;return;}
+  box.hidden=false;
+  const s=e.stages, first=s[0], last=s[s.length-1];
+  const movedUp=s.reduce((a,r)=>a+(r.moved_up||0),0);
+  $('eng-sub').innerHTML=`457 MG CSPs classified daily by lead-stage — <b>No-leads → Keep-going → Almost → Secured</b> — over the in-app engagement campaign (${e.window}). Tracks cold CSPs activating up the ladder.`;
+  const mv=(a,b,goodDown)=>{const d=b-a, up=d>0, good=goodDown?d<0:d>0; const c=Math.abs(d)<1?'var(--muted)':(good?'var(--green)':'var(--red)');
+    return `was ${a} · <span style="color:${c};font-weight:700">${up?'▲+':(d<0?'▼':'')}${Math.abs(d)}</span>`;};
+  $('eng-tiles').innerHTML=
+    tile(last.noleads,'No-leads (cold)',mv(first.noleads,last.noleads,true),'color:var(--green)')+
+    tile(last.withleads,'With-leads (active)',mv(first.withleads,last.withleads,false),'color:var(--green)')+
+    tile(last.secured,'Secured',mv(first.secured,last.secured,false))+
+    tile(movedUp,'Moved up','total up-stage moves, 8 days','color:var(--green)');
+  // stacked stage-distribution chart
+  const W=760,H=220,L=34,R=10,T=12,B=28, n=s.length;
+  const ymax=(s[0].total||457)*1.05, step=(W-L-R)/n, bw=Math.max(6,step-6), y=v=>T+(H-T-B)*(1-v/ymax);
+  const SC={secured:['#1E9E6A','Secured'],almost:['#D9008D','Almost'],keepgoing:['#C77700','Keep-going'],noleads:['#9A93AD','No-leads']};
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
+  for(let i=0;i<=4;i++){const v=ymax*i/4,yy=y(v);svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${L-5}" y="${yy+3}" font-size="10" fill="${MUTED}" text-anchor="end">${Math.round(v)}</text>`;}
+  s.forEach((r,i)=>{const x=L+step*i+3; let yb=H-B;
+    [['secured',r.secured],['almost',r.almost],['keepgoing',r.keepgoing],['noleads',r.noleads]].forEach(([k,v])=>{if(v>0){const h=(H-T-B)*v/ymax; yb-=h; svg+=`<rect x="${x}" y="${yb}" width="${bw}" height="${h}" fill="${SC[k][0]}"><title>${r.date.slice(5)} · ${SC[k][1]}: ${v}</title></rect>`;}});
+    svg+=`<text x="${x+bw/2}" y="${H-9}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.date.slice(5)}</text>`;});
+  svg+='</svg>';
+  const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
+  $('eng-chart').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${['secured','almost','keepgoing','noleads'].map(k=>key(SC[k][0],SC[k][1])).join('')}</div>`;
+  // banner engagement funnel (campaign totals)
+  const et={views:0,scrolls:0,saw_guar:0,tap_guar:0,ticket_taps:0};
+  (e.engagement||[]).forEach(x=>{for(const k in et)et[k]+=x[k]||0;});
+  const steps=[['Views',et.views],['Scrolled',et.scrolls],['Saw guarantee',et.saw_guar],['Tapped guarantee',et.tap_guar],['Ticket taps',et.ticket_taps]];
+  const mx=Math.max(...steps.map(x=>x[1]))||1;
+  let fh=`<div class="label" style="font-size:12px;margin-bottom:8px">Banner engagement — campaign totals</div>`;
+  steps.forEach(([l,v])=>{fh+=`<div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px"><div style="width:130px;color:var(--ink2)">${l}</div><div style="flex:1;background:#EEE8F7;border-radius:4px;height:16px"><div style="width:${Math.round(100*v/mx)}%;height:16px;background:var(--purple);border-radius:4px"></div></div><div style="width:56px;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)}</div></div>`;});
+  $('eng-funnel').innerHTML=fh;
+  $('eng-foot').innerHTML=`Stages: <b>No-leads</b> = no leads assigned (cold) · <b>Keep-going</b> / <b>Almost</b> / <b>Secured</b> = has leads, rising toward securing MG. Total is 457 CSPs each day; the mix shifts as the campaign activates cold CSPs. One-off dataset (mbg_stage_movement.xlsx), not live.`;
+}
 
 function renderFunnels(l0){
   const wrap=$('funnels'); wrap.innerHTML='';
