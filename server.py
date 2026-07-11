@@ -784,8 +784,27 @@ def compute_nsm(enrolled_ids):
 
     trend = [row((today - timedelta(days=i)).isoformat()) for i in range(15, 0, -1)]
     t = row(today.isoformat())
+
+    # month-to-date (calendar month, IST) — computed independently of the 17-day
+    # trend window so it stays correct late in the month.
+    inlist = ",".join(f"'{p}'" for p in enrolled_ids)
+    msql = f"""
+    WITH mg_csp AS (SELECT DISTINCT CSP_ID
+        FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
+        WHERE _fivetran_active = TRUE AND PARTNER_ID IN ({inlist}))
+    SELECT COUNT(DISTINCT IFF(CSP_ID IN (SELECT CSP_ID FROM mg_csp), CONNECTION_ID, NULL)) AS mg_installs,
+           COUNT(DISTINCT CONNECTION_ID) AS total_installs
+    FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
+    WHERE ETL_CURRENT = TRUE AND INSTALLATION_COMPLETED_AT IS NOT NULL
+      AND TO_DATE(DATEADD(minute, 330, INSTALLATION_COMPLETED_AT))
+          >= DATE_TRUNC('month', TO_DATE(DATEADD(minute, 330, CURRENT_TIMESTAMP())))"""
+    mrow = (metabase_sql(msql) or [{}])[0]
+
     return {"today": t["installs"], "today_total": t["total_installs"],
-            "today_date": today.isoformat(), "trend": trend}
+            "today_date": today.isoformat(), "trend": trend,
+            "month_label": today.strftime("%b"),
+            "month_mg": mrow.get("mg_installs", 0),
+            "month_total": mrow.get("total_installs", 0)}
 
 
 # ----------------------------------------------------------------------------
