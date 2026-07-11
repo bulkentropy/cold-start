@@ -1203,20 +1203,34 @@ function renderEngagement(e){
     tile(last.withleads,'With-leads (active)',mv(first.withleads,last.withleads,false),'color:var(--green)')+
     tile(last.secured,'Secured',mv(first.secured,last.secured,false))+
     tile(movedUp,'Moved up','total up-stage moves, 8 days','color:var(--green)');
-  // stage-distribution line chart (one line per stage)
-  const W=760,H=220,L=34,R=10,T=12,B=28, n=s.length;
-  const SC={secured:['#1E9E6A','Secured'],almost:['#D9008D','Almost'],keepgoing:['#C77700','Keep-going'],noleads:['#9A93AD','No-leads']};
-  const ymax=Math.max(...s.flatMap(r=>[r.secured,r.almost,r.keepgoing,r.noleads]))*1.12;
-  const x=i=>L+(W-L-R)*(n===1?.5:i/(n-1)), y=v=>T+(H-T-B)*(1-v/ymax);
+  // stage-distribution — stacked area to the constant ~457 total. Ladder order:
+  // Secured at the base, No-leads on top; the grey band drains as green/amber
+  // grow, so the day-on-day movement reads in one glance (no line-crossing).
+  const STK=[['secured','#1E9E6A','Secured'],['almost','#D9008D','Almost'],
+             ['keepgoing','#C77700','Keep-going'],['noleads','#9A93AD','No-leads']];
+  const TOT=Math.max(...s.map(r=>r.secured+r.almost+r.keepgoing+r.noleads));
+  const W=760,H=252,L=10,R=140,T=16,B=26,n=s.length;
+  const x=i=>L+(W-L-R)*(n===1?.5:i/(n-1));
+  const yOf=v=>T+(H-T-B)*(1-v/TOT);
+  const cum=s.map(r=>{let c=0;const o={};STK.forEach(([k])=>{o[k]=[c,c+r[k]];c+=r[k];});return o;});
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
-  for(let i=0;i<=4;i++){const v=ymax*i/4,yy=y(v);svg+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/><text x="${L-5}" y="${yy+3}" font-size="10" fill="${MUTED}" text-anchor="end">${Math.round(v)}</text>`;}
-  s.forEach((r,i)=>{svg+=`<text x="${x(i)}" y="${H-9}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.date.slice(5)}</text>`;});
-  ['keepgoing','noleads','almost','secured'].forEach(k=>{
-    svg+=`<polyline points="${s.map((r,i)=>`${x(i)},${y(r[k])}`).join(' ')}" fill="none" stroke="${SC[k][0]}" stroke-width="2.5"/>`;
-    s.forEach((r,i)=>svg+=`<circle cx="${x(i)}" cy="${y(r[k])}" r="3" fill="${SC[k][0]}"><title>${r.date.slice(5)} · ${SC[k][1]}: ${r[k]}</title></circle>`);});
+  svg+=`<text x="${L}" y="${yOf(TOT)-5}" font-size="10.5" fill="${MUTED}">${TOT} CSPs each day (constant total)</text>`;
+  STK.forEach(([k,col,lbl])=>{
+    const top=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][1])}`);
+    const bot=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][0])}`).reverse();
+    svg+=`<polygon points="${top.concat(bot).join(' ')}" fill="${col}" stroke="var(--card)" stroke-width="1.5"/>`;
+    const li=n-1, cy=yOf((cum[li][k][0]+cum[li][k][1])/2), d=last[k]-first[k];
+    const good=k==='noleads'?d<0:d>0, dc=Math.abs(d)<1?MUTED:(good?'#1E9E6A':'#E01E00');
+    const arr=d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0';
+    svg+=`<text x="${W-R+10}" y="${cy-1}" font-size="12.5" font-weight="700" fill="${col}">${lbl}</text>`;
+    svg+=`<text x="${W-R+10}" y="${cy+14}" font-size="11" fill="${MUTED}">${first[k]} → <tspan font-weight="700" fill="var(--text)">${last[k]}</tspan> <tspan fill="${dc}" font-weight="700">${arr}</tspan></text>`;
+  });
+  s.forEach((r,i)=>svg+=`<text x="${x(i)}" y="${H-8}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.date.slice(5)}</text>`);
+  const cw=(W-L-R)/Math.max(n-1,1);
+  s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.date.slice(5)} · Secured ${r.secured} · Almost ${r.almost} · Keep-going ${r.keepgoing} · No-leads ${r.noleads}</title></rect>`);
   svg+='</svg>';
   const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
-  $('eng-chart').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${['secured','almost','keepgoing','noleads'].map(k=>key(SC[k][0],SC[k][1])).join('')}</div>`;
+  $('eng-chart').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${STK.slice().reverse().map(([k,c,l])=>key(c,l)).join('')}</div>`;
   // banner engagement funnel (campaign totals)
   const et={views:0,scrolls:0,saw_guar:0,tap_guar:0,ticket_taps:0};
   (e.engagement||[]).forEach(x=>{for(const k in et)et[k]+=x[k]||0;});
