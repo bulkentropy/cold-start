@@ -7,6 +7,8 @@
 -- Row shape (mode): 'cohort'        day=booking day, full stage counts + speed
 --                   'event_accept'  day=accept IST day, n=accepts + speed
 --                   'event_confirm' day=confirm IST day, n=confirms
+--                   'confirm_cohort'      day=confirmed-slot day, confirmed/installed (current-state)
+--                   'confirm_cohort_ever' day=first-confirmed day, confirmed/installed (ever-reached; Wiom view)
 --                   'csps'          day=NULL, n=distinct receiving CSPs (for scaling)
 -- {PARTNER_IN_LIST} and {START_DATE} are substituted at run time.
 WITH mg_csp AS (
@@ -62,6 +64,22 @@ tl AS (
     WHERE ETL_CURRENT = TRUE
     QUALIFY ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID ORDER BY UPDATED_AT DESC) = 1
 ),
+-- high-water per connection across ALL current candidate rows: the DEEPEST rung
+-- the journey ever reached, not just where the current row sits. Used for the
+-- ever-reached "Wiom view" so a booking the customer confirmed but that later
+-- failed + re-farmed still counts as confirmed (current-state would drop it).
+hw AS (
+    SELECT CONNECTION_ID,
+           MAX(IFF(OTP_VERIFIED = TRUE OR INSTALLATION_COMPLETED_AT IS NOT NULL OR COMPLETED_STEP >= 7, 1, 0)) AS hw_inst,
+           MAX(IFF(EXECUTOR_ID IS NOT NULL OR CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
+               'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'), 1, 0)) AS hw_tech,
+           MAX(IFF(CONFIRMED_SLOT_AT IS NOT NULL OR CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT', 1, 0)) AS hw_conf,
+           MAX(IFF(PROPOSED_SLOT_DATE IS NOT NULL OR CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION', 1, 0)) AS hw_prop,
+           MIN(CONFIRMED_SLOT_AT) AS first_confirmed_at
+    FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
+    WHERE ETL_CURRENT = TRUE
+    GROUP BY CONNECTION_ID
+),
 joined AS (
     SELECT cn.booking_date, cn.CONNECTION_ID, tl.CSP_ID,
            IFF(tl.CSP_ID IN (SELECT CSP_ID FROM mg_csp), 1, 0) AS enr,
@@ -73,9 +91,18 @@ joined AS (
              WHEN tl.csa IS NOT NULL OR tl.cs = 'AWAITING_TECHNICIAN_ASSIGNMENT' THEN 4
              WHEN tl.psd IS NOT NULL OR tl.cs = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION' THEN 3
              ELSE 2
-           END AS depth
+           END AS depth,
+           CASE
+             WHEN hw.hw_inst = 1 THEN 6
+             WHEN hw.hw_tech = 1 THEN 5
+             WHEN hw.hw_conf = 1 THEN 4
+             WHEN hw.hw_prop = 1 THEN 3
+             ELSE 2
+           END AS depth_ever,
+           hw.first_confirmed_at AS ever_confirmed_at
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
+    LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
 ),
 accepts AS (
     SELECT j.CONNECTION_ID, MIN(e.EVENT_TIMESTAMP) AS accepted_at
@@ -120,6 +147,15 @@ UNION ALL
 SELECT 'confirm_cohort', TO_DATE(DATEADD(minute, 330, confirmed_at))::STRING, enr,
        NULL, NULL, COUNT(*), SUM(IFF(depth >= 6, 1, 0)), NULL, NULL, NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
+UNION ALL
+-- EVER-REACHED (Wiom view): install ratio anchored on the FIRST customer-slot-
+-- confirmed day. confirmed = the customer EVER confirmed a slot (CONFIRMED_SLOT_AT
+-- ever set on any current candidate row); installed = of those, ever installed.
+-- Unlike confirm_cohort, the denominator does NOT shrink when a confirmed booking
+-- fails to install and is re-farmed/reset.
+SELECT 'confirm_cohort_ever', TO_DATE(DATEADD(minute, 330, ever_confirmed_at))::STRING, enr,
+       NULL, NULL, COUNT(*), SUM(IFF(depth_ever >= 6, 1, 0)), NULL, NULL, NULL
+FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- all qualified bookings created that day (Q11528 stage 1), whether or not
 -- they ever reached a connection or CSP task

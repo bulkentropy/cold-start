@@ -330,6 +330,7 @@ def compute_l1(enrolled_ids):
 
     coh, eacc, econf = bucket("cohort"), bucket("event_accept"), bucket("event_confirm")
     ccoh = bucket("confirm_cohort")
+    ccoh_ever = bucket("confirm_cohort_ever")
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
     total = {str(r["day_ist"])[:10]: r["bookings"] for r in raw
              if r["mode"] == "total" and r["day_ist"]}
@@ -374,10 +375,10 @@ def compute_l1(enrolled_ids):
                         "total_bookings": total.get(d)})
         return out
 
-    def agg_confirm():   # install ratio by customer-slot-confirmed day
+    def _agg_confirm(src):   # install ratio by customer-slot-confirmed day
         out = []
         for d in days:
-            e, s = ccoh.get((d, 1), {}), ccoh.get((d, 0), {})
+            e, s = src.get((d, 1), {}), src.get((d, 0), {})
             cnf, ins = e.get("confirmed", 0), e.get("installed", 0)
             scnf, sins = s.get("confirmed", 0), s.get("installed", 0)
             out.append({"day_ist": d, "cust_confirmed": cnf, "installs": ins,
@@ -385,6 +386,9 @@ def compute_l1(enrolled_ids):
                         "sh_cust_confirmed": scnf, "sh_installs": sins,
                         "sh_install_ratio": pct(sins, scnf)})
         return out
+
+    def agg_confirm():        return _agg_confirm(ccoh)        # current-state
+    def agg_confirm_ever():   return _agg_confirm(ccoh_ever)   # ever-reached (Wiom view)
 
     def block(rows):
         def avg(k):
@@ -402,13 +406,15 @@ def compute_l1(enrolled_ids):
 
     modes = {}
     for mode, rows in (("cohort", agg_cohort()), ("event", agg_event()),
-                       ("confirm_cohort", agg_confirm())):
+                       ("confirm_cohort", agg_confirm()),
+                       ("confirm_cohort_ever", agg_confirm_ever())):
         pre = [r for r in rows if L1_START <= r["day_ist"] <= PRE_END]
         post = [r for r in rows if r["day_ist"] >= POST_START]
-        if mode == "confirm_cohort":
+        if mode in ("confirm_cohort", "confirm_cohort_ever"):
             post = [r for r in post if r["day_ist"] <= mature_cutoff]
         modes[mode] = {"daily": rows, "pre_avg": block(pre), "post_avg": block(post)}
     modes["confirm_cohort"]["mature_cutoff"] = mature_cutoff
+    modes["confirm_cohort_ever"]["mature_cutoff"] = mature_cutoff
 
     try:
         leadtime = _leadtime_stats(enrolled_ids)

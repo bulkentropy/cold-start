@@ -415,7 +415,7 @@ svg text{font-family:inherit}
 <div id="pane-l2" style="display:none">
   <div class="card" style="margin-bottom:20px">
     <div class="label">L2 · Target metric — did the intervention do its job?</div>
-    <div class="sub">Install Ratio = installs ÷ slots confirmed by customer, MG cohort, by customer slot-confirmed day (Q11528 depths: 6 ÷ ≥4) — the ratio's own denominator basis</div>
+    <div class="sub"><b>Two views of install ratio.</b> <b>Wiom view</b> (headline below) = installs ÷ bookings the customer <b>ever</b> confirmed a slot for (booking/connection level, high-water) — so a booking that was confirmed but failed &amp; got re-farmed still counts, which current-state would drop. <b>Partner view</b> (second chart) = installs ÷ customer-confirmation <b>tasks</b> (re-farm counted). Both keep Q11528's ladder.</div>
     <div class="strip" id="l2-hero" style="margin-top:14px"></div>
     <div class="sub" id="l2-foot" style="margin-top:12px"></div>
   </div>
@@ -455,8 +455,9 @@ svg text{font-family:inherit}
     </details>
   </details>
   <div class="foot card">
-    <b>Reading this honestly.</b> Install Ratio is pooled per period: total installed ÷ total
-    customer-confirmed among bookings confirmed in that window. The pre week (24–30 Jun) is fully
+    <b>Reading this honestly.</b> Install Ratio (Wiom view) is pooled per period: total installed ÷ total
+    bookings the customer <b>ever</b> confirmed a slot for, among those first-confirmed in that window
+    (high-water, so confirmed-then-re-farmed bookings still count). The pre week (24–30 Jun) is fully
     matured; recent post days are not — a booking confirmed yesterday may still install tomorrow,
     so the post ratio and the last few daily points drift <i>upward</i> as tasks complete. Compare
     trend direction early; trust the level only once days are ~3+ days old. Same cohort of
@@ -548,7 +549,7 @@ async function renderOverview(){
   const overdue=actions.filter(a=>isOpen(a)&&a.due_date&&a.due_date<today).length;
   let l2='–',l2col='var(--muted)';
   if(DATA&&DATA.l1){
-    const m=DATA.l1.modes.confirm_cohort||DATA.l1.modes.cohort, daily=m.daily;
+    const m=DATA.l1.modes.confirm_cohort_ever||DATA.l1.modes.confirm_cohort||DATA.l1.modes.cohort, daily=m.daily;
     const cutoff=m.mature_cutoff||new Date(Date.now()-4*864e5).toISOString().slice(0,10);
     const pool=rs=>{const c=rs.reduce((x,r)=>x+(r.cust_confirmed||0),0),i=rs.reduce((x,r)=>x+(r.installs||0),0);return c?Math.round(1000*i/c)/10:null;};
     const pre=pool(daily.filter(r=>r.day_ist<=DATA.meta.pre[1])),post=pool(daily.filter(r=>r.day_ist>=DATA.meta.post_start&&r.day_ist<=cutoff));
@@ -1062,8 +1063,8 @@ function taskCard(tc,meta){
   const pre=pool(rows.filter(r=>r.day_ist<=meta.pre[1]));
   const post=pool(rows.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
   const postAll=pool(rows.filter(r=>r.day_ist>=meta.post_start));
-  card.innerHTML=`<div class="chart-head"><h2>Install ratio by task — slot-confirmed tasks → installs</h2>${deltaChip(pre.ratio,post.ratio,true,' pp')}</div>
-    <div class="sub">installs ÷ customer-slot-confirmed <b>tasks</b> (re-farm counted · the per-CSP-task basis MG is paid on) · pre <b>${pre.ratio??'–'}%</b> → post <b>${post.ratio??'–'}%</b> <span style="opacity:.55">· total incl. maturing ${postAll.ratio??'–'}%</span></div>`;
+  card.innerHTML=`<div class="chart-head"><h2>Partner view — task-level install ratio (re-farm counted)</h2>${deltaChip(pre.ratio,post.ratio,true,' pp')}</div>
+    <div class="sub">installs ÷ customer-slot-confirmed <b>tasks</b> (each confirmation task counts · re-farm weighted · the per-CSP-task basis MG is paid on) · pre <b>${pre.ratio??'–'}%</b> → post <b>${post.ratio??'–'}%</b> <span style="opacity:.55">· total incl. maturing ${postAll.ratio??'–'}%</span></div>`;
   const W=760,H=280,L=42,R=32,T=16,B=30, LT='#F2B8DE';
   const ymax=Math.max(1,...rows.map(r=>r.confirmed_tasks||0))*1.12;
   const xb=i=>L+(W-L-R)*(i/rows.length), bw=(W-L-R)/rows.length-2, y=v=>T+(H-T-B)*(1-v/ymax);
@@ -1090,7 +1091,7 @@ function taskCard(tc,meta){
 }
 
 function renderL2(l1,meta){
-  const m=l1.modes.confirm_cohort||l1.modes.cohort;
+  const m=l1.modes.confirm_cohort_ever||l1.modes.confirm_cohort||l1.modes.cohort;
   const daily=m.daily;
   // Install ratio lags slot-confirmation by ~2-3 days (most installs land in
   // that window). Days newer than the cutoff are still installing, so they are
@@ -1112,15 +1113,15 @@ function renderL2(l1,meta){
   const _mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const _cp=cutoff.split('-'), cutLbl=(+_cp[2])+' '+_mn[+_cp[1]-1];
   $('l2-hero').innerHTML=
-    tile((pre.ratio??'–')+'%','Pre install ratio',`${fmt(pre.i)} installed / ${fmt(pre.c)} confirmed · confirmed 24–30 Jun`)+
-    tile((post.ratio??'–')+'%','Post install ratio',`${fmt(post.i)} installed / ${fmt(post.c)} confirmed · confirmed 1 Jul–${cutLbl} (mature)<br><span style="opacity:.5;font-weight:600">Total incl. maturing: ${postAll.ratio??'–'}% · ${fmt(postAll.i)}/${fmt(postAll.c)}</span>`,'color:'+col)+
+    tile((pre.ratio??'–')+'%','Pre install ratio (Wiom view)',`${fmt(pre.i)} installed / ${fmt(pre.c)} ever-confirmed · confirmed 24–30 Jun`)+
+    tile((post.ratio??'–')+'%','Post install ratio (Wiom view)',`${fmt(post.i)} installed / ${fmt(post.c)} ever-confirmed · confirmed 1 Jul–${cutLbl} (mature)<br><span style="opacity:.5;font-weight:600">Total incl. maturing: ${postAll.ratio??'–'}% · ${fmt(postAll.i)}/${fmt(postAll.c)}</span>`,'color:'+col)+
     tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
   $('l2-foot').innerHTML=`Averages hold out the <b>3 most recent</b> slot-confirmed days (through ${cutLbl}) as still
     maturing — the install ratio keeps rising for a few days after a slot is confirmed.${held?` The last <b>${held}</b>
     day${held>1?'s are':' is'} shaded on the chart and excluded from the ratio.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
-  g.appendChild(chartCard({title:'Install Ratio by slot-confirmed day (%)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
-    tip:r=>`slots confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
+  g.appendChild(chartCard({title:'Wiom view — install ratio by first-confirmed day (ever-confirmed)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
+    tip:r=>`first confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} ever-confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
   if(l1.task_confirm) g.appendChild(taskCard(l1.task_confirm, meta));
   renderLeadtime(l1.leadtime);
 }
