@@ -802,115 +802,6 @@ def compute_cohort(enrolled_ids, latest):
     return cohort
 
 
-def compute_wip(enrolled_ids, latest):
-    """WIP · per-CSP-anchored PRE vs POST, 48h-maturity-capped (Kushagra's method,
-    on our Q11528 data). Each enrolled CSP anchors on its OWN enrolment date:
-    POST = its days from enrolment to yesterday; PRE = the equal span immediately
-    before. Every stage counts only if it happened within 48h of the CSP RECEIVING
-    the booking (task CREATED_AT) — same cap both sides, so maturity can't confound
-    PRE vs POST, and there's no "which baseline" choice. CSP-level grain: each task
-    a CSP received is its own row (re-farm counted). Stages limited to those with a
-    transition timestamp: received → confirmed (CONFIRMED_SLOT_AT) → installed
-    (INSTALLATION_COMPLETED_AT); slot-proposed/tech-assigned have no timestamp."""
-    if not enrolled_ids:
-        raise RuntimeError("no enrolled partners — WIP skipped")
-    # per-CSP enrolment date: F1 = opt-in date, F2 = audit-completion date
-    optins = supabase_rows(SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
-        "mg_optins?select=partner_id,first_opted_at&program=eq.MG&first_opted_at=not.is.null")
-    opt_date = {o["partner_id"]: str(o["first_opted_at"])[:10] for o in optins}
-    cps = supabase_rows(SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
-        f"campaign_partners?select=partner_id,scan_complete_at&campaign_id=eq.{MG_CAMPAIGN_ID}")
-    scan_date = {c["partner_id"]: str(c["scan_complete_at"])[:10] for c in cps if c.get("scan_complete_at")}
-
-    enrol = {}
-    for p in enrolled_ids:
-        d = opt_date.get(p) if p in F1 else (scan_date.get(p) or opt_date.get(p))
-        if d:
-            enrol[p] = d
-    have = [p for p in enrolled_ids if p in enrol]
-    if not have:
-        raise RuntimeError("no enrolment dates — WIP skipped")
-
-    yest = (datetime.now(IST).date() - timedelta(days=1)).isoformat()
-    inlist = ",".join(f"'{p}'" for p in have)
-    values = ",".join(f"('{p}','{enrol[p]}')" for p in have)
-    sql = f"""
-    WITH mg AS (SELECT CSP_ID, PARTNER_ID
-        FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
-        WHERE _fivetran_active=TRUE AND PARTNER_ID IN ({inlist})
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY CSP_ID ORDER BY 1)=1),
-    en AS (SELECT column1::STRING partner_id, column2::DATE enrol_date FROM (VALUES {values})),
-    tasks AS (
-        SELECT mg.PARTNER_ID pid, c.CREATED_AT ca, c.CONFIRMED_SLOT_AT csa, c.INSTALLATION_COMPLETED_AT ica
-        FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
-        JOIN mg ON mg.CSP_ID=c.CSP_ID WHERE c.ETL_CURRENT=TRUE),
-    tagged AS (
-        SELECT t.pid, TO_DATE(DATEADD(minute,330,t.ca)) cd, en.enrol_date ed,
-            IFF(t.csa IS NOT NULL AND t.csa <= DATEADD(hour,48,t.ca),1,0) conf48,
-            IFF(t.ica IS NOT NULL AND t.ica <= DATEADD(hour,48,t.ca),1,0) inst48,
-            DATEDIFF(minute,t.ca,t.csa) tat_tc, DATEDIFF(minute,t.csa,t.ica) tat_ci
-        FROM tasks t JOIN en ON en.partner_id=t.pid),
-    win AS (
-        SELECT pid, conf48, inst48, tat_tc, tat_ci,
-            CASE WHEN cd>=ed AND cd<='{yest}'::DATE THEN 'POST'
-                 WHEN cd<ed AND cd>=DATEADD(day,-(DATEDIFF(day,ed,'{yest}'::DATE)+1),ed) THEN 'PRE'
-                 ELSE NULL END w
-        FROM tagged)
-    SELECT pid, w, COUNT(*) received, SUM(conf48) confirmed, SUM(inst48) installed,
-        SUM(IFF(conf48=1,tat_tc,0)) sum_tc, SUM(conf48) n_tc,
-        SUM(IFF(inst48=1,tat_ci,0)) sum_ci, SUM(inst48) n_ci
-    FROM win WHERE w IS NOT NULL GROUP BY 1,2"""
-    raw = metabase_sql(sql)
-
-    per = {}
-    for r in raw:
-        per.setdefault(str(r["pid"]), {})[r["w"]] = r
-
-    cohort_of = {p: (latest.get(p, "no_response") if latest else "no_response") for p in have}
-    f1set = [p for p in have if p in F1]
-    f2set = [p for p in have if p not in F1]
-
-    def pct(a, b):
-        return round(100 * a / b, 1) if b else None
-
-    def block(pids, win):
-        recv = conf = inst = stc = ntc = sci = nci = active = 0
-        for p in pids:
-            r = per.get(p, {}).get(win)
-            if not r:
-                continue
-            rc = r["received"] or 0
-            recv += rc
-            conf += r["confirmed"] or 0
-            inst += r["installed"] or 0
-            stc += r["sum_tc"] or 0
-            ntc += r["n_tc"] or 0
-            sci += r["sum_ci"] or 0
-            nci += r["n_ci"] or 0
-            if rc > 0:
-                active += 1
-        return {"received": recv, "confirmed": conf, "installed": inst,
-                "confirm_pct": pct(conf, recv), "install_pct": pct(inst, recv),
-                "install_ratio": pct(inst, conf),
-                "tat_tc": round(stc / ntc) if ntc else None,
-                "tat_ci": round(sci / nci) if nci else None,
-                "csps_active": active}
-
-    def row(pids, label, key):
-        return {"key": key, "label": label, "csps": len(pids),
-                "small": len(pids) < SMALL_COHORT,
-                "PRE": block(pids, "PRE"), "POST": block(pids, "POST")}
-
-    cohorts = [row(have, "All enrolled", "all"),
-               row(f1set, "Enrolled · audit-before", "f1"),
-               row(f2set, "Enrolled · after audit", "f2")]
-    belief = [row([p for p in have if cohort_of[p] == k], lbl, k)
-              for k, lbl in COHORT_ORDER]
-    belief = [b for b in belief if b["csps"] > 0]
-    return {"yest": yest, "cohorts": cohorts, "belief": belief,
-            "enrolled_dated": len(have), "f1": len(f1set), "f2": len(f2set)}
-
-
 def compute_nsm(enrolled_ids):
     """Installs/day by enrolled CSPs: today (partial) + last 15 complete days."""
     if not enrolled_ids:
@@ -1407,13 +1298,6 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"L1: {type(e).__name__}: {e}")
             payload["l1"] = prev.get("l1")
-
-        try:
-            payload["wip"] = compute_wip(enrolled, latest or {})
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"WIP: {type(e).__name__}: {e}")
-            payload["wip"] = prev.get("wip")
 
         try:
             payload["failures"] = compute_failures()
