@@ -835,6 +835,14 @@ function renderIgnition(g){
 
   // moved before -> after per belief cohort
   const rows=g.by_belief;
+  const answered=rows.filter(r=>r.cohort!=='no_response').reduce((s,r)=>s+(r.csps||0),0);
+  if(!answered){
+    $('ign-table').innerHTML=`<tr><td style="padding:14px 16px;background:#FFF4E0;border-radius:10px;color:#8A5A00;line-height:1.5">
+      No belief-check answers are currently recorded — the source table is empty, so the belief split is unavailable.
+      The moved / ignition / demand analysis above is task-activity based and is unaffected.</td></tr>`;
+    $('ign-belief').innerHTML=`<div class="sub" style="color:var(--muted)">Composition by belief unavailable — no answers recorded.</div>`;
+    return;
+  }
   $('ign-table').innerHTML=`<tr><th>Belief cohort</th><th style="text-align:right">CSPs</th>
     <th style="text-align:right">Moved before</th><th style="text-align:right">Moved after</th>
     <th style="text-align:right">Δ moved</th><th style="text-align:right">% moved now</th></tr>`+

@@ -1213,15 +1213,14 @@ def refresh(force=False):
             latest = {}
 
         try:
-            coh = compute_cohort(enrolled, latest) if latest else None
-            if coh is not None:
-                payload["ignition"] = coh.pop("_ignition", None)
-                payload["gate"] = coh.pop("_gate", None)
-                payload["cohort"] = coh
-            else:
-                payload["cohort"] = prev.get("cohort")
-                payload["ignition"] = prev.get("ignition")
-                payload["gate"] = prev.get("gate")
+            # Always compute — the moved/ignition/demand + install-behaviour
+            # analysis is task-activity based and needs no belief data. Only the
+            # by-belief split degrades to 'no_response' when the belief-check
+            # source (mbg_screen_log) is empty; don't blank the whole card for it.
+            coh = compute_cohort(enrolled, latest or {})
+            payload["ignition"] = coh.pop("_ignition", None)
+            payload["gate"] = coh.pop("_gate", None)
+            payload["cohort"] = coh
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
