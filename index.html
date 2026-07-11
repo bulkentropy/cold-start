@@ -794,27 +794,30 @@ function render(d){
 function renderGate(g){
   const box=$('l2-gate'); box.hidden=false;
   const n=g.enrolled||1;
-  $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: install tasks completed ÷
-    customer-slot-confirmed tasks received, over <b>${g.month}</b> to date (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b>`;
-  const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ confirmed ≥ '+g.gate_pct+'%'],
+  $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: installs ÷
+    <b>matured</b> customer-confirmed leads (reached a final state), over <b>${g.month}</b> to date
+    (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
+  const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ matured ≥ '+g.gate_pct+'%'],
              ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
-             ['zero','var(--red)','No confirmed-slot tasks','denominator = 0 · nothing to install yet']];
-  $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*g[k]/n}%;background:${c};border-radius:0"></div>`).join('');
+             ['pending_only','var(--purple)','Only pending leads','confirmed but none matured yet'],
+             ['no_leads','#9A93AD','No confirmed leads','nothing confirmed yet']];
+  $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*(g[k]||0)/n}%;background:${c};border-radius:0"></div>`).join('');
   $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
-    tile(`${fmt(g[k])}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*g[k]/n)}%</span>`,
+    tile(`${fmt(g[k]||0)}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*(g[k]||0)/n)}%</span>`,
          label,sub,'color:'+c)).join('');
   const om=g.one_more||0;
   $('gate-nudge').innerHTML=`<div style="background:#E1FAED;border:1px solid #9BE3BE;border-radius:10px;padding:12px 16px">
     <span style="font-size:1.5rem;font-weight:800;color:var(--green)">🎯 ${fmt(om)}</span>
     <span style="font-weight:600">of the ${fmt(g.below)} below-gate CSPs are <b>one install away</b> from clearing the ${g.gate_pct}% gate</span>
-    <div class="sub" style="margin-top:4px">A single install — from a pending confirmed slot or a new confirm — pushes each of these over.
-    Highest-ROI nudge: (installs + 1) ÷ confirmed-received ≥ ${g.gate_pct}%.</div></div>`;
-  $('gate-foot').innerHTML=`Denominator = customer-slot-confirmed tasks received this month; a CSP with none is in
-    <b>No confirmed-slot tasks</b> (gate undefined), not "below". <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)}
-    below-gate CSPs received confirmed tasks but completed <b>zero</b> installs (the ignition worklist).
-    ⚠ Month-to-date and <b>still maturing</b> — a confirmed-slot task received early in the month may still install, so
-    below-gate is inflated now and the ratios firm up as tasks mature. Counted per CSP-task (a reassigned task counts for
-    each CSP that received it), from the current TAS candidates.`;
+    <div class="sub" style="margin-top:4px">Installing one more lead (matured +1, install +1) pushes each of these over:
+    (installs + 1) ÷ (matured + 1) ≥ ${g.gate_pct}%. ${fmt(g.pending_tasks)} confirmed leads are still pending across all CSPs.</div></div>`;
+  $('gate-foot').innerHTML=`<b>Aligned to the MG payout logic.</b> Denominator = customer-confirmed leads that reached a
+    <b>final state this month</b> — installed, customer-cancel-after-slot, CSP no-show / decline / timeout, install-failed —
+    anchored on the final-state date (so a June-confirmed lead resolved in July counts). <b>Excluded:</b> still-open leads
+    (→ <b>Only pending leads</b>, they don't hurt the rate yet) and true system/upstream cancels (not the CSP's fault).
+    <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)} below-gate CSPs have matured leads but <b>zero</b> installs
+    (the ignition worklist). Task level: a reassigned task counts for each CSP that received it. Still moving month-to-date;
+    ratios firm up as pending leads mature.`;
 }
 
 const IGN=[['moved','var(--green)','Moved','≥1 install'],

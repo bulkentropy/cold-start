@@ -770,24 +770,29 @@ def compute_cohort(enrolled_ids, latest):
                 "by_belief": by_belief, "transition": transition, "maturity": maturity}
 
     # ----- install-rate gate (TASK level), calendar-month-to-date -------------
-    # Per enrolled CSP: install tasks it completed / customer-slot-confirmed
-    # tasks it received this month. Task level, so reassignments count against
-    # each CSP that received the task. Sourced from l1_status (recv_m / inst_m).
+    # Aligned to the MG payout logic (MG_calculation_logic.md): denominator =
+    # customer-confirmed leads that reached a FINAL state this month (open ones
+    # sit in `pending`, not the denominator; true system cancels excluded). Rate
+    # = inst / recv. A CSP with recv=0 but pending>0 has leads not yet matured
+    # (not "below"); recv=0 and pending=0 = no confirmed leads at all.
     GATE = 0.60
-    g = {"zero": 0, "above": 0, "below": 0, "below_zero_install": 0, "one_more": 0}
+    g = {"above": 0, "below": 0, "pending_only": 0, "no_leads": 0,
+         "below_zero_install": 0, "one_more": 0, "pending_tasks": 0}
     for p in enrolled_ids:
         r = sraw.get(p)
         recv = (r.get("recv_m") or 0) if r else 0
         inst = (r.get("inst_m") or 0) if r else 0
+        pend = (r.get("pend_m") or 0) if r else 0
+        g["pending_tasks"] += pend
         if recv == 0:
-            g["zero"] += 1                        # denominator zero — no confirmed-slot task received
+            g["pending_only" if pend > 0 else "no_leads"] += 1
         elif inst / recv >= GATE:
             g["above"] += 1
         else:
-            g["below"] += 1                       # under the gate, includes 0-install CSPs
+            g["below"] += 1
             if inst == 0:
                 g["below_zero_install"] += 1
-            if (inst + 1) / recv >= GATE:         # one more install crosses the gate
+            if (inst + 1) / (recv + 1) >= GATE:   # installing one more lead crosses
                 g["one_more"] += 1
     gate = {"gate_pct": int(GATE * 100), "month": today.strftime("%B %Y"),
             "window": [month_start, today.isoformat()], "enrolled": len(enrolled_ids), **g}
