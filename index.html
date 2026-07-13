@@ -507,6 +507,8 @@ const $=id=>document.getElementById(id);
 const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-IN'));
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort', BASIS='current';
+let FLOWSEL=null, FLOWMODE='all';        // flow toggle: null/'all' | 'paid' (ex-G,H) | 'nofee' (G,H). Declared here (not by the flow fns below) so the top-level showTab() at load can't hit a TDZ.
+const _isNoFee=f=>f==='G'||f==='H';
 
 const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
@@ -1332,11 +1334,8 @@ function funnelCard(title,rows,color){
 
 /* ---------- L1 charts ---------- */
 /* ---------- Flow filter (L1/L2) — client-side sum of selected flows ---------- */
-let FLOWSEL=null;   // Set of selected flows; treated as "all" when it covers the whole list
-let FLOWMODE='all'; // 'all' | 'paid' (ex-G,H) | 'nofee' (G,H, the no-fee flows)
 function flowList(){return (DATA&&DATA.l1&&DATA.l1.flows&&DATA.l1.flows.list)||[];}
 function flowActive(){const L=flowList();return !!(FLOWSEL&&FLOWSEL.size>0&&FLOWSEL.size<L.length);}
-const _isNoFee=f=>f==='G'||f==='H';
 function renderFlowBar(){
   const bar=$('flow-bar'), L=flowList();
   const hasNF=L.some(_isNoFee);
