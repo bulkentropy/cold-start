@@ -50,6 +50,10 @@ SELECT partner_id,
        AND created_at <  DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)) AS ta,
   COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
        AND created_at <  DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ia,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)) AS tc,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ic,
   -- MG-doc gate (final-state anchored, month-to-date)
   COUNT_IF(confirmed_at IS NOT NULL AND NOT is_open AND NOT is_system
        AND final_state_at >= DATEADD(minute,-330,'{MONTH_START} 00:00:00'::TIMESTAMP_NTZ)) AS recv_m,

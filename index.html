@@ -826,15 +826,16 @@ const IGN=[['moved','var(--green)','Moved','≥1 install'],
 function ignMeter(t,n){return IGN.map(([k,c])=>`<div style="width:${100*t[k]/(n||1)}%;background:${c};border-radius:0"></div>`).join('');}
 function renderIgnition(g){
   const n=g.enrolled||1, b=g.totals_before, a=g.totals_after;
-  $('ign-sub').innerHTML=`All <b>${fmt(g.enrolled)}</b> enrolled CSPs classified in each 7-day window ·
-    before <b>${g.before_window[0]} → ${g.before_window[1]}</b> vs after <b>${g.after_window[0]} → ${g.after_window[1]}</b>`;
+  $('ign-sub').innerHTML=`All <b>${fmt(g.enrolled)}</b> enrolled CSPs classified into moved / ignition / demand in each 7-day window ·
+    week-on-week: `+(g.weeks||[]).map(w=>`<b>${w.label}</b>`).join(' · ');
   const m=g.maturity, mel=$('ign-maturity');
+  const lastLbl=(g.weeks&&g.weeks.length)?g.weeks[g.weeks.length-1].label:'latest';
   if(m&&m.pct>=95){mel.style.background='#E1FAED';mel.style.color='var(--green)';
-    mel.innerHTML=`✓ The July window is fully matured (~${m.pct}%) — the moved-before → moved-after direction is now reliable.`;}
+    mel.innerHTML=`✓ The ${lastLbl} window is fully matured (~${m.pct}%) — the week-on-week movement is now reliable.`;}
   else if(m){mel.style.background='#FFE6CC';mel.style.color='#B85C00';
-    mel.innerHTML=`⚠ July window <b>~${m.pct}% matured</b> — a task created in early July may still install, so
-      <b>moved-after undercounts</b> today and will rise (a ▼ is likely a maturity effect, not a real drop).
-      June is fully matured. Fully readable after <b>${m.fully_on}</b>.`;}
+    mel.innerHTML=`⚠ The latest week (${lastLbl}) is <b>~${m.pct}% matured</b> — a task created in it may still install, so
+      its <b>moved count undercounts</b> today and will rise (a ▼ on the latest week is likely a maturity effect, not a real drop).
+      Earlier weeks are matured. Fully readable after <b>${m.fully_on}</b>.`;}
   // installation-behaviour transition
   const t=g.transition, mx=t.matrix, ni=t.newly_installing, so=t.stopped_installing;
   $('ign-transition').innerHTML=
@@ -859,18 +860,19 @@ function renderIgnition(g){
     `<tr style="border-top:2px solid var(--n300)"><td class="tt2">Total</td>`+
       S.map(as=>`<td style="text-align:right;color:var(--muted)">${fmt(S.reduce((a,s)=>a+mx[s][as],0))}</td>`).join('')+
       `<td style="text-align:right;font-weight:600">${fmt(g.enrolled)}</td></tr>`;
+  const WK=g.weeks||[{label:'Before',window:g.before_window,split:b},{label:'After',window:g.after_window,split:a}];
   $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>{
-    const d=a[k]-b[k], good=k==='moved'?d>=0:d<=0;
+    const series=WK.map(w=>w.split[k]);
+    const d=series[series.length-1]-series[0], good=k==='moved'?d>=0:d<=0;
     const col=Math.abs(d)===0?'var(--muted)':(good?'var(--green)':'var(--red)');
-    return tile(`<span style="color:var(--muted);font-size:1.4rem">${b[k]}</span> → ${a[k]}
-      <span style="font-size:.9rem;color:${col};font-weight:700">${d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0'}</span>`,
-      label,sub+' · before → after','color:'+c);}).join('');
-  $('ign-meters').innerHTML=
-    `<div class="sub" style="margin-bottom:4px">Before — ${g.before_window[0]} → ${g.before_window[1]}</div>
-     <div class="meter">${ignMeter(b,n)}</div>
-     <div class="sub" style="margin:12px 0 4px">After — ${g.after_window[0]} → ${g.after_window[1]}</div>
-     <div class="meter">${ignMeter(a,n)}</div>
-     <div class="legend" style="margin-top:8px">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
+    const trend=series.map((v,i)=>i===series.length-1?`${v}`:`<span style="color:var(--muted);font-size:1.35rem">${v}</span>`)
+      .join(`<span style="color:var(--muted);font-size:1rem"> → </span>`);
+    return tile(`${trend} <span style="font-size:.85rem;color:${col};font-weight:700;white-space:nowrap">${d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0'}</span>`,
+      label,sub+' · week-on-week','color:'+c);}).join('');
+  $('ign-meters').innerHTML=WK.map((w,i)=>
+    `<div class="sub" style="margin:${i?'12px':'0'} 0 4px">${w.label} — ${w.window[0]} → ${w.window[1]}${(w.maturity!=null&&w.maturity<95)?` <span style="color:var(--amber);font-weight:600">· ~${w.maturity}% matured</span>`:''}</div>
+     <div class="meter">${ignMeter(w.split,n)}</div>`).join('')
+    +`<div class="legend" style="margin-top:8px">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
 
   // moved before -> after per belief cohort
   const rows=g.by_belief;

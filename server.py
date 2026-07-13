@@ -71,6 +71,10 @@ COHORT_BEFORE = ("2026-06-01", "2026-06-15")
 # CSP-status (moved/ignition/demand) before vs after: two equal 7-day windows.
 IGN_BEFORE = ("2026-06-24", "2026-06-30")   # last 7 days of June
 IGN_AFTER = ("2026-07-01", "2026-07-07")    # first week of July
+# week-on-week ignition windows: (start, end, label, tasks-key, installs-key in l1_status)
+IGN_WEEKS = [("2026-06-24", "2026-06-30", "24–30 Jun", "tb", "ib"),
+             ("2026-07-01", "2026-07-07", "1–7 Jul", "ta", "ia"),
+             ("2026-07-08", "2026-07-14", "8–14 Jul", "tc", "ic")]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -752,20 +756,30 @@ def compute_cohort(enrolled_ids, latest):
                                "total": matrix["moved"]["ignition"] + matrix["moved"]["demand"]},
         "stayed_installing": matrix["moved"]["moved"]}
 
-    # maturity of the after window (tasks created 1-7 Jul; ~14-day install runway)
+    # maturity of a window (tasks created in it; ~14-day install runway)
     today = datetime.now(IST).date()
     runway = 14
-    ws = datetime.fromisoformat(IGN_AFTER[0]).date()
-    we = datetime.fromisoformat(IGN_AFTER[1]).date()
-    fracs, d = [], ws
-    while d <= we:
-        fracs.append(min(1.0, max(0.0, (today - d).days / runway)))
-        d += timedelta(days=1)
-    maturity = {"pct": round(100 * sum(fracs) / len(fracs)),
+
+    def _week_mat(w0, w1):
+        ws = datetime.fromisoformat(w0).date()
+        we = datetime.fromisoformat(w1).date()
+        fracs, d = [], ws
+        while d <= we:
+            fracs.append(min(1.0, max(0.0, (today - d).days / runway)))
+            d += timedelta(days=1)
+        return {"pct": round(100 * sum(fracs) / len(fracs)),
                 "fully_on": (we + timedelta(days=runway)).isoformat()}
 
+    # week-on-week: classify every enrolled CSP into moved/ignition/demand per week
+    weeks = []
+    for w0, w1, lbl, tk, ik in IGN_WEEKS:
+        out_w = {p: classify(p, tk, ik) for p in enrolled_ids}
+        weeks.append({"window": [w0, w1], "label": lbl,
+                      "split": split(out_w, allk), "maturity": _week_mat(w0, w1)["pct"]})
+    maturity = _week_mat(*IGN_WEEKS[-1][:2])   # maturity band references the latest week
+
     ignition = {"before_window": list(IGN_BEFORE), "after_window": list(IGN_AFTER), "days": 7,
-                "enrolled": len(enrolled_ids),
+                "enrolled": len(enrolled_ids), "weeks": weeks,
                 "totals_before": split(out_b, allk), "totals_after": split(out_a, allk),
                 "by_belief": by_belief, "transition": transition, "maturity": maturity}
 
