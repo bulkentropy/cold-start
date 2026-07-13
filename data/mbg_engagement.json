@@ -1,7 +1,27 @@
 {
- "window": "3–10 Jul 2026",
+ "window": "1–10 Jul 2026",
  "total_csps": 457,
  "stages": [
+  {
+   "date": "2026-07-01",
+   "secured": 25,
+   "almost": 177,
+   "keepgoing": 27,
+   "noleads": 228,
+   "withleads": 229,
+   "total": 457,
+   "moved_up": 67
+  },
+  {
+   "date": "2026-07-02",
+   "secured": 43,
+   "almost": 154,
+   "keepgoing": 47,
+   "noleads": 213,
+   "withleads": 244,
+   "total": 457,
+   "moved_up": 46
+  },
   {
    "date": "2026-07-03",
    "secured": 50,
@@ -10,10 +30,7 @@
    "noleads": 198,
    "withleads": 259,
    "total": 457,
-   "moved_up": 46,
-   "moved_down": 38,
-   "newly_activated": 31,
-   "stayed": 373
+   "moved_up": 51
   },
   {
    "date": "2026-07-04",
@@ -23,10 +40,7 @@
    "noleads": 178,
    "withleads": 279,
    "total": 457,
-   "moved_up": 51,
-   "moved_down": 42,
-   "newly_activated": 31,
-   "stayed": 364
+   "moved_up": 46
   },
   {
    "date": "2026-07-05",
@@ -36,10 +50,7 @@
    "noleads": 172,
    "withleads": 285,
    "total": 457,
-   "moved_up": 46,
-   "moved_down": 44,
-   "newly_activated": 23,
-   "stayed": 367
+   "moved_up": 41
   },
   {
    "date": "2026-07-06",
@@ -49,10 +60,7 @@
    "noleads": 160,
    "withleads": 297,
    "total": 457,
-   "moved_up": 41,
-   "moved_down": 29,
-   "newly_activated": 21,
-   "stayed": 387
+   "moved_up": 44
   },
   {
    "date": "2026-07-07",
@@ -62,10 +70,7 @@
    "noleads": 149,
    "withleads": 308,
    "total": 457,
-   "moved_up": 44,
-   "moved_down": 43,
-   "newly_activated": 26,
-   "stayed": 370
+   "moved_up": 54
   },
   {
    "date": "2026-07-08",
@@ -75,10 +80,7 @@
    "noleads": 136,
    "withleads": 321,
    "total": 457,
-   "moved_up": 54,
-   "moved_down": 42,
-   "newly_activated": 29,
-   "stayed": 361
+   "moved_up": 42
   },
   {
    "date": "2026-07-09",
@@ -88,10 +90,7 @@
    "noleads": 123,
    "withleads": 334,
    "total": 457,
-   "moved_up": 42,
-   "moved_down": 31,
-   "newly_activated": 24,
-   "stayed": 384
+   "moved_up": 33
   },
   {
    "date": "2026-07-10",
@@ -101,84 +100,74 @@
    "noleads": 118,
    "withleads": 339,
    "total": 457,
-   "moved_up": 33,
-   "moved_down": 40,
-   "newly_activated": 19,
-   "stayed": 384
+   "moved_up": 0
   }
  ],
  "engagement": [
   {
    "date": "2026-07-03",
-   "views": 446,
+   "views": 283,
    "scrolls": 0,
    "saw_guar": 0,
    "tap_guar": 0,
-   "ticket_taps": 0,
-   "exits": 322
+   "ticket_taps": 0
   },
   {
    "date": "2026-07-04",
-   "views": 179,
-   "scrolls": 80,
-   "saw_guar": 169,
-   "tap_guar": 26,
-   "ticket_taps": 22,
-   "exits": 63
+   "views": 150,
+   "scrolls": 67,
+   "saw_guar": 111,
+   "tap_guar": 24,
+   "ticket_taps": 17
   },
   {
    "date": "2026-07-05",
-   "views": 400,
-   "scrolls": 197,
-   "saw_guar": 392,
-   "tap_guar": 42,
-   "ticket_taps": 49,
-   "exits": 135
+   "views": 283,
+   "scrolls": 152,
+   "saw_guar": 271,
+   "tap_guar": 41,
+   "ticket_taps": 42
   },
   {
    "date": "2026-07-06",
-   "views": 269,
-   "scrolls": 131,
-   "saw_guar": 264,
+   "views": 172,
+   "scrolls": 105,
+   "saw_guar": 181,
    "tap_guar": 17,
-   "ticket_taps": 36,
-   "exits": 74
+   "ticket_taps": 33
   },
   {
    "date": "2026-07-07",
-   "views": 409,
-   "scrolls": 160,
-   "saw_guar": 402,
-   "tap_guar": 50,
-   "ticket_taps": 29,
-   "exits": 138
+   "views": 283,
+   "scrolls": 133,
+   "saw_guar": 193,
+   "tap_guar": 46,
+   "ticket_taps": 27
   },
   {
    "date": "2026-07-08",
-   "views": 282,
-   "scrolls": 125,
-   "saw_guar": 277,
+   "views": 214,
+   "scrolls": 98,
+   "saw_guar": 183,
    "tap_guar": 18,
-   "ticket_taps": 39,
-   "exits": 81
+   "ticket_taps": 36
   },
   {
    "date": "2026-07-09",
-   "views": 259,
-   "scrolls": 131,
-   "saw_guar": 258,
-   "tap_guar": 24,
-   "ticket_taps": 16,
-   "exits": 80
+   "views": 196,
+   "scrolls": 107,
+   "saw_guar": 185,
+   "tap_guar": 23,
+   "ticket_taps": 16
   },
   {
    "date": "2026-07-10",
-   "views": 303,
-   "scrolls": 115,
-   "saw_guar": 292,
+   "views": 199,
+   "scrolls": 90,
+   "saw_guar": 198,
    "tap_guar": 17,
-   "ticket_taps": 19,
-   "exits": 98
+   "ticket_taps": 19
   }
- ]
+ ],
+ "source": "mbg_stage_movement.html (full export, refreshed)"
 }
