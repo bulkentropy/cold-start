@@ -1346,7 +1346,7 @@ function renderFlowBar(){
     +seg('All','all')
     +seg('Ex-G,H','paid','· paid')
     +seg('G,H','nofee','· no-fee')
-    +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· counts &amp; rates only (TATs, shadow &amp; task-view stay all-flows)</span>`:'');
+    +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· enrolled, non-enrolled &amp; all-bookings all filter (TATs &amp; task-view stay all-flows)</span>`:'');
 }
 function setFlowMode(mode){
   const L=flowList(); FLOWMODE=mode;
@@ -1410,12 +1410,18 @@ function _fwrap(daily,cut){const pe=DATA.meta.pre[1],ps=DATA.meta.post_start,hi=
   return {daily,pre_avg:_favg(daily,r=>r.day_ist<=pe),post_avg:_favg(daily,r=>r.day_ist>=ps&&r.day_ist<=hi),mature_cutoff:cut};}
 function buildFlowModes(){
   const F=DATA.l1.flows, o=DATA.l1.modes, sel=FLOWSEL, agg={};
-  F.rows.forEach(r=>{if(!sel.has(r.flow))return;const m=agg[r.mode]||(agg[r.mode]={});const d=m[r.day]||(m[r.day]={bookings:0,accepted:0,confirmed:0,installed:0,accepted_ever:0,confirmed_ever:0,installed_ever:0,n:0});
-    d.bookings+=r.bookings;d.accepted+=r.accepted;d.confirmed+=r.confirmed;d.installed+=r.installed;d.accepted_ever+=r.accepted_ever;d.confirmed_ever+=r.confirmed_ever;d.installed_ever+=r.installed_ever;d.n+=r.n;});
-  const A=(mode,day)=>(agg[mode]&&agg[mode][day])||{bookings:0,accepted:0,confirmed:0,installed:0,accepted_ever:0,confirmed_ever:0,installed_ever:0,n:0};
-  const cohort=o.cohort.daily.map(od=>{const f=A('cohort',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted,slot_pct:_fpct(f.accepted,f.bookings),cust_confirmed:f.confirmed,confirm_pct:_fpct(f.confirmed,f.accepted),installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
-  const cohort_ever=(o.cohort_ever||o.cohort).daily.map(od=>{const f=A('cohort',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted_ever,slot_pct:_fpct(f.accepted_ever,f.bookings),cust_confirmed:f.confirmed_ever,confirm_pct:_fpct(f.confirmed_ever,f.accepted_ever),installs:f.installed_ever,install_ratio:_fpct(f.installed_ever,f.confirmed_ever)};});
-  const event=o.event.daily.map(od=>{const bk=A('cohort',od.day_ist).bookings,ac=A('ev_acc',od.day_ist).n,cf=A('ev_conf',od.day_ist).n;return {...od,bookings:bk,slot_selected:ac,slot_pct:_fpct(ac,bk),cust_confirmed:cf,confirm_pct:_fpct(cf,ac)};});
+  const Z=()=>({bookings:0,accepted:0,confirmed:0,installed:0,accepted_ever:0,confirmed_ever:0,installed_ever:0,n:0,
+    sh_bookings:0,sh_accepted:0,sh_confirmed:0,sh_accepted_ever:0,sh_confirmed_ever:0,sh_n:0});
+  F.rows.forEach(r=>{if(!sel.has(r.flow))return;const m=agg[r.mode]||(agg[r.mode]={});const d=m[r.day]||(m[r.day]=Z());
+    d.bookings+=r.bookings;d.accepted+=r.accepted;d.confirmed+=r.confirmed;d.installed+=r.installed;d.accepted_ever+=r.accepted_ever;d.confirmed_ever+=r.confirmed_ever;d.installed_ever+=r.installed_ever;d.n+=r.n;
+    d.sh_bookings+=r.sh_bookings;d.sh_accepted+=r.sh_accepted;d.sh_confirmed+=r.sh_confirmed;d.sh_accepted_ever+=r.sh_accepted_ever;d.sh_confirmed_ever+=r.sh_confirmed_ever;d.sh_n+=r.sh_n;});
+  const A=(mode,day)=>(agg[mode]&&agg[mode][day])||Z();
+  const cohort=o.cohort.daily.map(od=>{const f=A('cohort',od.day_ist),t=A('total',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted,slot_pct:_fpct(f.accepted,f.bookings),cust_confirmed:f.confirmed,confirm_pct:_fpct(f.confirmed,f.accepted),installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed),
+    sh_bookings:f.sh_bookings,sh_slot_selected:f.sh_accepted,sh_slot_pct:_fpct(f.sh_accepted,f.sh_bookings),sh_cust_confirmed:f.sh_confirmed,sh_confirm_pct:_fpct(f.sh_confirmed,f.sh_accepted),total_bookings:t.bookings};});
+  const cohort_ever=(o.cohort_ever||o.cohort).daily.map(od=>{const f=A('cohort',od.day_ist),t=A('total',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted_ever,slot_pct:_fpct(f.accepted_ever,f.bookings),cust_confirmed:f.confirmed_ever,confirm_pct:_fpct(f.confirmed_ever,f.accepted_ever),installs:f.installed_ever,install_ratio:_fpct(f.installed_ever,f.confirmed_ever),
+    sh_bookings:f.sh_bookings,sh_slot_selected:f.sh_accepted_ever,sh_slot_pct:_fpct(f.sh_accepted_ever,f.sh_bookings),sh_cust_confirmed:f.sh_confirmed_ever,sh_confirm_pct:_fpct(f.sh_confirmed_ever,f.sh_accepted_ever),total_bookings:t.bookings};});
+  const event=o.event.daily.map(od=>{const c=A('cohort',od.day_ist),ac=A('ev_acc',od.day_ist),cf=A('ev_conf',od.day_ist),t=A('total',od.day_ist);const bk=c.bookings;return {...od,bookings:bk,slot_selected:ac.n,slot_pct:_fpct(ac.n,bk),cust_confirmed:cf.n,confirm_pct:_fpct(cf.n,ac.n),
+    sh_bookings:c.sh_bookings,sh_slot_selected:ac.sh_n,sh_slot_pct:_fpct(ac.sh_n,c.sh_bookings),sh_cust_confirmed:cf.sh_n,sh_confirm_pct:_fpct(cf.sh_n,ac.sh_n),total_bookings:t.bookings};});
   const cc=o.confirm_cohort.daily.map(od=>{const f=A('cc',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
   const cce=o.confirm_cohort_ever.daily.map(od=>{const f=A('cc_ever',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
   return {cohort:_fwrap(cohort),cohort_ever:_fwrap(cohort_ever),event:_fwrap(event),

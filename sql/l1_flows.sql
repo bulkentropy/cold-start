@@ -67,7 +67,9 @@ hw AS (
     FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES WHERE ETL_CURRENT = TRUE GROUP BY CONNECTION_ID
 ),
 joined AS (
-    SELECT cn.booking_date, cn.flow, cn.CONNECTION_ID, tl.CREATED_AT AS task_created_at,
+    SELECT cn.booking_date, cn.flow, cn.CONNECTION_ID,
+           IFF(tl.CSP_ID IN (SELECT CSP_ID FROM mg_csp),1,0) AS enr,
+           tl.CREATED_AT AS task_created_at,
            tl.csa AS confirmed_at, hw.first_confirmed_at AS ever_confirmed_at, hw.installed_at AS installed_at,
            CASE WHEN tl.inst_any = 1 THEN 6
                 WHEN tl.exid IS NOT NULL OR tl.cs IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
@@ -78,7 +80,6 @@ joined AS (
                 WHEN hw.hw_prop = 1 THEN 3 ELSE 2 END AS depth_ever
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
-    JOIN mg_csp mc ON mc.CSP_ID = tl.CSP_ID
     LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
 ),
 accepts AS (
@@ -90,28 +91,47 @@ accepts AS (
     GROUP BY 1
 ),
 full_j AS (SELECT j.*, a.accepted_at FROM joined j LEFT JOIN accepts a USING (CONNECTION_ID))
+-- Columns (17): mode, flow, day, then ENROLLED (enr=1): bookings, accepted, confirmed,
+-- installed, accepted_ever, confirmed_ever, installed_ever, n; then NON-ENROLLED (enr=0)
+-- shadow: sh_bookings, sh_accepted, sh_confirmed, sh_accepted_ever, sh_confirmed_ever, sh_n.
+-- The frontend sums selected flows for BOTH enrolled and non-enrolled so the shadow +
+-- total lines filter too. cc/cc_ever stay enrolled-only (L2 has no shadow).
 SELECT 'cohort' AS mode, flow, booking_date::STRING AS day_ist,
-       COUNT(*) AS bookings, SUM(IFF(depth>=3,1,0)) AS accepted, SUM(IFF(depth>=4,1,0)) AS confirmed,
-       SUM(IFF(depth>=6,1,0)) AS installed,
-       SUM(IFF(depth_ever>=3,1,0)) AS accepted_ever, SUM(IFF(depth_ever>=4,1,0)) AS confirmed_ever,
-       SUM(IFF(depth_ever>=6,1,0)) AS installed_ever, NULL AS n
+       SUM(IFF(enr=1,1,0)) AS bookings, SUM(IFF(enr=1 AND depth>=3,1,0)) AS accepted,
+       SUM(IFF(enr=1 AND depth>=4,1,0)) AS confirmed, SUM(IFF(enr=1 AND depth>=6,1,0)) AS installed,
+       SUM(IFF(enr=1 AND depth_ever>=3,1,0)) AS accepted_ever, SUM(IFF(enr=1 AND depth_ever>=4,1,0)) AS confirmed_ever,
+       SUM(IFF(enr=1 AND depth_ever>=6,1,0)) AS installed_ever, NULL AS n,
+       SUM(IFF(enr=0,1,0)) AS sh_bookings, SUM(IFF(enr=0 AND depth>=3,1,0)) AS sh_accepted,
+       SUM(IFF(enr=0 AND depth>=4,1,0)) AS sh_confirmed, SUM(IFF(enr=0 AND depth_ever>=3,1,0)) AS sh_accepted_ever,
+       SUM(IFF(enr=0 AND depth_ever>=4,1,0)) AS sh_confirmed_ever, NULL AS sh_n
 FROM full_j GROUP BY 2,3
 UNION ALL
 SELECT 'ev_acc', flow, TO_DATE(DATEADD(minute,330,accepted_at))::STRING,
-       NULL,NULL,NULL,NULL,NULL,NULL,NULL, COUNT(*)
+       NULL,NULL,NULL,NULL,NULL,NULL,NULL, SUM(IFF(enr=1,1,0)),
+       NULL,NULL,NULL,NULL,NULL, SUM(IFF(enr=0,1,0))
 FROM full_j WHERE accepted_at IS NOT NULL GROUP BY 2,3
 UNION ALL
 SELECT 'ev_conf', flow, TO_DATE(DATEADD(minute,330,confirmed_at))::STRING,
-       NULL,NULL,NULL,NULL,NULL,NULL,NULL, COUNT(*)
+       NULL,NULL,NULL,NULL,NULL,NULL,NULL, SUM(IFF(enr=1,1,0)),
+       NULL,NULL,NULL,NULL,NULL, SUM(IFF(enr=0,1,0))
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2,3
 UNION ALL
 SELECT 'cc', flow, TO_DATE(DATEADD(minute,330,confirmed_at))::STRING,
-       NULL,NULL,COUNT(*),
-       SUM(IFF(depth>=6 AND installed_at <= DATEADD(hour,96,confirmed_at),1,0)),NULL,NULL,NULL,NULL
+       NULL,NULL,SUM(IFF(enr=1,1,0)),
+       SUM(IFF(enr=1 AND depth>=6 AND installed_at <= DATEADD(hour,96,confirmed_at),1,0)),NULL,NULL,NULL,NULL,
+       NULL,NULL,NULL,NULL,NULL,NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2,3
 UNION ALL
 SELECT 'cc_ever', flow, TO_DATE(DATEADD(minute,330,ever_confirmed_at))::STRING,
-       NULL,NULL,COUNT(*),
-       SUM(IFF(depth_ever>=6 AND installed_at <= DATEADD(hour,96,ever_confirmed_at),1,0)),NULL,NULL,NULL,NULL
+       NULL,NULL,SUM(IFF(enr=1,1,0)),
+       SUM(IFF(enr=1 AND depth_ever>=6 AND installed_at <= DATEADD(hour,96,ever_confirmed_at),1,0)),NULL,NULL,NULL,NULL,
+       NULL,NULL,NULL,NULL,NULL,NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2,3
+UNION ALL
+-- all qualified bookings per flow/day (pre-CSP, both enrolled & non-enrolled & no-CSP):
+-- powers the "all bookings created" line so it filters by flow too.
+SELECT 'total', flow, booking_date::STRING,
+       COUNT(*),NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+       NULL,NULL,NULL,NULL,NULL,NULL
+FROM acc_clean GROUP BY 2,3
 ORDER BY 1,2,3;

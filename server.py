@@ -474,7 +474,10 @@ def compute_l1(enrolled_ids):
                   "bookings": r.get("bookings") or 0, "accepted": r.get("accepted") or 0,
                   "confirmed": r.get("confirmed") or 0, "installed": r.get("installed") or 0,
                   "accepted_ever": r.get("accepted_ever") or 0, "confirmed_ever": r.get("confirmed_ever") or 0,
-                  "installed_ever": r.get("installed_ever") or 0, "n": r.get("n") or 0}
+                  "installed_ever": r.get("installed_ever") or 0, "n": r.get("n") or 0,
+                  "sh_bookings": r.get("sh_bookings") or 0, "sh_accepted": r.get("sh_accepted") or 0,
+                  "sh_confirmed": r.get("sh_confirmed") or 0, "sh_accepted_ever": r.get("sh_accepted_ever") or 0,
+                  "sh_confirmed_ever": r.get("sh_confirmed_ever") or 0, "sh_n": r.get("sh_n") or 0}
                  for r in metabase_sql(fsql) if r.get("day_ist")]
         flows = {"list": sorted({r["flow"] for r in frows}), "rows": frows}
     except Exception:
