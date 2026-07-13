@@ -75,7 +75,8 @@ hw AS (
                'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'), 1, 0)) AS hw_tech,
            MAX(IFF(CONFIRMED_SLOT_AT IS NOT NULL OR CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT', 1, 0)) AS hw_conf,
            MAX(IFF(PROPOSED_SLOT_DATE IS NOT NULL OR CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION', 1, 0)) AS hw_prop,
-           MIN(CONFIRMED_SLOT_AT) AS first_confirmed_at
+           MIN(CONFIRMED_SLOT_AT) AS first_confirmed_at,
+           MAX(INSTALLATION_COMPLETED_AT) AS installed_at
     FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
     WHERE ETL_CURRENT = TRUE
     GROUP BY CONNECTION_ID
@@ -99,7 +100,8 @@ joined AS (
              WHEN hw.hw_prop = 1 THEN 3
              ELSE 2
            END AS depth_ever,
-           hw.first_confirmed_at AS ever_confirmed_at
+           hw.first_confirmed_at AS ever_confirmed_at,
+           hw.installed_at AS installed_at
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
     LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
@@ -144,17 +146,25 @@ UNION ALL
 -- install ratio anchored on the CUSTOMER-SLOT-CONFIRMED day (the ratio's own
 -- denominator basis): confirmed = slots confirmed that IST day, installed = of
 -- those, how many reached install. day = TO_DATE(CONFIRMED_SLOT_AT IST).
+-- 4-DAY MATURITY CAP: an install counts only if it completed within 96h of the
+-- slot-confirm, so every confirm-day is measured on an identical 4-day window
+-- (makes PRE vs POST apples-to-apples regardless of how long each has aged).
 SELECT 'confirm_cohort', TO_DATE(DATEADD(minute, 330, confirmed_at))::STRING, enr,
-       NULL, NULL, COUNT(*), SUM(IFF(depth >= 6, 1, 0)), NULL, NULL, NULL
+       NULL, NULL, COUNT(*),
+       SUM(IFF(depth >= 6 AND installed_at <= DATEADD(hour, 96, confirmed_at), 1, 0)),
+       NULL, NULL, NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- EVER-REACHED (Wiom view): install ratio anchored on the FIRST customer-slot-
 -- confirmed day. confirmed = the customer EVER confirmed a slot (CONFIRMED_SLOT_AT
 -- ever set on any current candidate row); installed = of those, ever installed.
 -- Unlike confirm_cohort, the denominator does NOT shrink when a confirmed booking
--- fails to install and is re-farmed/reset.
+-- fails to install and is re-farmed/reset. 4-DAY MATURITY CAP applied: install
+-- counts only if completed within 96h of the FIRST slot-confirm.
 SELECT 'confirm_cohort_ever', TO_DATE(DATEADD(minute, 330, ever_confirmed_at))::STRING, enr,
-       NULL, NULL, COUNT(*), SUM(IFF(depth_ever >= 6, 1, 0)), NULL, NULL, NULL
+       NULL, NULL, COUNT(*),
+       SUM(IFF(depth_ever >= 6 AND installed_at <= DATEADD(hour, 96, ever_confirmed_at), 1, 0)),
+       NULL, NULL, NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- EVER-REACHED leading funnel (booking day): each rung = deepest ever reached

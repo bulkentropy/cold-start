@@ -1167,12 +1167,13 @@ function renderL2(l1,meta){
   const _mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const _cp=cutoff.split('-'), cutLbl=(+_cp[2])+' '+_mn[+_cp[1]-1];
   $('l2-hero').innerHTML=
-    tile((pre.ratio??'–')+'%','Pre install ratio (Wiom view)',`${fmt(pre.i)} installed / ${fmt(pre.c)} ever-confirmed · confirmed 24–30 Jun`)+
-    tile((post.ratio??'–')+'%','Post install ratio (Wiom view)',`${fmt(post.i)} installed / ${fmt(post.c)} ever-confirmed · confirmed 1 Jul–${cutLbl} (mature)<br><span style="opacity:.5;font-weight:600">Total incl. maturing: ${postAll.ratio??'–'}% · ${fmt(postAll.i)}/${fmt(postAll.c)}</span>`,'color:'+col)+
+    tile((pre.ratio??'–')+'%','Pre install ratio (Wiom view)',`${fmt(pre.i)} installed ≤4d / ${fmt(pre.c)} ever-confirmed · confirmed 24–30 Jun`)+
+    tile((post.ratio??'–')+'%','Post install ratio (Wiom view)',`${fmt(post.i)} installed ≤4d / ${fmt(post.c)} ever-confirmed · confirmed 1 Jul–${cutLbl} (mature)<br><span style="opacity:.5;font-weight:600">Total incl. maturing: ${postAll.ratio??'–'}% · ${fmt(postAll.i)}/${fmt(postAll.c)}</span>`,'color:'+col)+
     tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
-  $('l2-foot').innerHTML=`Averages hold out the <b>3 most recent</b> slot-confirmed days (through ${cutLbl}) as still
-    maturing — the install ratio keeps rising for a few days after a slot is confirmed.${held?` The last <b>${held}</b>
-    day${held>1?'s are':' is'} shaded on the chart and excluded from the ratio.`:''}`;
+  $('l2-foot').innerHTML=`<b>Uniform 4-day maturity cap:</b> an install counts only if it completed <b>within 96h</b> of the
+    slot-confirm, so every day — PRE and POST — is measured on the same 4-day window and is directly comparable. Because a
+    confirm-day is only fully aged once its whole cohort has had 96h, days newer than ${cutLbl} are held out of the average.${held?` The last <b>${held}</b>
+    day${held>1?'s are':' is'} shaded on the chart and excluded.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
   g.appendChild(chartCard({title:'Wiom view — install ratio by first-confirmed day (ever-confirmed)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
     tip:r=>`first confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} ever-confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
@@ -1191,7 +1192,7 @@ function renderLeadtime(lt){
     tile(hh(lt.p99_h),'P99',`${Math.round(lt.p99_h)} h · practically all done`);
   const w2=Math.round(100*lt.within_2d/lt.n), w3=Math.round(100*lt.within_3d/lt.n);
   $('l2-lead-foot').innerHTML=`Based on <b>${fmt(lt.n)}</b> installs completed in the last 15 days · mean ${hh(lt.mean_h)} ·
-    <b>${w2}%</b> land within 2 days, <b>${w3}%</b> within 3 days — which is why the install-ratio averages above hold out the most recent 3 days.`;
+    <b>${w2}%</b> land within 2 days, <b>${w3}%</b> within 3 days — so the 4-day (96h) cap above captures nearly every install while keeping PRE and POST on an identical window.`;
 }
 
 function renderFailures(f){

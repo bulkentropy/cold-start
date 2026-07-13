@@ -404,12 +404,13 @@ def compute_l1(enrolled_ids):
             return round(sum(vals) / len(vals), 1) if vals else None
         return {k: avg(k) for k in L1_KEYS}
 
-    # Install ratio has a lead time: while most installs complete within 2-3
-    # days, the ratio itself keeps rising for longer (future-dated slots), so we
-    # hold out the 3 MOST RECENT slot-confirmed days as still-maturing and
-    # exclude them from the post average (they only understate it). The daily
-    # series ends yesterday (today-1), so the last mature day = today-4. The
-    # tail stays on the chart, greyed as "maturing".
+    # Install ratio uses a UNIFORM 4-day (96h) maturity cap: an install counts
+    # only if it completed within 96h of the slot-confirm (see l1_daily_agg.sql),
+    # so every confirm-day is measured on an identical window. A confirm-day is
+    # only fully observable once its whole cohort has had 96h, i.e. it is >=4 days
+    # old, so we hold out confirm-days newer than that from the post average. The
+    # daily series ends yesterday (today-1), so the last fully-aged day = today-4;
+    # the still-maturing tail stays on the chart, greyed.
     mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
 
     modes = {}
@@ -444,7 +445,8 @@ def compute_l1(enrolled_ids):
           QUALIFY ROW_NUMBER() OVER (PARTITION BY CSP_ID ORDER BY 1)=1)
         SELECT TO_DATE(DATEADD(minute,330,c.CONFIRMED_SLOT_AT))::STRING day,
           COUNT(*) confirmed_tasks,
-          SUM(IFF(c.INSTALLATION_COMPLETED_AT IS NOT NULL,1,0)) installs
+          SUM(IFF(c.INSTALLATION_COMPLETED_AT IS NOT NULL
+                  AND c.INSTALLATION_COMPLETED_AT <= DATEADD(hour,96,c.CONFIRMED_SLOT_AT),1,0)) installs
         FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
         JOIN mg ON mg.CSP_ID = c.CSP_ID
         WHERE c.ETL_CURRENT=TRUE AND c.CONFIRMED_SLOT_AT IS NOT NULL
