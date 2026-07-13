@@ -19,7 +19,7 @@ bookings AS (
 ),
 acc AS (
     SELECT b.mobile, b.booking_date, b.bt, b.nb,
-           ad.ACCOUNT_ID::STRING AS account_id, ad.LCO_ACCOUNT_ID AS lco
+           ad.ACCOUNT_ID::STRING AS account_id, ad.GROUP_NAME AS flow, ad.LCO_ACCOUNT_ID AS lco
     FROM bookings b
     LEFT JOIN PROD_DB.DYNAMODB.BOOKING ad
       ON ad.MOBILE::STRING = b.mobile AND ad.ACCOUNT_ID IS NOT NULL
@@ -29,12 +29,12 @@ acc AS (
                                ORDER BY ad.modified_time DESC NULLS LAST) = 1
 ),
 acc_clean AS (
-    SELECT mobile, booking_date, bt, nb, account_id FROM acc
+    SELECT mobile, booking_date, bt, nb, account_id, COALESCE(flow,'(none)') AS flow FROM acc
     WHERE lco IS NULL OR lco NOT IN
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
 ),
 conn AS (
-    SELECT a.mobile, a.booking_date, ceh.CONNECTION_ID
+    SELECT a.mobile, a.booking_date, a.flow, ceh.CONNECTION_ID
     FROM acc_clean a
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
       ON ceh.EVENT_TYPE = 'CONNECTION_REQUEST' AND ceh._FIVETRAN_DELETED = FALSE
@@ -67,7 +67,7 @@ hw AS (   -- high-water per connection: deepest rung ever reached (ever-reached 
     GROUP BY CONNECTION_ID
 ),
 joined AS (
-    SELECT cn.booking_date, cn.CONNECTION_ID, tl.CSP_ID, tl.CREATED_AT AS task_created_at,
+    SELECT cn.booking_date, cn.flow, cn.CONNECTION_ID, tl.CSP_ID, tl.CREATED_AT AS task_created_at,
            CASE WHEN tl.CSP_ID IN (SELECT CSP_ID FROM enr_csp)  THEN 'enrolled'
                 WHEN tl.CSP_ID IN (SELECT CSP_ID FROM elig_csp) THEN 'eligible_ne'
                 ELSE 'non_eligible' END AS grp,
@@ -102,20 +102,20 @@ full_j AS (
     SELECT j.*, DATEDIFF('minute', j.task_created_at, a.accepted_at) AS mins_to_accept
     FROM joined j LEFT JOIN accepts a USING (CONNECTION_ID)
 )
-SELECT 'funnel' AS mode, grp, booking_date::STRING AS day_ist, NULL AS win,
+SELECT 'funnel' AS mode, grp, flow, booking_date::STRING AS day_ist, NULL AS win,
        COUNT(*) AS bookings, SUM(IFF(depth >= 3, 1, 0)) AS accepted,
        SUM(IFF(depth >= 4, 1, 0)) AS confirmed, SUM(IFF(depth >= 6, 1, 0)) AS installed,
        SUM(IFF(depth_ever >= 3, 1, 0)) AS accepted_ever,
        SUM(IFF(depth_ever >= 4, 1, 0)) AS confirmed_ever,
        SUM(IFF(depth_ever >= 6, 1, 0)) AS installed_ever,
        NULL AS csps, NULL AS med_hrs
-FROM full_j GROUP BY 2, 3
+FROM full_j GROUP BY 2, 3, 4
 UNION ALL
-SELECT 'meta', grp, NULL,
+SELECT 'meta', grp, NULL AS flow, NULL,
        CASE WHEN booking_date BETWEEN '2026-06-24' AND '2026-06-30' THEN 'before'
             WHEN booking_date >= '2026-07-01' THEN 'after' END,
        NULL, NULL, NULL, NULL, NULL, NULL, NULL,
        COUNT(DISTINCT CSP_ID), ROUND(MEDIAN(mins_to_accept) / 60.0, 1)
 FROM full_j
 WHERE (booking_date BETWEEN '2026-06-24' AND '2026-06-30') OR booking_date >= '2026-07-01'
-GROUP BY 2, 4;
+GROUP BY 2, 5;

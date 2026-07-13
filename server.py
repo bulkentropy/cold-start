@@ -700,9 +700,19 @@ def compute_cohort(enrolled_ids, latest):
              "befores": {b_wid: grp_block("non_eligible", "before", b_win, b_days)},
              "after": grp_block("non_eligible", "after", after_win, after_days)})
         cohort["extra_rows"] = extra
+        # per (grp, flow, day) funnel counts for the client-side flow filter on the
+        # comparison rows (csps stay all-flows; only rates/bookings filter).
+        cohort["extra_flow_rows"] = [
+            {"grp": r["grp"], "flow": str(r["flow"]), "day": str(r["day_ist"])[:10],
+             "bookings": r.get("bookings") or 0, "accepted": r.get("accepted") or 0,
+             "confirmed": r.get("confirmed") or 0, "installed": r.get("installed") or 0,
+             "accepted_ever": r.get("accepted_ever") or 0, "confirmed_ever": r.get("confirmed_ever") or 0,
+             "installed_ever": r.get("installed_ever") or 0}
+            for r in graw if r["mode"] == "funnel" and r.get("day_ist")]
     except Exception:
         traceback.print_exc()
         cohort["extra_rows"] = []
+        cohort["extra_flow_rows"] = []
 
     # ----- CSP-status split: TASK-ACTIVITY based (matches the team cross-tab) --
     month_start = datetime.now(IST).date().replace(day=1).isoformat()
