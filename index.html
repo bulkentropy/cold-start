@@ -191,6 +191,7 @@ svg text{font-family:inherit}
     <button data-m="l2" onclick="showMetric('l2')">L2 · Target</button>
     <button data-m="ign" onclick="showMetric('ign')">CSP status</button>
   </div>
+  <div id="flow-bar" style="display:none;align-items:center;gap:7px;flex-wrap:wrap;margin:-8px 0 18px"></div>
 </div>
 
 <div id="pane-ign" style="display:none">
@@ -520,6 +521,7 @@ function showTab(t){
   document.querySelectorAll('#metric-subnav button').forEach(b=>b.classList.toggle('on',b.dataset.m===MTAB));
   location.hash=t==='metrics'?MTAB:t;
   loadHub(t);
+  if(typeof renderFlowBar==='function')renderFlowBar();
 }
 function showMetric(m){showTab(m);}
 /* ---------- project hub (content) ---------- */
@@ -789,6 +791,7 @@ function render(d){
   if(d.cohort)renderCohort(d.cohort);
   if(d.ignition)renderIgnition(d.ignition);
   if(d.gate)renderGate(d.gate);
+  renderFlowBar();
 }
 
 function renderGate(g){
@@ -1139,7 +1142,8 @@ function taskCard(tc,meta){
 }
 
 function renderL2(l1,meta){
-  const m=l1.modes.confirm_cohort_ever||l1.modes.confirm_cohort||l1.modes.cohort;
+  const M=l1modes();
+  const m=M.confirm_cohort_ever||M.confirm_cohort||M.cohort;
   const daily=m.daily;
   // Install ratio lags slot-confirmation by ~2-3 days (most installs land in
   // that window). Days newer than the cutoff are still installing, so they are
@@ -1324,9 +1328,50 @@ function funnelCard(title,rows,color){
 }
 
 /* ---------- L1 charts ---------- */
+/* ---------- Flow filter (L1/L2) — client-side sum of selected flows ---------- */
+let FLOWSEL=null;   // Set of selected flows; treated as "all" when it covers the whole list
+function flowList(){return (DATA&&DATA.l1&&DATA.l1.flows&&DATA.l1.flows.list)||[];}
+function flowActive(){const L=flowList();return !!(FLOWSEL&&FLOWSEL.size>0&&FLOWSEL.size<L.length);}
+function ensureFlowSel(){const L=flowList();if(!FLOWSEL||FLOWSEL.size===0)FLOWSEL=new Set(L);}
+function flowLbl(f){return f==='(none)'?'No flow':('Flow '+f);}
+function renderFlowBar(){
+  const bar=$('flow-bar'), L=flowList();
+  const show=(MTAB==='l1'||MTAB==='l2')&&L.length>0;
+  bar.style.display=show?'flex':'none'; if(!show)return;
+  ensureFlowSel();
+  const allOn=FLOWSEL.size===L.length;
+  const chip=(lab,on,click)=>`<button onclick="${click}" style="border:1px solid ${on?'var(--accent)':'var(--n300)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};border-radius:40px;padding:5px 13px;font-size:12.5px;font-weight:700;cursor:pointer">${lab}</button>`;
+  bar.innerHTML=`<span style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--muted)">Flow</span>`
+    +chip('All',allOn,'flowAll()')
+    +L.map(f=>chip(flowLbl(f),FLOWSEL.has(f),`flowToggle('${f}')`)).join('')
+    +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· ${FLOWSEL.size}/${L.length} · counts &amp; rates only (TATs, shadow &amp; task-view stay all-flows)</span>`:'');
+}
+function flowAll(){FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
+function flowToggle(f){ensureFlowSel();FLOWSEL.has(f)?FLOWSEL.delete(f):FLOWSEL.add(f);if(FLOWSEL.size===0)FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
+function flowRerender(){if(DATA&&DATA.l1){renderL1(DATA.l1,DATA.meta);renderL2(DATA.l1,DATA.meta);}}
+const _fpct=(a,b)=>b?Math.round(1000*a/b)/10:null;
+function _favg(daily,filt){const rs=daily.filter(filt),ks=new Set();rs.forEach(r=>Object.keys(r).forEach(k=>{if(typeof r[k]==='number')ks.add(k);}));const o={};ks.forEach(k=>{const v=rs.map(r=>r[k]).filter(x=>typeof x==='number');o[k]=v.length?Math.round(10*v.reduce((a,b)=>a+b,0)/v.length)/10:null;});return o;}
+function _fwrap(daily,cut){const pe=DATA.meta.pre[1],ps=DATA.meta.post_start,hi=cut||(daily.length?daily[daily.length-1].day_ist:'9999');
+  return {daily,pre_avg:_favg(daily,r=>r.day_ist<=pe),post_avg:_favg(daily,r=>r.day_ist>=ps&&r.day_ist<=hi),mature_cutoff:cut};}
+function buildFlowModes(){
+  const F=DATA.l1.flows, o=DATA.l1.modes, sel=FLOWSEL, agg={};
+  F.rows.forEach(r=>{if(!sel.has(r.flow))return;const m=agg[r.mode]||(agg[r.mode]={});const d=m[r.day]||(m[r.day]={bookings:0,accepted:0,confirmed:0,installed:0,accepted_ever:0,confirmed_ever:0,installed_ever:0,n:0});
+    d.bookings+=r.bookings;d.accepted+=r.accepted;d.confirmed+=r.confirmed;d.installed+=r.installed;d.accepted_ever+=r.accepted_ever;d.confirmed_ever+=r.confirmed_ever;d.installed_ever+=r.installed_ever;d.n+=r.n;});
+  const A=(mode,day)=>(agg[mode]&&agg[mode][day])||{bookings:0,accepted:0,confirmed:0,installed:0,accepted_ever:0,confirmed_ever:0,installed_ever:0,n:0};
+  const cohort=o.cohort.daily.map(od=>{const f=A('cohort',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted,slot_pct:_fpct(f.accepted,f.bookings),cust_confirmed:f.confirmed,confirm_pct:_fpct(f.confirmed,f.accepted),installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
+  const cohort_ever=(o.cohort_ever||o.cohort).daily.map(od=>{const f=A('cohort',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted_ever,slot_pct:_fpct(f.accepted_ever,f.bookings),cust_confirmed:f.confirmed_ever,confirm_pct:_fpct(f.confirmed_ever,f.accepted_ever),installs:f.installed_ever,install_ratio:_fpct(f.installed_ever,f.confirmed_ever)};});
+  const event=o.event.daily.map(od=>{const bk=A('cohort',od.day_ist).bookings,ac=A('ev_acc',od.day_ist).n,cf=A('ev_conf',od.day_ist).n;return {...od,bookings:bk,slot_selected:ac,slot_pct:_fpct(ac,bk),cust_confirmed:cf,confirm_pct:_fpct(cf,ac)};});
+  const cc=o.confirm_cohort.daily.map(od=>{const f=A('cc',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
+  const cce=o.confirm_cohort_ever.daily.map(od=>{const f=A('cc_ever',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
+  return {cohort:_fwrap(cohort),cohort_ever:_fwrap(cohort_ever),event:_fwrap(event),
+          confirm_cohort:_fwrap(cc,o.confirm_cohort.mature_cutoff),confirm_cohort_ever:_fwrap(cce,o.confirm_cohort_ever.mature_cutoff)};
+}
+function l1modes(){if(!flowActive())return DATA.l1.modes;if(!DATA._flowModes)DATA._flowModes=buildFlowModes();return DATA._flowModes;}
+
 function renderL1(l1,meta){
   const ever=MODE==='cohort'&&BASIS==='ever';
-  const m=l1.modes[ever?'cohort_ever':MODE]||l1.modes[MODE];
+  const M=l1modes();
+  const m=M[ever?'cohort_ever':MODE]||M[MODE];
   const bsuf=ever?' · ever-reached':'';
   $('basistoggle').style.display=MODE==='cohort'?'':'none';
   $('l1sub').innerHTML=`Measured on <b>${fmt(l1.enrolled_n)}</b> enrolled CSPs (live set) ·

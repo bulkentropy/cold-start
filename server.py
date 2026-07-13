@@ -461,8 +461,25 @@ def compute_l1(enrolled_ids):
     except Exception:
         traceback.print_exc()
 
+    # per-flow daily breakdown (enrolled only) for the L1/L2 flow filter — the
+    # frontend sums the selected flows and recomputes rates client-side.
+    flows = None
+    try:
+        fsql = open(os.path.join(BASE_DIR, "sql", "l1_flows.sql"), encoding="utf-8").read()
+        fsql = fsql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+        fsql = fsql.replace("{START_DATE}", L1_START)
+        frows = [{"mode": r["mode"], "flow": str(r["flow"]), "day": str(r["day_ist"])[:10],
+                  "bookings": r.get("bookings") or 0, "accepted": r.get("accepted") or 0,
+                  "confirmed": r.get("confirmed") or 0, "installed": r.get("installed") or 0,
+                  "accepted_ever": r.get("accepted_ever") or 0, "confirmed_ever": r.get("confirmed_ever") or 0,
+                  "installed_ever": r.get("installed_ever") or 0, "n": r.get("n") or 0}
+                 for r in metabase_sql(fsql) if r.get("day_ist")]
+        flows = {"list": sorted({r["flow"] for r in frows}), "rows": frows}
+    except Exception:
+        traceback.print_exc()
+
     return {"modes": modes, "enrolled_n": len(enrolled_ids), "leadtime": leadtime,
-            "task_confirm": task_confirm,
+            "task_confirm": task_confirm, "flows": flows,
             "csps_receiving": {"enrolled": csps.get(1), "non_enrolled": csps.get(0)},
             "complete_through": yday}
 
