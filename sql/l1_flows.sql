@@ -62,12 +62,13 @@ hw AS (
                'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'),1,0)) hw_tech,
            MAX(IFF(CONFIRMED_SLOT_AT IS NOT NULL OR CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT',1,0)) hw_conf,
            MAX(IFF(PROPOSED_SLOT_DATE IS NOT NULL OR CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION',1,0)) hw_prop,
-           MIN(CONFIRMED_SLOT_AT) first_confirmed_at
+           MIN(CONFIRMED_SLOT_AT) first_confirmed_at,
+           MAX(INSTALLATION_COMPLETED_AT) installed_at
     FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES WHERE ETL_CURRENT = TRUE GROUP BY CONNECTION_ID
 ),
 joined AS (
     SELECT cn.booking_date, cn.flow, cn.CONNECTION_ID, tl.CREATED_AT AS task_created_at,
-           tl.csa AS confirmed_at, hw.first_confirmed_at AS ever_confirmed_at,
+           tl.csa AS confirmed_at, hw.first_confirmed_at AS ever_confirmed_at, hw.installed_at AS installed_at,
            CASE WHEN tl.inst_any = 1 THEN 6
                 WHEN tl.exid IS NOT NULL OR tl.cs IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
                      'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING') THEN 5
@@ -105,10 +106,12 @@ SELECT 'ev_conf', flow, TO_DATE(DATEADD(minute,330,confirmed_at))::STRING,
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2,3
 UNION ALL
 SELECT 'cc', flow, TO_DATE(DATEADD(minute,330,confirmed_at))::STRING,
-       NULL,NULL,COUNT(*),SUM(IFF(depth>=6,1,0)),NULL,NULL,NULL,NULL
+       NULL,NULL,COUNT(*),
+       SUM(IFF(depth>=6 AND installed_at <= DATEADD(hour,96,confirmed_at),1,0)),NULL,NULL,NULL,NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2,3
 UNION ALL
 SELECT 'cc_ever', flow, TO_DATE(DATEADD(minute,330,ever_confirmed_at))::STRING,
-       NULL,NULL,COUNT(*),SUM(IFF(depth_ever>=6,1,0)),NULL,NULL,NULL,NULL
+       NULL,NULL,COUNT(*),
+       SUM(IFF(depth_ever>=6 AND installed_at <= DATEADD(hour,96,ever_confirmed_at),1,0)),NULL,NULL,NULL,NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2,3
 ORDER BY 1,2,3;

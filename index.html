@@ -1333,24 +1333,29 @@ function funnelCard(title,rows,color){
 /* ---------- L1 charts ---------- */
 /* ---------- Flow filter (L1/L2) — client-side sum of selected flows ---------- */
 let FLOWSEL=null;   // Set of selected flows; treated as "all" when it covers the whole list
+let FLOWMODE='all'; // 'all' | 'paid' (ex-G,H) | 'nofee' (G,H, the no-fee flows)
 function flowList(){return (DATA&&DATA.l1&&DATA.l1.flows&&DATA.l1.flows.list)||[];}
 function flowActive(){const L=flowList();return !!(FLOWSEL&&FLOWSEL.size>0&&FLOWSEL.size<L.length);}
-function ensureFlowSel(){const L=flowList();if(!FLOWSEL||FLOWSEL.size===0)FLOWSEL=new Set(L);}
-function flowLbl(f){return f==='(none)'?'No flow':('Flow '+f);}
+const _isNoFee=f=>f==='G'||f==='H';
 function renderFlowBar(){
   const bar=$('flow-bar'), L=flowList();
-  const show=(MTAB==='l1'||MTAB==='l2')&&L.length>0;
+  const hasNF=L.some(_isNoFee);
+  const show=(MTAB==='l1'||MTAB==='l2')&&L.length>0&&hasNF;
   bar.style.display=show?'flex':'none'; if(!show)return;
-  ensureFlowSel();
-  const allOn=FLOWSEL.size===L.length;
-  const chip=(lab,on,click)=>`<button onclick="${click}" style="border:1px solid ${on?'var(--accent)':'var(--n300)'};background:${on?'var(--accent)':'transparent'};color:${on?'#fff':'var(--muted)'};border-radius:40px;padding:5px 13px;font-size:12.5px;font-weight:700;cursor:pointer">${lab}</button>`;
-  bar.innerHTML=`<span style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--muted)">Flow</span>`
-    +chip('All',allOn,'flowAll()')
-    +L.map(f=>chip(flowLbl(f),FLOWSEL.has(f),`flowToggle('${f}')`)).join('')
-    +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· ${FLOWSEL.size}/${L.length} · counts &amp; rates only (TATs, shadow &amp; task-view stay all-flows)</span>`:'');
+  const seg=(lab,mode,sub)=>`<button onclick="setFlowMode('${mode}')" style="border:1px solid ${FLOWMODE===mode?'var(--accent)':'var(--n300)'};background:${FLOWMODE===mode?'var(--accent)':'transparent'};color:${FLOWMODE===mode?'#fff':'var(--muted)'};border-radius:40px;padding:5px 14px;font-size:12.5px;font-weight:700;cursor:pointer">${lab}${sub?`<span style="opacity:.75;font-weight:600"> ${sub}</span>`:''}</button>`;
+  bar.innerHTML=`<span style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--muted)">Booking flow</span>`
+    +seg('All','all')
+    +seg('Ex-G,H','paid','· paid')
+    +seg('G,H','nofee','· no-fee')
+    +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· counts &amp; rates only (TATs, shadow &amp; task-view stay all-flows)</span>`:'');
 }
-function flowAll(){FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
-function flowToggle(f){ensureFlowSel();FLOWSEL.has(f)?FLOWSEL.delete(f):FLOWSEL.add(f);if(FLOWSEL.size===0)FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
+function setFlowMode(mode){
+  const L=flowList(); FLOWMODE=mode;
+  if(mode==='nofee')FLOWSEL=new Set(L.filter(_isNoFee));
+  else if(mode==='paid')FLOWSEL=new Set(L.filter(f=>!_isNoFee(f)));
+  else FLOWSEL=new Set(L);
+  DATA._flowModes=null;renderFlowBar();flowRerender();
+}
 function flowRerender(){if(DATA&&DATA.l1){renderL1(DATA.l1,DATA.meta);renderL2(DATA.l1,DATA.meta);}if(COH)renderCohort(COH);}
 // rebuild the belief-cohort table for the selected flows (mirrors server block())
 function buildFlowCohort(c,sel){
