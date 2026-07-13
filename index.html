@@ -941,7 +941,9 @@ const bkey=k=>(BASIS==='ever'&&EVERK[k])?EVERK[k]:k;
 const totCell=(after,k)=>{const tk=TOTKEY[k],tv=(tk&&after)?after[tk]:null;
   return tv!=null?`<div style="opacity:.5;font-size:10px;font-weight:600" title="full-window rate incl. still-maturing bookings">total ${tv}%</div>`:'';};
 function renderCohort(c){
-  COH=c; const box=$('l1-cohort'); box.hidden=false;
+  COH=c;   // keep the original (all-flows) for re-filtering
+  if(flowActive()&&c.flow_rows) c=buildFlowCohort(c,FLOWSEL);
+  const box=$('l1-cohort'); box.hidden=false;
   const sel=$('coh-before');
   if(sel&&c.before_options){
     if(!c.before_options.some(o=>o.id===BEFORE_SEL))BEFORE_SEL=c.before_options[0].id;
@@ -1348,7 +1350,35 @@ function renderFlowBar(){
 }
 function flowAll(){FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
 function flowToggle(f){ensureFlowSel();FLOWSEL.has(f)?FLOWSEL.delete(f):FLOWSEL.add(f);if(FLOWSEL.size===0)FLOWSEL=new Set(flowList());DATA._flowModes=null;renderFlowBar();flowRerender();}
-function flowRerender(){if(DATA&&DATA.l1){renderL1(DATA.l1,DATA.meta);renderL2(DATA.l1,DATA.meta);}}
+function flowRerender(){if(DATA&&DATA.l1){renderL1(DATA.l1,DATA.meta);renderL2(DATA.l1,DATA.meta);}if(COH)renderCohort(COH);}
+// rebuild the belief-cohort table for the selected flows (mirrors server block())
+function buildFlowCohort(c,sel){
+  const P=(a,b)=>b?Math.round(1000*a/b)/10:null;
+  const Z=()=>({bb:0,bac:0,bcf:0,bin:0,bace:0,bcfe:0,bine:0,bcs:new Set(),
+    ak:0,ac:0,cf:0,inn:0,ace:0,cfe:0,ine:0,mbk:0,mac:0,mcf:0,min:0,mace:0,mcfe:0,mine:0,acs:new Set()});
+  const acc={};
+  c.flow_rows.forEach(r=>{if(!sel.has(r.flow))return;const z=acc[r.cohort]||(acc[r.cohort]=Z());
+    z.bb+=r.b_bk;z.bac+=r.b_ac;z.bcf+=r.b_cf;z.bin+=r.b_in;z.bace+=r.b_ace;z.bcfe+=r.b_cfe;z.bine+=r.b_ine;if(r.b_bk)z.bcs.add(r.pid);
+    z.ak+=r.a_bk;z.ac+=r.a_ac;z.cf+=r.a_cf;z.inn+=r.a_in;z.ace+=r.a_ace;z.cfe+=r.a_cfe;z.ine+=r.a_ine;if(r.a_bk)z.acs.add(r.pid);
+    z.mbk+=r.m_bk;z.mac+=r.m_ac;z.mcf+=r.m_cf;z.min+=r.m_in;z.mace+=r.m_ace;z.mcfe+=r.m_cfe;z.mine+=r.m_ine;});
+  const sum=keys=>{const t=Z();keys.forEach(k=>{const z=acc[k];if(!z)return;
+    ['bb','bac','bcf','bin','bace','bcfe','bine','ak','ac','cf','inn','ace','cfe','ine','mbk','mac','mcf','min','mace','mcfe','mine'].forEach(f=>t[f]+=z[f]);
+    z.bcs.forEach(p=>t.bcs.add(p));z.acs.forEach(p=>t.acs.add(p));});return t;};
+  const bd=c.before_days||7, ad=c.after_days||1;
+  const beforeBlk=(z,size,med)=>({csps_receiving:z.bcs.size,bookings:z.bb,bk_per_csp_day:(size&&bd)?Math.round(100*z.bb/size/bd)/100:null,
+    accept_pct:P(z.bac,z.bb),accept_pct_total:P(z.bac,z.bb),confirm_pct:P(z.bcf,z.bac),confirm_pct_total:P(z.bcf,z.bac),
+    install_ratio:P(z.bin,z.bcf),install_ratio_total:P(z.bin,z.bcf),accept_pct_ever:P(z.bace,z.bb),accept_pct_ever_total:P(z.bace,z.bb),
+    confirm_pct_ever:P(z.bcfe,z.bace),confirm_pct_ever_total:P(z.bcfe,z.bace),install_ratio_ever:P(z.bine,z.bcfe),install_ratio_ever_total:P(z.bine,z.bcfe),med_hrs_to_accept:med});
+  const afterBlk=(z,size,med)=>({csps_receiving:z.acs.size,bookings:z.ak,bk_per_csp_day:(size&&ad)?Math.round(100*z.ak/size/ad)/100:null,
+    accept_pct:P(z.mac,z.mbk),accept_pct_total:P(z.ac,z.ak),confirm_pct:P(z.mcf,z.mac),confirm_pct_total:P(z.cf,z.ac),
+    install_ratio:P(z.min,z.mcf),install_ratio_total:P(z.inn,z.cf),accept_pct_ever:P(z.mace,z.mbk),accept_pct_ever_total:P(z.ace,z.ak),
+    confirm_pct_ever:P(z.mcfe,z.mace),confirm_pct_ever_total:P(z.cfe,z.ace),install_ratio_ever:P(z.mine,z.mcfe),install_ratio_ever_total:P(z.ine,z.cfe),med_hrs_to_accept:med});
+  const bwid=(c.before_options&&c.before_options[0]&&c.before_options[0].id)||'a';
+  const rows=c.rows.map(r=>{const z=sum(r.keys||[]);
+    return {...r, befores:{[bwid]:beforeBlk(z,r.csps,(r.befores&&r.befores[bwid]||{}).med_hrs_to_accept)},
+                  after:afterBlk(z,r.csps,(r.after||{}).med_hrs_to_accept)};});
+  return {...c, rows};   // extra_rows kept as-is (all-flows)
+}
 const _fpct=(a,b)=>b?Math.round(1000*a/b)/10:null;
 function _favg(daily,filt){const rs=daily.filter(filt),ks=new Set();rs.forEach(r=>Object.keys(r).forEach(k=>{if(typeof r[k]==='number')ks.add(k);}));const o={};ks.forEach(k=>{const v=rs.map(r=>r[k]).filter(x=>typeof x==='number');o[k]=v.length?Math.round(10*v.reduce((a,b)=>a+b,0)/v.length)/10:null;});return o;}
 function _fwrap(daily,cut){const pe=DATA.meta.pre[1],ps=DATA.meta.post_start,hi=cut||(daily.length?daily[daily.length-1].day_ist:'9999');

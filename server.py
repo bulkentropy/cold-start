@@ -536,22 +536,19 @@ def compute_cohort(enrolled_ids, latest):
     # partner -> cohort key
     cohort_of = {p: latest.get(p, "no_response") for p in enrolled_ids}
 
-    sql = open(os.path.join(BASE_DIR, "sql", "l1_cohort.sql"), encoding="utf-8").read()
-    sql = sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
-    sql = sql.replace("{START_DATE}", COHORT_BEFORE[0])   # pull from 1 Jun to cover before + after
-    raw = metabase_sql(sql)
-
     yday = (datetime.now(IST).date() - timedelta(days=1)).isoformat()
-    after_win = (POST_START, yday)
     # Install-ratio maturity: bookings from the last 3 days haven't had time to
-    # install, so the HEADLINE install ratio holds them out (same rule as L2);
-    # a faint "total conversion" keeps the full-window ratio. Booking-anchored
-    # here (unlike L2's slot-confirmed anchor) — both definitions kept as-is.
+    # install, so the HEADLINE install ratio holds them out (same rule as L2).
     mature_cutoff = (datetime.now(IST).date() - timedelta(days=4)).isoformat()
+    sql = open(os.path.join(BASE_DIR, "sql", "l1_cohort.sql"), encoding="utf-8").read()
+    sql = (sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+              .replace("{START_DATE}", "2026-06-24")
+              .replace("{YEST}", yday)
+              .replace("{MATURE_CUTOFF}", mature_cutoff))
+    raw = metabase_sql(sql)   # AGGREGATED per (partner, flow) — no 2000-row truncation
+
+    after_win = (POST_START, yday)
     after_days = len(_daterange(*after_win))
-    # Selectable "before" baselines. 1-15 Jun predates the CSP-TAS migration
-    # (~17-22 Jun) so its install data is under-recorded; 24-30 Jun is fully
-    # post-migration (clean) — the honest install-ratio baseline.
     BEFORE_WINDOWS = [("a", ("2026-06-24", "2026-06-30"), "24–30 Jun · post-migration (clean baseline)")]
     before_days = {wid: len(_daterange(*win)) for wid, win, _ in BEFORE_WINDOWS}
 
@@ -565,59 +562,38 @@ def compute_cohort(enrolled_ids, latest):
                     "bookings_mat": 0, "accepted_mat": 0, "confirmed_mat": 0, "installed_mat": 0,
                     "accepted_ever": 0, "confirmed_ever": 0, "installed_ever": 0,
                     "accepted_ever_mat": 0, "confirmed_ever_mat": 0, "installed_ever_mat": 0,
-                    "csps": set(), "accept_mins": []} for k, _ in COHORT_ORDER}
+                    "csps": set(), "amin_sum": 0.0, "amin_n": 0} for k, _ in COHORT_ORDER}
 
     befores = {wid: fresh() for wid, _, _ in BEFORE_WINDOWS}
     after = fresh()
+    bwid = BEFORE_WINDOWS[0][0]
+    flow_rows = []   # per (cohort, flow, partner) aggregates for the client-side flow filter
     for r in raw:
-        d = str(r["booking_date"])[:10]
-        bucket = None
-        for wid, win, _ in BEFORE_WINDOWS:
-            if win[0] <= d <= win[1]:
-                bucket = befores[wid]
-                break
-        if bucket is None:
-            if after_win[0] <= d <= after_win[1]:
-                bucket = after
-            else:
-                continue
         pid = str(r["partner_id"])
         ck = cohort_of.get(pid)
         if ck is None:
             continue
-        a = bucket[ck]
-        dep = r["depth"]
-        depe = r.get("depth_ever", dep)
-        a["bookings"] += 1
-        a["csps"].add(pid)
-        if dep >= 3:
-            a["accepted"] += 1
-        if dep >= 4:
-            a["confirmed"] += 1
-        if dep >= 6:
-            a["installed"] += 1
-        if depe >= 3:
-            a["accepted_ever"] += 1
-        if depe >= 4:
-            a["confirmed_ever"] += 1
-        if depe >= 6:
-            a["installed_ever"] += 1
-        if d <= mature_cutoff:                 # matured subset (last 3 booking-days held out)
-            a["bookings_mat"] += 1
-            if dep >= 3:
-                a["accepted_mat"] += 1
-            if dep >= 4:
-                a["confirmed_mat"] += 1
-            if dep >= 6:
-                a["installed_mat"] += 1
-            if depe >= 3:
-                a["accepted_ever_mat"] += 1
-            if depe >= 4:
-                a["confirmed_ever_mat"] += 1
-            if depe >= 6:
-                a["installed_ever_mat"] += 1
-        if r["accept_epoch"] and r["task_epoch"]:
-            a["accept_mins"].append((r["accept_epoch"] - r["task_epoch"]) / 60.0)
+        g = lambda k: r.get(k) or 0
+        b, a = befores[bwid][ck], after[ck]
+        # BEFORE (24-30 Jun) is fully matured, so matured == full
+        for src, dst in (("b_bk", "bookings"), ("b_ac", "accepted"), ("b_cf", "confirmed"), ("b_in", "installed"),
+                         ("b_ace", "accepted_ever"), ("b_cfe", "confirmed_ever"), ("b_ine", "installed_ever")):
+            b[dst] += g(src); b[dst + "_mat"] += g(src)
+        if g("b_bk"): b["csps"].add(pid)
+        b["amin_sum"] += g("b_amin"); b["amin_n"] += g("b_an")
+        # AFTER (1 Jul..yest): full = a_*, matured subset = m_*
+        for src, dst in (("a_bk", "bookings"), ("a_ac", "accepted"), ("a_cf", "confirmed"), ("a_in", "installed"),
+                         ("a_ace", "accepted_ever"), ("a_cfe", "confirmed_ever"), ("a_ine", "installed_ever")):
+            a[dst] += g(src)
+        for src, dst in (("m_bk", "bookings_mat"), ("m_ac", "accepted_mat"), ("m_cf", "confirmed_mat"), ("m_in", "installed_mat"),
+                         ("m_ace", "accepted_ever_mat"), ("m_cfe", "confirmed_ever_mat"), ("m_ine", "installed_ever_mat")):
+            a[dst] += g(src)
+        if g("a_bk"): a["csps"].add(pid)
+        a["amin_sum"] += g("a_amin"); a["amin_n"] += g("a_an")
+        flow_rows.append({"cohort": ck, "flow": str(r["flow"]), "pid": pid, **{k: g(k) for k in
+            ("b_bk", "b_ac", "b_cf", "b_in", "b_ace", "b_cfe", "b_ine",
+             "a_bk", "a_ac", "a_cf", "a_in", "a_ace", "a_cfe", "a_ine",
+             "m_bk", "m_ac", "m_cf", "m_in", "m_ace", "m_cfe", "m_ine")}})
 
     def pct(a, b):
         return round(100 * a / b, 1) if b else None
@@ -639,8 +615,9 @@ def compute_cohort(enrolled_ids, latest):
         cnfe_m = sum(a["confirmed_ever_mat"] for a in aks)
         inse_m = sum(a["installed_ever_mat"] for a in aks)
         recv = len(set().union(*[a["csps"] for a in aks])) if aks else 0
-        mins = [m for a in aks for m in a["accept_mins"]]
-        med = round(sorted(mins)[len(mins) // 2] / 60.0, 1) if mins else None
+        asum = sum(a["amin_sum"] for a in aks)
+        an = sum(a["amin_n"] for a in aks)
+        med = round(asum / an / 60.0, 1) if an else None   # mean hrs to accept (additive across flows)
         return {"csps_receiving": recv, "bookings": bk,
                 "bk_per_csp_day": round(bk / size / days, 2) if (size and days) else None,
                 # each rate: matured (headline) + full-window total (faint), per basis
@@ -653,7 +630,7 @@ def compute_cohort(enrolled_ids, latest):
                 "med_hrs_to_accept": med}
 
     def row_for(keys, label, size):
-        return {"label": label, "csps": size, "small": size < SMALL_COHORT,
+        return {"label": label, "keys": list(keys), "csps": size, "small": size < SMALL_COHORT,
                 "befores": {wid: block(befores[wid], keys, size, before_days[wid])
                             for wid, _, _ in BEFORE_WINDOWS},
                 "after": block(after, keys, size, after_days)}
@@ -663,7 +640,9 @@ def compute_cohort(enrolled_ids, latest):
     cohort = {"after_window": list(after_win), "after_days": after_days,
               "before_options": [{"id": wid, "window": list(win), "days": before_days[wid], "label": lbl}
                                  for wid, win, lbl in BEFORE_WINDOWS],
-              "rows": rows}
+              "rows": rows,
+              # per (cohort, flow, partner) aggregates + windows/days for the client-side flow filter
+              "flow_rows": flow_rows, "before_days": before_days[bwid], "mature_cutoff": mature_cutoff}
 
     # ----- comparison rows: eligible-not-enrolled + non-eligible CSPs ----------
     # eligible = frozen launch cohort (offered MG); enrolled is its opted-in
