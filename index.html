@@ -802,36 +802,46 @@ function renderGate(g){
   const s=g.daily||[];
   if(s.length>1){
     $('gate-sub').innerHTML=`Day-on-day movement of all <b>${fmt(g.enrolled)}</b> enrolled CSPs across the MG gate, ${g.month}
-      to date (${g.window[0]} → ${g.window[1]}). Each CSP placed by its state <b>as of that day</b> — installs ÷ <b>matured</b>
-      customer-confirmed leads vs the <b>${g.gate_pct}%</b> gate. Total is constant (${fmt(g.enrolled)}); the composition shift is the story.`;
+      to date. Each CSP is placed by its state <b>as of that day</b> — installs ÷ <b>matured</b> customer-confirmed leads vs the
+      <b>${g.gate_pct}%</b> gate. Total is constant (${fmt(g.enrolled)}); the composition shift is the story.`;
     const STK=[['above','#008043','Above '+g.gate_pct+'% gate'],['below','#C77700','Below the gate'],
                ['pending','#6D17CE','Pending · none matured'],['no_leads','#9A93AD','No confirmed leads']];
-    const TOT=n, W=760,H=264,L=10,R=190,T=18,B=26,m=s.length;
+    const TOT=n, W=720,H=300,L=30,R=10,T=22,B=22,m=s.length;
     const x=i=>L+(W-L-R)*(m===1?.5:i/(m-1)), yOf=v=>T+(H-T-B)*(1-v/TOT);
     const cum=s.map(r=>{let c=0;const o={};STK.forEach(([k])=>{o[k]=[c,c+(r[k]||0)];c+=(r[k]||0);});return o;});
     const first=s[0],last=s[m-1];
-    let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
-    svg+=`<text x="${L}" y="${yOf(TOT)-5}" font-size="10.5" fill="${MUTED}">${fmt(TOT)} CSPs each day (constant total)</text>`;
-    STK.forEach(([k,col,lbl])=>{
+    let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
+    [0.25,0.5,0.75,1].forEach(f=>{const yy=yOf(TOT*f);
+      svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" stroke="#EBE7F1" stroke-width="1"/>`;
+      svg+=`<text x="${L-5}" y="${yy+3}" font-size="9" fill="${MUTED}" text-anchor="end">${Math.round(TOT*f)}</text>`;});
+    STK.forEach(([k,col])=>{
       const top=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][1])}`);
       const bot=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][0])}`).reverse();
-      svg+=`<polygon points="${top.concat(bot).join(' ')}" fill="${col}" stroke="var(--card)" stroke-width="1.5"/>`;
-      const li=m-1, cy=yOf((cum[li][k][0]+cum[li][k][1])/2), d=(last[k]||0)-(first[k]||0);
-      const gd={above:1,below:-1,pending:0,no_leads:-1}[k];
-      const dc=(gd===0||Math.abs(d)<1)?MUTED:(Math.sign(d)===gd?'#1E9E6A':'#E01E00');
-      const arr=d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0';
-      svg+=`<text x="${W-R+10}" y="${cy-1}" font-size="12.5" font-weight="700" fill="${col}">${lbl}</text>`;
-      svg+=`<text x="${W-R+10}" y="${cy+14}" font-size="11" fill="${MUTED}">${first[k]||0} → <tspan font-weight="700" fill="var(--text)">${last[k]||0}</tspan> <tspan fill="${dc}" font-weight="700">${arr}</tspan></text>`;
+      svg+=`<polygon points="${top.concat(bot).join(' ')}" fill="${col}" stroke="var(--card)" stroke-width="1"/>`;
     });
-    s.forEach((r,i)=>{ if(m>10 && i%2===1 && i!==m-1) return;
-      svg+=`<text x="${x(i)}" y="${H-8}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day.slice(5)}</text>`;});
+    svg+=`<text x="${L}" y="${T-7}" font-size="10.5" fill="${MUTED}">${fmt(TOT)} CSPs / day · constant total</text>`;
+    s.forEach((r,i)=>{ if(m>8 && i%2===1 && i!==m-1) return;
+      svg+=`<text x="${x(i)}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day.slice(5)}</text>`;});
     const cw=(W-L-R)/Math.max(m-1,1);
     s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.day.slice(5)} · Above ${r.above} · Below ${r.below} · Pending ${r.pending} · No-leads ${r.no_leads}</title></rect>`);
     svg+='</svg>';
-    const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
-    $('gate-meter').innerHTML='';
-    $('gate-tiles').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--muted);flex-wrap:wrap">${STK.map(([k,c,l])=>key(c,l)).join('')}</div>`;
+    const rowr=([k,c,l])=>{const v=last[k]||0,d=v-(first[k]||0),gd={above:1,below:-1,pending:0,no_leads:-1}[k];
+      const dc=(gd===0||!d)?'var(--muted)':(Math.sign(d)===gd?'#1E9E6A':'#E01E00');
+      const arr=d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'±0';
+      return `<div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid #EBE7F1">
+        <span style="width:11px;height:11px;border-radius:3px;background:${c};flex:none"></span>
+        <span style="flex:1;font-size:12.5px;font-weight:600;color:var(--muted)">${l}</span>
+        <span style="font-size:1.35rem;font-weight:800;color:${c};font-variant-numeric:tabular-nums">${fmt(v)}</span>
+        <span style="font-size:11.5px;color:var(--muted);width:30px;text-align:right;font-variant-numeric:tabular-nums">${Math.round(100*v/n)}%</span>
+        <span style="font-size:11.5px;font-weight:700;color:${dc};width:48px;text-align:right;font-variant-numeric:tabular-nums">${arr}</span></div>`;};
+    const snap=`<div style="font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:2px">Today (${g.window[1].slice(5)}) · Δ since ${g.window[0].slice(8)}</div>`+STK.map(rowr).join('');
+    $('gate-meter').style.display='none';
+    $('gate-tiles').style.display='block';
+    $('gate-tiles').innerHTML=`<div style="display:flex;gap:30px;align-items:center;flex-wrap:wrap">
+      <div style="flex:2 1 440px;min-width:300px">${svg}</div>
+      <div style="flex:1 1 280px;min-width:250px">${snap}</div></div>`;
   } else {
+    $('gate-meter').style.display=''; $('gate-tiles').style.display='';
     $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: installs ÷
       <b>matured</b> customer-confirmed leads (reached a final state), over <b>${g.month}</b> to date
       (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
