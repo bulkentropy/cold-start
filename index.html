@@ -821,7 +821,8 @@ function renderGate(g){
     });
     svg+=`<text x="${L}" y="${T-7}" font-size="10.5" fill="${MUTED}">${fmt(TOT)} CSPs / day · constant total</text>`;
     s.forEach((r,i)=>{ if(m>8 && i%2===1 && i!==m-1) return;
-      svg+=`<text x="${x(i)}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day.slice(5)}</text>`;});
+      const anc=i===0?'start':(i===m-1?'end':'middle'), xx=i===0?L:(i===m-1?W-R:x(i));
+      svg+=`<text x="${xx}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="${anc}">${r.day.slice(5)}</text>`;});
     const cw=(W-L-R)/Math.max(m-1,1);
     s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.day.slice(5)} · Above ${r.above} · Below ${r.below} · Pending ${r.pending} · No-leads ${r.no_leads}</title></rect>`);
     svg+='</svg>';
