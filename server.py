@@ -822,6 +822,21 @@ def compute_cohort(enrolled_ids, latest):
     gate = {"gate_pct": int(GATE * 100), "month": today.strftime("%B %Y"),
             "window": [month_start, today.isoformat()], "enrolled": len(enrolled_ids), **g}
 
+    # day-on-day cohort movement (month-to-date): count of enrolled CSPs in each
+    # gate state as of each day, reconstructed cumulatively (last day == snapshot).
+    try:
+        dsql = open(os.path.join(BASE_DIR, "sql", "gate_daily.sql"), encoding="utf-8").read()
+        dsql = (dsql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+                    .replace("{MONTH_START}", month_start)
+                    .replace("{TODAY}", today.isoformat())
+                    .replace("{ENROLLED_N}", str(len(enrolled_ids))))
+        gate["daily"] = [{"day": str(r["day"])[:10], "above": r.get("above") or 0,
+                          "below": r.get("below") or 0, "pending": r.get("pending") or 0,
+                          "no_leads": r.get("no_leads") or 0} for r in metabase_sql(dsql)]
+    except Exception:
+        traceback.print_exc()
+        gate["daily"] = []
+
     cohort["_ignition"] = ignition
     cohort["_gate"] = gate
     return cohort

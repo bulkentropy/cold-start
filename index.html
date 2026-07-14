@@ -799,17 +799,51 @@ function render(d){
 function renderGate(g){
   const box=$('l2-gate'); box.hidden=false;
   const n=g.enrolled||1;
-  $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: installs ÷
-    <b>matured</b> customer-confirmed leads (reached a final state), over <b>${g.month}</b> to date
-    (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
-  const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ matured ≥ '+g.gate_pct+'%'],
-             ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
-             ['pending_only','var(--purple)','Only pending leads','confirmed but none matured yet'],
-             ['no_leads','#9A93AD','No confirmed leads','nothing confirmed yet']];
-  $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*(g[k]||0)/n}%;background:${c};border-radius:0"></div>`).join('');
-  $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
-    tile(`${fmt(g[k]||0)}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*(g[k]||0)/n)}%</span>`,
-         label,sub,'color:'+c)).join('');
+  const s=g.daily||[];
+  if(s.length>1){
+    $('gate-sub').innerHTML=`Day-on-day movement of all <b>${fmt(g.enrolled)}</b> enrolled CSPs across the MG gate, ${g.month}
+      to date (${g.window[0]} → ${g.window[1]}). Each CSP placed by its state <b>as of that day</b> — installs ÷ <b>matured</b>
+      customer-confirmed leads vs the <b>${g.gate_pct}%</b> gate. Total is constant (${fmt(g.enrolled)}); the composition shift is the story.`;
+    const STK=[['above','#008043','Above '+g.gate_pct+'% gate'],['below','#C77700','Below the gate'],
+               ['pending','#6D17CE','Pending · none matured'],['no_leads','#9A93AD','No confirmed leads']];
+    const TOT=n, W=760,H=264,L=10,R=190,T=18,B=26,m=s.length;
+    const x=i=>L+(W-L-R)*(m===1?.5:i/(m-1)), yOf=v=>T+(H-T-B)*(1-v/TOT);
+    const cum=s.map(r=>{let c=0;const o={};STK.forEach(([k])=>{o[k]=[c,c+(r[k]||0)];c+=(r[k]||0);});return o;});
+    const first=s[0],last=s[m-1];
+    let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-width:640px">`;
+    svg+=`<text x="${L}" y="${yOf(TOT)-5}" font-size="10.5" fill="${MUTED}">${fmt(TOT)} CSPs each day (constant total)</text>`;
+    STK.forEach(([k,col,lbl])=>{
+      const top=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][1])}`);
+      const bot=s.map((r,i)=>`${x(i)},${yOf(cum[i][k][0])}`).reverse();
+      svg+=`<polygon points="${top.concat(bot).join(' ')}" fill="${col}" stroke="var(--card)" stroke-width="1.5"/>`;
+      const li=m-1, cy=yOf((cum[li][k][0]+cum[li][k][1])/2), d=(last[k]||0)-(first[k]||0);
+      const gd={above:1,below:-1,pending:0,no_leads:-1}[k];
+      const dc=(gd===0||Math.abs(d)<1)?MUTED:(Math.sign(d)===gd?'#1E9E6A':'#E01E00');
+      const arr=d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0';
+      svg+=`<text x="${W-R+10}" y="${cy-1}" font-size="12.5" font-weight="700" fill="${col}">${lbl}</text>`;
+      svg+=`<text x="${W-R+10}" y="${cy+14}" font-size="11" fill="${MUTED}">${first[k]||0} → <tspan font-weight="700" fill="var(--text)">${last[k]||0}</tspan> <tspan fill="${dc}" font-weight="700">${arr}</tspan></text>`;
+    });
+    s.forEach((r,i)=>{ if(m>10 && i%2===1 && i!==m-1) return;
+      svg+=`<text x="${x(i)}" y="${H-8}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day.slice(5)}</text>`;});
+    const cw=(W-L-R)/Math.max(m-1,1);
+    s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.day.slice(5)} · Above ${r.above} · Below ${r.below} · Pending ${r.pending} · No-leads ${r.no_leads}</title></rect>`);
+    svg+='</svg>';
+    const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
+    $('gate-meter').innerHTML='';
+    $('gate-tiles').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--muted);flex-wrap:wrap">${STK.map(([k,c,l])=>key(c,l)).join('')}</div>`;
+  } else {
+    $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: installs ÷
+      <b>matured</b> customer-confirmed leads (reached a final state), over <b>${g.month}</b> to date
+      (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
+    const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ matured ≥ '+g.gate_pct+'%'],
+               ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
+               ['pending_only','var(--purple)','Only pending leads','confirmed but none matured yet'],
+               ['no_leads','#9A93AD','No confirmed leads','nothing confirmed yet']];
+    $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*(g[k]||0)/n}%;background:${c};border-radius:0"></div>`).join('');
+    $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
+      tile(`${fmt(g[k]||0)}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*(g[k]||0)/n)}%</span>`,
+           label,sub,'color:'+c)).join('');
+  }
   const om=g.one_more||0;
   $('gate-nudge').innerHTML=`<div style="background:#E1FAED;border:1px solid #9BE3BE;border-radius:10px;padding:12px 16px">
     <span style="font-size:1.5rem;font-weight:800;color:var(--green)">🎯 ${fmt(om)}</span>
