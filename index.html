@@ -479,11 +479,18 @@ svg text{font-family:inherit}
     <div class="foot" id="eng-foot" style="margin-top:10px"></div>
   </div>
 
-  <!-- MBG push-click funnel (L0 · reach) -->
+  <!-- L0 · reach — two DIFFERENT surfaces. Push = can we wake a CSP who isn't in the
+       app. In-app banner = engagement of a CSP already in the app. Kept apart on
+       purpose: they are not the same number and their caveats differ. -->
   <div class="section card" id="l0-clk-hi" style="border-left:3px solid var(--accent)" hidden>
-    <div class="label">Banner reach — CSPs clicking in the last 3 days</div>
+    <div class="label">Push reach — CSPs clicking the MBG push in the last 3 days</div>
     <div class="strip" id="clk-hi" style="margin-top:12px"></div>
     <div class="foot" id="clk-hi-foot" style="margin-top:10px"></div>
+  </div>
+  <div class="section card" id="l0-bnr-hi" style="border-left:3px solid var(--purple)" hidden>
+    <div class="label">In-app banner reach — CSPs opening a home banner in the last 3 days</div>
+    <div class="strip" id="bnr-hi" style="margin-top:12px"></div>
+    <div class="foot" id="bnr-hi-foot" style="margin-top:10px"></div>
   </div>
   <div class="section card" id="l0-clk" hidden>
     <div class="label">MBG push-click funnel — targeted → clicked</div>
@@ -498,6 +505,21 @@ svg text{font-family:inherit}
       <div id="clk-hist" style="overflow-x:auto"></div>
     </div>
     <div class="foot" id="clk-foot" style="margin-top:12px"></div>
+  </div>
+
+  <div class="section card" id="l0-bnr" hidden>
+    <div class="label">In-app home-banner opens — all banners</div>
+    <div class="sub" id="bnr-sub"></div>
+    <div class="strip" id="bnr-tiles" style="margin-top:14px"></div>
+    <div style="margin-top:18px">
+      <div class="label" style="margin-bottom:8px">Banner opens per day (IST) — MBP go-live marked</div>
+      <div id="bnr-daily" style="overflow-x:auto"></div>
+    </div>
+    <div style="margin-top:18px">
+      <div class="label" style="margin-bottom:8px">How often each CSP opens a banner</div>
+      <div id="bnr-hist" style="overflow-x:auto"></div>
+    </div>
+    <div class="foot" id="bnr-foot" style="margin-top:12px"></div>
   </div>
 
   <a class="section card cta-card" href="https://kushagraagarwal-11.github.io/mg-dashboard/" target="_blank" rel="noopener"
@@ -1045,6 +1067,7 @@ function render(d){
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.clicks)renderClicks(d.clicks);
+  if(d.banner)renderBanner(d.banner);
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);
@@ -1604,6 +1627,99 @@ function renderClicks(c){
     <b>Campaign ids are an inventory</b>: if the push is stopped and recreated, CleverTap mints a new
     id and this card silently drops to ~zero — add the new id to <code>CLICK_CAMPAIGN_IDS</code> in
     server.py and both are summed.`;
+}
+
+/* In-app HOME-BANNER opens. A DIFFERENT surface from the push card above: this is
+   the native `banner_opened` event, i.e. a CSP already inside the app tapping a home
+   banner. It is a SUPERSET — it counts every home banner, not just MBP, because the
+   event's `banner` property is a per-CSP uuid and nothing marks an open as MBP. The
+   MBP go-live (9 Jul) is marked so the lift is legible against the pre-MBP floor. */
+function renderBanner(b){
+  $('l0-bnr-hi').hidden=false; $('l0-bnr').hidden=false;
+  const d=s=>s?s.split('-').reverse().slice(0,2).join(' ').replace(/^0/,''):'';
+  const l3=b.last3||{};
+
+  $('bnr-hi').innerHTML=`
+    <div class="tile"><div class="v" style="color:var(--purple)">${fmt(l3.openers)}</div>
+      <div class="d">unique CSPs opened a banner · last 3 days</div></div>
+    <div class="tile"><div class="v">${l3.pct==null?'–':l3.pct+'%'}</div>
+      <div class="d">of ${fmt(l3.targeted)} targeted (enrolled cohort)</div></div>
+    <div class="tile"><div class="v">${fmt(l3.opens)}</div>
+      <div class="d">total opens in the window</div></div>`;
+  $('bnr-hi-foot').innerHTML=`Distinct CSPs who opened <b>any</b> in-app home banner between
+    <b>${l3.start}</b> and <b>${l3.end}</b> — the last 3 <b>complete</b> IST days, today excluded as
+    partial. COUNT(DISTINCT) over the window, not the sum of the daily bars.
+    <b>⚠ This is not MBP-only.</b> It counts every home banner: the event carries a per-CSP
+    banner uuid, so nothing identifies an open as the MBG status banner. Read it as the ceiling
+    for MBP banner engagement, not as MBP itself — see the card below for the go-live lift.`;
+
+  $('bnr-sub').innerHTML=`Native <code>banner_opened</code> event · enrolled cohort · since
+    ${b.window_start} · IST · <b>all home banners — MBP not separable</b>`;
+  $('bnr-tiles').innerHTML=[
+    [fmt(b.targeted),'targeted · enrolled cohort',''],
+    [fmt(b.openers),'opened ≥1 banner','var(--purple)'],
+    [b.reach_pct==null?'–':b.reach_pct+'%','reach (openers ÷ targeted)',''],
+    [fmt(b.opens),'total opens',''],
+    [b.avg_per_opener??'–','avg opens / opener',''],
+  ].map(([v,l,col])=>`<div class="tile"><div class="v"${col?` style="color:${col}"`:''}>${v}</div>
+      <div class="d">${l}</div></div>`).join('');
+
+  const rows=b.daily||[];
+  if(rows.length){
+    const W=Math.max(620,rows.length*58), H=210, L=38, R=8, T=16, B=30;
+    const mx=Math.max(1,...rows.map(r=>r.opens)), bw=(W-L-R)/rows.length;
+    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+    [0,.5,1].forEach(f=>{const y=T+(H-T-B)*(1-f);
+      s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--grid)"/>
+          <text x="${L-6}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${Math.round(mx*f)}</text>`;});
+    // MBP go-live marker — everything left of this line is the pre-MBP floor.
+    const gi=rows.findIndex(r=>r.day_ist===b.golive);
+    if(gi>=0){const gx=L+gi*bw;
+      s+=`<line x1="${gx}" y1="${T}" x2="${gx}" y2="${H-B}" stroke="var(--accent)"
+             stroke-width="1.5" stroke-dasharray="4 3"/>
+          <text x="${gx+4}" y="${T+9}" font-size="9.5" font-weight="700" fill="var(--accent)">MBP banner live</text>`;}
+    rows.forEach((r,i)=>{
+      const x=L+i*bw, h=c=>(H-T-B)*(c/mx);
+      const partial=r.day_ist===b.today_ist;
+      s+=`<rect x="${x+bw*.14}" y="${H-B-h(r.opens)}" width="${bw*.34}" height="${h(r.opens)}"
+            rx="2" fill="var(--deep)" ${partial?'opacity=".45"':''}/>
+          <rect x="${x+bw*.52}" y="${H-B-h(r.openers)}" width="${bw*.34}" height="${h(r.openers)}"
+            rx="2" fill="var(--purple)" ${partial?'opacity=".45"':''}/>
+          <text x="${x+bw*.5}" y="${H-B+14}" font-size="9.5" fill="var(--muted)" text-anchor="middle">${d(r.day_ist)}${partial?'*':''}</text>`;
+    });
+    s+=`</svg><div class="legend"><span><i style="background:var(--deep)"></i>total opens</span>
+        <span><i style="background:var(--purple)"></i>unique openers</span></div>`;
+    $('bnr-daily').innerHTML=s;
+  } else $('bnr-daily').innerHTML='<div class="sub" style="color:var(--muted)">no banner opens yet</div>';
+
+  const hs=b.hist||[];
+  if(hs.length){
+    const W=Math.max(480,hs.length*54), H=170, L=34, R=8, T=12, B=28;
+    const mx=Math.max(1,...hs.map(h=>h.csps)), bw=(W-L-R)/hs.length;
+    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+    hs.forEach((h,i)=>{const x=L+i*bw, bh=(H-T-B)*(h.csps/mx);
+      s+=`<rect x="${x+bw*.2}" y="${H-B-bh}" width="${bw*.6}" height="${bh}" rx="2" fill="var(--purple)"/>
+          <text x="${x+bw*.5}" y="${H-B-bh-4}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.csps}</text>
+          <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.bucket===10?'10+':h.bucket}</text>`;});
+    s+=`</svg><div class="sub" style="margin-top:2px">CSPs (bar value) by their total banner opens (x-axis)</div>`;
+    $('bnr-hist').innerHTML=s;
+  } else $('bnr-hist').innerHTML='<div class="sub" style="color:var(--muted)">no opens yet</div>';
+
+  $('bnr-foot').innerHTML=`<b>What this is, precisely.</b> The MBP status banner is a <b>native app
+    component</b>, not a CleverTap campaign — it fires the custom <code>banner_opened</code> event.
+    (The CleverTap InApp campaigns listed in the tracking doc are <i>not</i> this banner: 5 of those 7
+    ids emit no clicks at all and they predate the banner's go-live — they are the in-app comms
+    popups.) <b>Why it isn't MBP-only:</b> <code>banner_opened</code> carries a <code>banner</code>
+    property, but it is a <b>per-CSP uuid</b> — every one of the 619 distinct uuids seen maps to
+    exactly one CSP — so nothing in the event marks an open as MBP. The series also has a
+    <b>pre-MBP floor</b> (other home banners), which is why the 9 Jul go-live is marked: opens per
+    day step from a <i>declining</i> ~44–73 to a steady ~150–170 right after it, and that step is the
+    MBP banner landing. It reconciles with the ~232 CSPs / 600 clicks reported in-channel on 10 Jul.
+    <b>No CTR is possible here</b> — the native banner has no impression event (unlike a CleverTap
+    campaign, which fires 'Notification Viewed'). <b>The fix for an MBP-only number:</b> get the
+    banner-uuid → banner-type mapping from the banner backend, or better, have a
+    <code>banner_type</code> property added to <code>banner_opened</code> — then this filters
+    exactly and the caveat goes away. Days marked <b>*</b> are partial.`;
 }
 
 function renderNsm(n){

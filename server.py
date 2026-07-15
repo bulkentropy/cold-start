@@ -71,6 +71,15 @@ L1_START = "2026-06-24"        # pre-period start (last 7 days of June)
 # unexpectedly. These are Push campaigns (not the in-app card — see l0_clicks.sql).
 CLICK_CAMPAIGN_IDS = ["1780477786"]
 CLICKS_START = "2026-07-10"    # first day of MBG push-click data
+
+# In-app HOME-BANNER opens (custom native event `banner_opened`). See sql/l0_banner.sql
+# for why this is a SUPERSET and cannot be narrowed to the MBP banner: the event's
+# `banner` property is a PER-CSP uuid (all 619 distinct uuids map to exactly 1 CSP),
+# so nothing in CleverTap marks an open as MBP. The MBP status banner is a native
+# component, NOT the CleverTap InApp campaigns in §7 of the logic doc (5 of those 7
+# ids emit zero clicks and predate the banner go-live — they are the comms popups).
+BANNER_START = "2026-07-01"          # early enough to show the pre-MBP floor
+MBP_BANNER_GOLIVE = "2026-07-09"     # Ashish: banner live & tested 9 Jul (marked on the chart)
 PRE_END = "2026-06-30"         # inclusive
 POST_START = "2026-07-01"
 # Belief-cohort before/after cut: matured pre-window vs the live post-window.
@@ -547,6 +556,55 @@ def compute_clicks(enrolled_ids):
                          if l3.get("targeted") else None,
                   "start": last3_start.isoformat(), "end": last3_end.isoformat()},
         "window_start": CLICKS_START, "campaign_ids": CLICK_CAMPAIGN_IDS,
+        "today_ist": today.isoformat(),
+    }
+
+
+def compute_banner(enrolled_ids):
+    """In-app home-banner opens for the enrolled cohort (see sql/l0_banner.sql).
+
+    SUPERSET, NOT MBP-ONLY: `banner_opened` covers every home banner and predates
+    the MBP banner's 9-Jul go-live, and its `banner` property is a per-CSP uuid so
+    MBP cannot be isolated from CleverTap alone. Labelled as such on the card. No
+    impression event exists for the native banner, so there is no CTR here.
+    """
+    if not enrolled_ids:
+        raise RuntimeError("no enrolled partners — banner skipped")
+    today = datetime.now(IST).date()
+    last3_end = today - timedelta(days=1)
+    last3_start = today - timedelta(days=3)
+    sql = open(os.path.join(BASE_DIR, "sql", "l0_banner.sql"), encoding="utf-8").read()
+    sql = (sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+              .replace("{START_DATE}", BANNER_START)
+              .replace("{LAST3_START}", last3_start.isoformat())
+              .replace("{LAST3_END}", last3_end.isoformat()))
+    raw = metabase_sql(sql)
+
+    def pct(a, b):
+        return round(100 * a / b, 1) if b else None
+
+    daily = sorted(({"day_ist": str(r["k"])[:10], "openers": r["openers"] or 0,
+                     "opens": r["opens"] or 0}
+                    for r in raw if r["mode"] == "daily" and r["k"]),
+                   key=lambda r: r["day_ist"])
+    tot = next((r for r in raw if r["mode"] == "total"), {})
+    l3 = next((r for r in raw if r["mode"] == "last3"), {})
+    hist = sorted(({"bucket": int(r["k"]), "csps": r["openers"] or 0}
+                   for r in raw if r["mode"] == "hist" and r["k"]),
+                  key=lambda r: r["bucket"])
+
+    targeted = tot.get("targeted") or 0
+    openers, opens = tot.get("openers") or 0, tot.get("opens") or 0
+    return {
+        "targeted": targeted, "openers": openers, "opens": opens,
+        "reach_pct": pct(openers, targeted),
+        "avg_per_opener": round(opens / openers, 1) if openers else None,
+        "daily": daily, "hist": hist,
+        "last3": {"openers": l3.get("openers") or 0, "opens": l3.get("opens") or 0,
+                  "targeted": l3.get("targeted") or 0,
+                  "pct": pct(l3.get("openers") or 0, l3.get("targeted") or 0),
+                  "start": last3_start.isoformat(), "end": last3_end.isoformat()},
+        "window_start": BANNER_START, "golive": MBP_BANNER_GOLIVE,
         "today_ist": today.isoformat(),
     }
 
@@ -1375,6 +1433,13 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"clicks: {type(e).__name__}: {e}")
             payload["clicks"] = prev.get("clicks")
+
+        try:
+            payload["banner"] = compute_banner(enrolled)
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"banner: {type(e).__name__}: {e}")
+            payload["banner"] = prev.get("banner")
 
         try:
             payload["feedback"] = compute_feedback(enrolled)
