@@ -64,6 +64,13 @@ BANNER_F1 = ["1782846718"]
 BANNER_F2 = ["1782823566"]
 
 L1_START = "2026-06-24"        # pre-period start (last 7 days of June)
+# MBG push-click tracking (L0 reach). CLICK_CAMPAIGN_IDS is an INVENTORY, not a
+# constant: CleverTap mints a NEW id whenever a campaign is stopped & recreated,
+# and this card would silently read ~zero. Append the new id here — the SQL SUMs
+# across all of them. Re-confirm the live id on the CleverTap board if clicks dip
+# unexpectedly. These are Push campaigns (not the in-app card — see l0_clicks.sql).
+CLICK_CAMPAIGN_IDS = ["1780477786"]
+CLICKS_START = "2026-07-10"    # first day of MBG push-click data
 PRE_END = "2026-06-30"         # inclusive
 POST_START = "2026-07-01"
 # Belief-cohort before/after cut: matured pre-window vs the live post-window.
@@ -492,6 +499,56 @@ def compute_l1(enrolled_ids):
             "task_confirm": task_confirm, "flows": flows,
             "csps_receiving": {"enrolled": csps.get(1), "non_enrolled": csps.get(0)},
             "complete_through": yday}
+
+
+def compute_clicks(enrolled_ids):
+    """MBG push-click funnel for the L0 tab (see sql/l0_clicks.sql).
+
+    Highlight = unique CSPs who clicked in the last 3 COMPLETE IST days. Today is
+    excluded: it is always partial (up to the last Fivetran sync), so including it
+    would understate the number against a full day — and complete-days-only is the
+    standing convention for every day-on-day series here.
+    """
+    if not enrolled_ids:
+        raise RuntimeError("no enrolled partners — clicks skipped")
+    today = datetime.now(IST).date()
+    last3_end = today - timedelta(days=1)          # yesterday = newest complete day
+    last3_start = today - timedelta(days=3)
+    sql = open(os.path.join(BASE_DIR, "sql", "l0_clicks.sql"), encoding="utf-8").read()
+    sql = (sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
+              .replace("{CAMPAIGN_IDS}", ",".join(f"'{c}'" for c in CLICK_CAMPAIGN_IDS))
+              .replace("{START_DATE}", CLICKS_START)
+              .replace("{LAST3_START}", last3_start.isoformat())
+              .replace("{LAST3_END}", last3_end.isoformat()))
+    raw = metabase_sql(sql)
+
+    daily = sorted(({"day_ist": str(r["k"])[:10], "clickers": r["clickers"] or 0,
+                     "clicks": r["clicks"] or 0}
+                    for r in raw if r["mode"] == "daily" and r["k"]),
+                   key=lambda r: r["day_ist"])
+    tot = next((r for r in raw if r["mode"] == "total"), {})
+    l3 = next((r for r in raw if r["mode"] == "last3"), {})
+    hist = sorted(({"bucket": int(r["k"]), "csps": r["clickers"] or 0}
+                   for r in raw if r["mode"] == "hist" and r["k"]),
+                  key=lambda r: r["bucket"])
+
+    targeted = tot.get("targeted") or 0
+    clickers = tot.get("clickers") or 0
+    clicks = tot.get("clicks") or 0
+    return {
+        "targeted": targeted, "clickers": clickers, "clicks": clicks,
+        "never_clicked": max(targeted - clickers, 0),
+        "reach_pct": round(100 * clickers / targeted, 1) if targeted else None,
+        "avg_per_clicker": round(clicks / clickers, 1) if clickers else None,
+        "daily": daily, "hist": hist,
+        "last3": {"clickers": l3.get("clickers") or 0, "clicks": l3.get("clicks") or 0,
+                  "targeted": l3.get("targeted") or 0,
+                  "pct": round(100 * (l3.get("clickers") or 0) / (l3.get("targeted") or 0), 1)
+                         if l3.get("targeted") else None,
+                  "start": last3_start.isoformat(), "end": last3_end.isoformat()},
+        "window_start": CLICKS_START, "campaign_ids": CLICK_CAMPAIGN_IDS,
+        "today_ist": today.isoformat(),
+    }
 
 
 def compute_feedback(enrolled_ids):
@@ -1311,6 +1368,13 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"NSM: {type(e).__name__}: {e}")
             payload["nsm"] = prev.get("nsm")
+
+        try:
+            payload["clicks"] = compute_clicks(enrolled)
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"clicks: {type(e).__name__}: {e}")
+            payload["clicks"] = prev.get("clicks")
 
         try:
             payload["feedback"] = compute_feedback(enrolled)

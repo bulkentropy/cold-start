@@ -34,6 +34,37 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .cta-card:hover .cta-btn{background:#b80078}
 .cta-card:hover .cta-btn span{transform:translateX(3px);transition:transform .15s ease;display:inline-block}
 .sub{font-size:13px;color:var(--muted);line-height:1.5}
+/* initiative selector — the layer ABOVE the dashboard. Each button is one
+   intervention under the Cold-start project, with its own cohort and metrics. */
+.inits{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.init{flex:1 1 260px;text-align:left;border:1.5px solid var(--n300);background:var(--card);
+      border-radius:var(--radius);padding:14px 18px;cursor:pointer;font-family:inherit;
+      transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease}
+.init:hover{border-color:var(--accent);transform:translateY(-1px)}
+.init.on{border-color:var(--accent);background:var(--dark);box-shadow:0 6px 20px rgba(217,0,141,.18)}
+.init .i-name{display:block;font-size:1.05rem;font-weight:800;color:var(--text)}
+.init.on .i-name{color:#fff}
+.init .i-sub{display:block;font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45}
+.init.on .i-sub{color:rgba(255,255,255,.62)}
+.init .i-pill{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:1px;
+      text-transform:uppercase;padding:2px 7px;border-radius:40px;margin-bottom:5px}
+.pill-live{background:#E1FAED;color:var(--green)}
+.pill-soon{background:#FFE6CC;color:#B85C00}
+/* sehat metric tiles */
+.mtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.mtile{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;
+       border-left:3px solid var(--n300)}
+.mtile.p0{border-left-color:var(--accent)}
+.mtile.p1{border-left-color:var(--purple)}
+.mtile .m-name{font-size:14px;font-weight:700;line-height:1.35;margin:6px 0 4px}
+.mtile .m-def{font-size:12px;color:var(--muted);line-height:1.5}
+.mtile .m-val{font-size:2rem;font-weight:800;color:var(--n300);line-height:1.2;margin:10px 0 2px}
+.mtile .m-val.has{color:var(--accent)}
+.mtile .m-tgt{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;
+      border-top:1px solid var(--n200);padding-top:8px}
+.mtile .m-tgt b{color:var(--text)}
+.await{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+      background:var(--n200);color:var(--muted);padding:3px 9px;border-radius:40px}
 /* tabs */
 .tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
 .tab{border:none;background:var(--card);color:var(--muted);border-radius:40px;padding:9px 18px;
@@ -151,6 +182,23 @@ svg text{font-family:inherit}
 </header>
 <div class="banner" id="banner"></div>
 
+<!-- Initiative selector — the layer above the dashboard. Everything below it is
+     scoped to the selected intervention: its own cohort, its own metrics. -->
+<div class="inits" id="inits">
+  <button class="init on" data-i="install" onclick="showInit('install')">
+    <span class="i-pill pill-live">Live · since 1 Jul</span>
+    <span class="i-name">Install MG</span>
+    <span class="i-sub">Enrolled CSPs · ₹10,000 guarantee on the install-ratio gate ·
+      L0 enrolment → L1 leading → L2 install ratio</span>
+  </button>
+  <button class="init" data-i="sehat" onclick="showInit('sehat')">
+    <span class="i-pill pill-soon">Launches 16 Jul</span>
+    <span class="i-name">Sehat MG</span>
+    <span class="i-sub">99 priority CSPs (not Install-MG eligible) · ₹10,000 on a
+      network-quality gate · P0 target → P1 leading</span>
+  </button>
+</div>
+
 <div class="section card nsm" id="nsm" style="display:none">
   <div>
     <div class="label">NSM · Installs by enrolled MG CSPs</div>
@@ -182,6 +230,80 @@ svg text{font-family:inherit}
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
   <button class="tab" id="tab-log" onclick="showTab('log')">Changelog</button>
   <button class="tab" id="tab-edu" onclick="showTab('edu')">Dashboard dictionary</button>
+</div>
+
+<!-- ===================== SEHAT MG ===================== -->
+<div id="pane-sehat" style="display:none">
+  <div class="card section">
+    <div class="label">Sehat MG · the quality-anchored guarantee</div>
+    <h2 style="margin-top:4px">₹10,000 for keeping the network healthy</h2>
+    <div class="sub" style="margin-top:8px">
+      The second Cold-start intervention, for the <b>99 priority CSPs</b> who are active but
+      <b>not eligible for Install MG</b> — a separate cohort from the enrolled set the rest of this
+      command center measures. Install MG pays on an outcome the CSP only partly controls (installs);
+      Sehat MG pays on one they fully control (<b>network quality</b>). Every signed-up CSP is locked to
+      exactly one track by their current Optical Power, split at <b>80%</b>:
+      <b>Track A — Ilaaj</b> (OP &lt; 80%, task = heal the plant to ≥80%) or
+      <b>Track B — Fit rakhna</b> (OP ≥ 80%, task = Samasya ka Samadhan ≥80%).
+      Payout is <b>fully binary</b> — the CSP's own number in the app on the <b>last day of the cycle</b>
+      decides it.
+    </div>
+    <div class="strip" id="sehat-hero" style="margin-top:16px"></div>
+    <div class="foot" id="sehat-foot" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card section">
+    <div class="label">P0 · Target — did the initiative do its job?</div>
+    <div class="sub" style="margin:6px 0 14px">The two numbers Sehat MG lives or dies on. Everything
+      else is diagnosis. Both are undefined until sign-up opens on 16 Jul.</div>
+    <div class="mtiles" id="sehat-p0"></div>
+  </div>
+
+  <div class="card section">
+    <div class="label">P1 · Leading — is it going to work?</div>
+    <div class="sub" style="margin:6px 0 14px">The movement that has to happen for P0 to land, visible
+      long before the 15th. These are the early-warning metrics.</div>
+    <div class="mtiles" id="sehat-p1"></div>
+  </div>
+
+  <div class="card section">
+    <div class="label">Launch cohort — the 99 priority CSPs</div>
+    <div class="sub" style="margin:6px 0 4px">Track assignment at the 80% Optical Power split.
+      Baselines below are the doc's pull (July 2026) — not yet live here (see the data note).</div>
+    <div class="tablewrap"><table class="board" id="sehat-cohort" style="min-width:640px"></table></div>
+    <div class="foot" style="margin-top:10px">
+      <b>The counterintuitive part:</b> Track B's median SLA (58.3%) is <i>lower</i> than Track A's (60.0%)
+      — and SLA is Track B's task. The 12 CSPs who moved from B to A at the 80% split were unusually good
+      at service but weak on optical, so Track A inherits CSPs who already serve well and only need an
+      optical fix, while Track B is the group running a clean plant that answers complaints slowly.
+      <b>Track B's ~58% has to travel 22 points to reach its gate — it is the harder half, not the easy one.</b>
+      <br><b>Definitions</b> (card 11616 logic): <b>Optical Power</b> = in-range pings ÷ total pings over the
+      CSP's last 15 telemetry days. <b>SLA / Samasya ka Samadhan</b> = complaints resolved within the 4-hour
+      TAT ÷ total, 60-day lookback. Telemetry moves daily — every count is accurate to its pull date and
+      must be re-run before the cohort is frozen for payout.
+    </div>
+  </div>
+
+  <div class="card section">
+    <div class="label">Open before launch</div>
+    <div class="sub" style="margin:6px 0 12px">Both created by the single-day grading rule. Neither is decided.</div>
+    <div class="tablewrap"><table class="board" id="sehat-open" style="min-width:640px"></table></div>
+  </div>
+
+  <div class="card section" style="border-left:3px solid var(--amber)">
+    <div class="label">Data wiring — what this tab still needs</div>
+    <div class="sub" style="margin-top:8px">
+      This tab is <b>provisioned, not yet live</b>: the metrics and targets below are set from the program
+      doc, but no Sehat number is being computed here yet. Three things unblock it —
+      <b>(1)</b> the eligible 99-CSP list (the pre-calculated benchmark file), which is what makes this
+      cohort addressable at all and is separate from the Install MG enrolled set;
+      <b>(2)</b> read access to <b>Metabase card 11616</b> — the priority-CSP quality query that computes
+      Optical Power and SLA per CSP. The dashboard's API key currently gets <b>403</b> on it, so the live
+      re-pull the doc describes cannot run from here;
+      <b>(3)</b> the sign-up feed, once the app CTA ships on 16 Jul — the same rail as Install MG enrolment.
+      With (1) and (2), the cohort snapshot and both P1 lift metrics go live immediately; P0 follows sign-up.
+    </div>
+  </div>
 </div>
 
 <div id="pane-metrics" style="display:none">
@@ -343,6 +465,27 @@ svg text{font-family:inherit}
 </div>
 
 <div id="pane-l0" style="display:none">
+  <!-- MBG push-click funnel (L0 · reach) -->
+  <div class="section card" id="l0-clk-hi" style="border-left:3px solid var(--accent)" hidden>
+    <div class="label">Banner reach — CSPs clicking in the last 3 days</div>
+    <div class="strip" id="clk-hi" style="margin-top:12px"></div>
+    <div class="foot" id="clk-hi-foot" style="margin-top:10px"></div>
+  </div>
+  <div class="section card" id="l0-clk" hidden>
+    <div class="label">MBG push-click funnel — targeted → clicked</div>
+    <div class="sub" id="clk-sub"></div>
+    <div class="strip" id="clk-tiles" style="margin-top:14px"></div>
+    <div style="margin-top:18px">
+      <div class="label" style="margin-bottom:8px">Clicks per day (IST)</div>
+      <div id="clk-daily" style="overflow-x:auto"></div>
+    </div>
+    <div style="margin-top:18px">
+      <div class="label" style="margin-bottom:8px">How often each CSP clicks</div>
+      <div id="clk-hist" style="overflow-x:auto"></div>
+    </div>
+    <div class="foot" id="clk-foot" style="margin-top:12px"></div>
+  </div>
+
   <div class="section card">
     <div class="label">Cohort 2 → Cohort 1 graduations</div>
     <div class="strip" id="mig-strip"></div>
@@ -526,11 +669,107 @@ let DATA=null, MODE='cohort', BASIS='current';
 let FLOWSEL=null, FLOWMODE='all';        // flow toggle: null/'all' | 'paid' (ex-G,H) | 'nofee' (G,H). Declared here (not by the flow fns below) so the top-level showTab() at load can't hit a TDZ.
 const _isNoFee=f=>f==='G'||f==='H';
 
+/* ============================ INITIATIVES ============================
+   The layer above the dashboard. 'install' = the existing Install MG command
+   center (NSM strip + all tabs, unchanged). 'sehat' = Sehat MG, a separate
+   cohort (99 priority CSPs, not Install-MG eligible) with its own P0/P1 metrics.
+   Shared surfaces (Knowledge repo, Tasks, Decisions, Changelog) are project-wide
+   and currently live under Install MG. */
+const INITS=['install','sehat'];
+let INIT='install';
+function showInit(i){
+  INIT=i;
+  document.querySelectorAll('#inits .init').forEach(b=>b.classList.toggle('on',b.dataset.i===i));
+  const isInstall=i==='install';
+  $('pane-sehat').style.display=isInstall?'none':'';
+  document.querySelector('.tabs').style.display=isInstall?'':'none';
+  // NSM counts installs by enrolled Install-MG CSPs — meaningless for the Sehat cohort.
+  const nsm=$('nsm'); if(nsm) nsm.style.display=(isInstall&&NSM_READY)?'':'none';
+  if(isInstall){ showTab(TAB||'ov'); }
+  else { TABS.forEach(x=>$('pane-'+x).style.display='none');
+         METRICS.forEach(m=>$('pane-'+m).style.display='none');
+         location.hash='sehat'; renderSehat(); }
+}
+
+/* Sehat MG metric spec. `value` stays null until the feed exists — tiles render
+   an "awaiting data" state rather than a fake zero. Add metrics by appending
+   here; the tiles render themselves. */
+const SEHAT_METRICS=[
+  {tier:'p0', name:'Sign-up conversion',
+   def:'Share of the 99 eligible CSPs who explicitly accept the offer in the app. The front-door gate — the program cannot work on CSPs who never signed up. Window is the first ~5 days from the 16 Jul launch, then it closes; late sign-ups roll to Cycle 2.',
+   c1:'≥ 70%', c2:'≥ 90%', value:null},
+  {tier:'p0', name:'MG attainment',
+   def:'Share of signed-up CSPs who move from below their gate to above it (≥80% on their track\'s parameter) and earn the ₹10,000. This is the whole job of the program.',
+   c1:'> 50% cross', c2:'100% (aspiration)', value:null,
+   note:'Denominator excludes CSPs already above 80% on both parameters — they start above their gate, so "moved above it" is undefined for them and would flatter the number.'},
+  {tier:'p1', name:'Optical Power lift · Track A',
+   def:'Median Optical Power across the 61 Track-A CSPs, against their 67.9% baseline. Track A\'s entire task is to heal the plant, so this moving is the leading sign that attainment will land.',
+   c1:'+8 pts', c2:'+15 pts', value:null, base:'67.9% baseline · 61 CSPs'},
+  {tier:'p1', name:'Service lift · Track B',
+   def:'Median Samasya ka Samadhan (4-hour TAT) across the 37 Track-B CSPs, against their 58.3% baseline. The harder of the two asks — 22 points to travel.',
+   c1:'+10 pts', c2:'≥ 80%', value:null, base:'58.3% baseline · 37 CSPs'},
+  {tier:'p1', name:'Customer impact',
+   def:'Complaints per 100 customers, and uptime, across the 15,354 customers served by the cohort. The reason the program exists — quality the CSP controls should show up as customer experience.',
+   c1:'Improving trend', c2:'Improving trend', value:null},
+];
+const SEHAT_COHORT=[
+  ['Track A — Ilaaj (heal the network)','Optical Power &lt; 80%','61','re-pull','67.9%','60.0%'],
+  ['Track B — Fit rakhna (keep it fit)','Optical Power ≥ 80%','37','re-pull','84.9%','58.3%'],
+  ['Unclassified (no telemetry)','no Optical Power reading','1','221','—','75.3%'],
+  ['<b>Total</b>','','<b>99</b>','<b>15,354</b>','',''],
+];
+const SEHAT_OPEN=[
+  ['Payout timing','Cycles close on the 15th but Install MG pays on Day 1, so the "same payout run" promise no longer holds without making a CSP wait ~16 days for money earned on the 15th.','Pay on its own run just after the 15th — a 16-day lag on a trust-building program is the more expensive mistake.'],
+  ['Single-day volatility','One-day grading removes the "recovery must be real and holding" protection: a CSP can fix the plant on the 14th and collect, or lose ₹10,000 to a transient fault on the 15th.','Confirm with the app team what the on-screen OP and Samasya ka Samadhan figures actually represent — if they are already rolling windows, the concern largely dissolves.'],
+];
+
+function renderSehat(){
+  const tile=m=>`<div class="mtile ${m.tier}">
+    <span class="label">${m.tier.toUpperCase()}</span>
+    <div class="m-name">${m.name}</div>
+    <div class="m-def">${m.def}</div>
+    <div class="m-val${m.value==null?'':' has'}">${m.value==null?'—':m.value}</div>
+    ${m.value==null?'<span class="await">awaiting data</span>':''}
+    ${m.base?`<div class="m-def" style="margin-top:6px">${m.base}</div>`:''}
+    <div class="m-tgt">Cycle 1 (15 Aug): <b>${m.c1}</b> &nbsp;·&nbsp; Cycle 2 (15 Sep): <b>${m.c2}</b>
+      ${m.note?`<br><span style="color:var(--amber)">${m.note}</span>`:''}</div>
+  </div>`;
+  $('sehat-p0').innerHTML=SEHAT_METRICS.filter(m=>m.tier==='p0').map(tile).join('');
+  $('sehat-p1').innerHTML=SEHAT_METRICS.filter(m=>m.tier==='p1').map(tile).join('');
+
+  const days=Math.ceil((new Date('2026-08-15T00:00:00+05:30')-new Date())/864e5);
+  $('sehat-hero').innerHTML=[
+    ['99','priority CSPs · launch cohort'],
+    ['61 / 37 / 1','Track A / Track B / unclassified'],
+    ['₹20,000','max per CSP · 2 binary cycles'],
+    ['15,354','customers served by the cohort'],
+    [days>0?days:'—','days to the Cycle-1 grade (15 Aug)'],
+  ].map(([v,d])=>`<div class="tile"><div class="v" style="color:var(--accent)">${v}</div><div class="d">${d}</div></div>`).join('');
+  $('sehat-foot').innerHTML=`<b>Cycle 1</b> 16 Jul – 15 Aug &nbsp;·&nbsp; <b>Cycle 2</b> 16 Aug – 15 Sep —
+    each a full 16th-to-15th month, each independently binary at <b>₹10,000</b>, no prorating and no half
+    cycle. Missing Cycle 1 does not forfeit Cycle 2: the binary rule must not compound into a
+    "season is over" feeling after one miss, which is exactly when a CSP goes dark. Sign-up is
+    <b>once</b> — enrolment then continues automatically into Cycle 2 with a fresh track and target.`;
+
+  $('sehat-cohort').innerHTML=`<thead><tr><th>Sub-cohort</th><th>Split rule</th><th>CSPs</th>
+    <th>Active customers</th><th>Median OP</th><th>Median SLA</th></tr></thead><tbody>`+
+    SEHAT_COHORT.map(r=>`<tr>${r.map((c,i)=>`<td${i===3&&c==='re-pull'?' style="color:var(--amber)"':''}>${c}</td>`).join('')}</tr>`).join('')+
+    `</tbody>`;
+  $('sehat-open').innerHTML=`<thead><tr><th>Question</th><th>Why it is open</th>
+    <th>Recommendation (not decided)</th></tr></thead><tbody>`+
+    SEHAT_OPEN.map(r=>`<tr><td class="tt2">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')+
+    `</tbody>`;
+}
+
 const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
+let TAB='ov';
+let NSM_READY=false;
 function showTab(t){
+  if(INIT!=='install') return;
   if(METRICS.includes(t)){MTAB=t;t='metrics';}
+  TAB=t;
   TABS.forEach(x=>{
     $('pane-'+x).style.display=x===t?'':'none';
     $('tab-'+x).classList.toggle('on',x===t);
@@ -771,7 +1010,8 @@ async function submitContent(){await post('content',{title:$('c-title').value,sl
 const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
-showTab(METRICS.find(m=>initHash.startsWith(m))||TABS.find(t=>initHash.startsWith(t))||'ov');
+if(initHash.startsWith('sehat')){ showInit('sehat'); }
+else { showTab(METRICS.find(m=>initHash.startsWith(m))||TABS.find(t=>initHash.startsWith(t))||'ov'); }
 function setMode(m){
   MODE=m;
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
@@ -803,6 +1043,7 @@ function render(d){
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
+  if(d.clicks)renderClicks(d.clicks);
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);
@@ -1273,8 +1514,101 @@ function renderFailures(f){
       :`<tr><td colspan="3" style="color:var(--muted)">No Wiom-owned failures ${f.through}.</td></tr>`);
 }
 
+/* MBG PUSH-click funnel (L0 · reach). This is the push-notification click on the
+   CleverTap campaign inventory in server.py — NOT the in-app home-banner tap,
+   which is a different set of InApp campaigns (one per screen, ids rotate on
+   recreation). Labelled accordingly; don't loosen the wording to "in-app". */
+function renderClicks(c){
+  $('l0-clk-hi').hidden=false; $('l0-clk').hidden=false;
+  const d=s=>s?s.split('-').reverse().slice(0,2).join(' ').replace(/^0/,''):'';
+
+  // ---- highlight: unique CSPs who clicked in the last 3 COMPLETE IST days ----
+  const l3=c.last3||{};
+  $('clk-hi').innerHTML=`
+    <div class="tile"><div class="v" style="color:var(--accent)">${fmt(l3.clickers)}</div>
+      <div class="d">unique CSPs clicked · last 3 days</div></div>
+    <div class="tile"><div class="v">${l3.pct==null?'–':l3.pct+'%'}</div>
+      <div class="d">of ${fmt(l3.targeted)} targeted (enrolled cohort)</div></div>
+    <div class="tile"><div class="v">${fmt(l3.clicks)}</div>
+      <div class="d">total clicks in the window</div></div>`;
+  $('clk-hi-foot').innerHTML=`Distinct CSPs with ≥1 click on the MBG push between
+    <b>${l3.start}</b> and <b>${l3.end}</b> (inclusive) — the last 3 <b>complete</b> IST days.
+    Counted once each, however many times they clicked: this is a COUNT(DISTINCT) over the whole
+    window, <i>not</i> the sum of the daily bars below (a CSP clicking on two of the three days
+    would otherwise be counted twice). <b>Today (${c.today_ist}) is excluded</b> — it is always
+    partial up to the last Fivetran sync, so it would understate against a full day.`;
+
+  // ---- funnel ----
+  const nev=c.never_clicked;
+  $('clk-sub').innerHTML=`CleverTap campaign ${c.campaign_ids.join(' + ')} ·
+    <b>Push notification</b> (channel wiom_task_alerts) · since ${c.window_start} · IST`;
+  $('clk-tiles').innerHTML=[
+    [fmt(c.targeted),'targeted · enrolled cohort',''],
+    [fmt(c.clickers),'clicked ≥1×','var(--accent)'],
+    [c.reach_pct==null?'–':c.reach_pct+'%','reach (clickers ÷ targeted)',''],
+    [fmt(nev),'never clicked','var(--muted)'],
+    [fmt(c.clicks),'total clicks',''],
+    [c.avg_per_clicker??'–','avg clicks / clicker',''],
+  ].map(([v,l,col])=>`<div class="tile"><div class="v"${col?` style="color:${col}"`:''}>${v}</div>
+      <div class="d">${l}</div></div>`).join('');
+
+  // ---- daily bars: total clicks (dark) + unique clickers (light) ----
+  const rows=c.daily||[];
+  if(rows.length){
+    const W=Math.max(560,rows.length*84), H=200, L=38, R=8, T=12, B=30;
+    const mx=Math.max(1,...rows.map(r=>r.clicks));
+    const bw=(W-L-R)/rows.length;
+    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+    [0,.5,1].forEach(f=>{const y=T+(H-T-B)*(1-f);
+      s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--grid)"/>
+          <text x="${L-6}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${Math.round(mx*f)}</text>`;});
+    rows.forEach((r,i)=>{
+      const x=L+i*bw, h=c=>(H-T-B)*(c/mx);
+      const partial=r.day_ist===c.today_ist;
+      s+=`<rect x="${x+bw*.14}" y="${H-B-h(r.clicks)}" width="${bw*.34}" height="${h(r.clicks)}"
+            rx="2" fill="var(--dark)" ${partial?'opacity=".45"':''}/>
+          <rect x="${x+bw*.52}" y="${H-B-h(r.clickers)}" width="${bw*.34}" height="${h(r.clickers)}"
+            rx="2" fill="var(--accent)" ${partial?'opacity=".45"':''}/>
+          <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${d(r.day_ist)}${partial?'*':''}</text>`;
+    });
+    s+=`</svg><div class="legend"><span><i style="background:var(--dark)"></i>total clicks</span>
+        <span><i style="background:var(--accent)"></i>unique clickers</span></div>`;
+    $('clk-daily').innerHTML=s;
+  } else $('clk-daily').innerHTML='<div class="sub" style="color:var(--muted)">no click days yet</div>';
+
+  // ---- clicks-per-CSP histogram (1..9, 10+) ----
+  const hs=c.hist||[];
+  if(hs.length){
+    const W=Math.max(480,hs.length*54), H=170, L=34, R=8, T=12, B=28;
+    const mx=Math.max(1,...hs.map(h=>h.csps)), bw=(W-L-R)/hs.length;
+    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+    hs.forEach((h,i)=>{const x=L+i*bw, bh=(H-T-B)*(h.csps/mx);
+      s+=`<rect x="${x+bw*.2}" y="${H-B-bh}" width="${bw*.6}" height="${bh}" rx="2" fill="var(--purple)"/>
+          <text x="${x+bw*.5}" y="${H-B-bh-4}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.csps}</text>
+          <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.bucket===10?'10+':h.bucket}</text>`;});
+    s+=`</svg><div class="sub" style="margin-top:2px">CSPs (bar value) by their total number of clicks (x-axis)</div>`;
+    $('clk-hist').innerHTML=s;
+  } else $('clk-hist').innerHTML='<div class="sub" style="color:var(--muted)">no clicks yet</div>';
+
+  $('clk-foot').innerHTML=`<b>This is the push notification, not the in-app card.</b> The campaign
+    tracked here is <b>Campaign type = Push</b>; the MBG in-app home banner is a separate set of InApp
+    campaigns — one per screen (secured / almost / keep-going / no-leads) — whose ids rotate on every
+    recreation, so it needs its own id inventory before it can be tracked. <b>Targeted</b> = the
+    enrolled MBG cohort (opted-in Flow-1 + audit-done Flow-2) minus 2 test CSPs; it is <b>dynamic</b>
+    and grows as CSPs enrol. It is a <b>reach proxy, not delivered-sent</b> — CleverTap does not
+    expose push "Sent" to the warehouse, so a true CTR (clicks ÷ sent) can only be read off the
+    CleverTap board manually. Scoping to the enrolled cohort is also why these numbers sit below the
+    CleverTap board's, which counts the campaign's full target segment — same event, different
+    audience filter. Days marked <b>*</b> are partial (up to the last Fivetran sync).
+    <b>Campaign ids are an inventory</b>: if the push is stopped and recreated, CleverTap mints a new
+    id and this card silently drops to ~zero — add the new id to <code>CLICK_CAMPAIGN_IDS</code> in
+    server.py and both are summed.`;
+}
+
 function renderNsm(n){
-  $('nsm').style.display='flex';
+  NSM_READY=true;
+  // NSM counts installs by enrolled Install-MG CSPs, so it stays hidden on Sehat MG.
+  $('nsm').style.display=INIT==='install'?'flex':'none';
   $('nsm-today').textContent=fmt(n.today);
   $('nsm-cap').textContent='today so far ('+n.today_date+') · of '+fmt(n.today_total)+' across all CSPs';
   if(n.month_total!=null){
