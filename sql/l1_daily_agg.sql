@@ -5,6 +5,8 @@
 -- (>=3 accepted/slot proposed, >=4 slot confirmed by customer, 6 installed).
 -- ALLOCATION_ACCEPTED is used for accept-speed timing only.
 -- Row shape (mode): 'cohort'        day=booking day, full stage counts + speed
+--                   'cohort_task'   day=booking day, TASK-level counts (CSP view,
+--                                   re-farm counted); 'bookings' carries the task count
 --                   'event_accept'  day=accept IST day, n=accepts + speed
 --                   'event_confirm' day=confirm IST day, n=confirms
 --                   'confirm_cohort'      day=confirmed-slot day, confirmed/installed (current-state)
@@ -119,6 +121,28 @@ full_j AS (
     SELECT j.*, a.accepted_at,
            DATEDIFF('minute', j.task_created_at, a.accepted_at) AS mins_to_accept
     FROM joined j LEFT JOIN accepts a USING (CONNECTION_ID)
+),
+-- CSP view (task level). Same Q11528 booking universe (conn), same booking-day
+-- anchor and same depth ladder as the connection-level rows above — the ONLY
+-- difference is grain: EVERY current candidate row counts, so a re-farmed booking
+-- counts once per CSP it passed through. That makes the two views directly
+-- comparable (Wiom = per booking, CSP = per task, re-farm carries its weight).
+-- enr is per task (each task's own CSP), which is the honest per-CSP basis.
+tasks_all AS (
+    SELECT cn.booking_date, t.CSP_ID,
+           IFF(t.CSP_ID IN (SELECT CSP_ID FROM mg_csp), 1, 0) AS enr,
+           CASE
+             WHEN t.OTP_VERIFIED = TRUE OR t.INSTALLATION_COMPLETED_AT IS NOT NULL
+                  OR t.COMPLETED_STEP >= 7 THEN 6
+             WHEN t.EXECUTOR_ID IS NOT NULL OR t.CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
+                  'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING') THEN 5
+             WHEN t.CONFIRMED_SLOT_AT IS NOT NULL OR t.CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT' THEN 4
+             WHEN t.PROPOSED_SLOT_DATE IS NOT NULL OR t.CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION' THEN 3
+             ELSE 2
+           END AS depth
+    FROM conn cn
+    JOIN PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES t
+      ON t.CONNECTION_ID = cn.CONNECTION_ID AND t.ETL_CURRENT = TRUE
 )
 SELECT 'cohort' AS mode, booking_date::STRING AS day_ist, enr,
        COUNT(*) AS bookings,
@@ -179,6 +203,18 @@ SELECT 'cohort_ever', booking_date::STRING, enr,
        ROUND(MEDIAN(mins_to_accept) / 60, 1),
        ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1)
 FROM full_j GROUP BY 2, 3
+UNION ALL
+-- CSP view (task level): same rungs, one row per CSP task instead of per booking.
+-- "bookings" here carries the TASK count (re-farm counted) so the payload shape
+-- matches the connection-level modes. Accept-speed is connection-grain only and
+-- is left NULL here.
+SELECT 'cohort_task', booking_date::STRING, enr,
+       COUNT(*),
+       SUM(IFF(depth >= 3, 1, 0)),
+       SUM(IFF(depth >= 4, 1, 0)),
+       SUM(IFF(depth >= 6, 1, 0)),
+       NULL, NULL, NULL
+FROM tasks_all GROUP BY 2, 3
 UNION ALL
 -- all qualified bookings created that day (Q11528 stage 1), whether or not
 -- they ever reached a connection or CSP task

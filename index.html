@@ -397,6 +397,22 @@ svg text{font-family:inherit}
   </div>
   <div class="l1grid" id="l1grid"></div>
 
+  <div class="card section" id="l1-views" style="margin-top:20px">
+    <div class="label">Same funnel, two grains — Wiom view vs CSP view</div>
+    <div class="sub" id="l1v-sub"></div>
+    <div class="l1grid" style="margin-top:14px">
+      <div>
+        <div class="label" style="margin-bottom:8px">Wiom view — connection level (one row per booking)</div>
+        <div class="tablewrap"><table class="board" id="l1v-wiom" style="min-width:0"></table></div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:8px">CSP view — task level (re-farm counted)</div>
+        <div class="tablewrap"><table class="board" id="l1v-csp" style="min-width:0"></table></div>
+      </div>
+    </div>
+    <div class="foot" id="l1v-foot" style="margin-top:12px"></div>
+  </div>
+
   <div class="card section" id="l1-cohort" style="margin-top:20px" hidden>
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div><div class="label">L1 performance by belief cohort</div><div class="sub" id="coh-sub"></div></div>
@@ -408,7 +424,7 @@ svg text{font-family:inherit}
     <div class="tablewrap"><table class="board" id="coh-table" style="min-width:820px"></table></div>
     <div class="foot" style="margin-top:8px"><b>Matured</b> = only bookings whose confirm-day is 4+ days old (the 3 most recent booking-days are held out), so each stage has had time to happen — accept → confirm → install. Bookings from the last 3 days are still moving through the funnel and only drag the rates down, so the headline rate excludes them. The faint <b>total</b> under each rate is the full-window figure <i>including</i> those still-maturing bookings. Booking-anchored (bucketed by booking-confirm day). The two rows below the belief cohorts are comparisons: <b>Non-enrolled · eligible</b> = CSPs offered MG (per the MG Tracker CSP sheet) that didn't enrol — count is the fixed universe (Flow-1 blanks + Flow-2 not opted-in/audited) · <b>Non-eligible</b> = rest of the network, counted by distinct <i>receiving</i> CSPs (no bounded universe).</div>
     <div style="margin-top:20px">
-      <div class="label" style="margin-bottom:8px">Conversion ladder — accepted → confirmed → installed, by cohort</div>
+      <div class="label" style="margin-bottom:8px">Conversion ladder — slot proposed → confirmed → installed, by cohort</div>
       <div id="coh-ladder"></div>
     </div>
     <div class="foot" style="margin-top:12px">
@@ -426,10 +442,10 @@ svg text{font-family:inherit}
     <b>Definitions — sacrosanct to Metabase Q11528 (B2I funnel with attributed drops).</b>
     Anchor = <b>booking confirmed</b> (canonical booking window, test-LCO excluded); booking →
     connection (days=14 window) → <b>current</b> TAS task. A booking counts iff that task belongs
-    to an enrolled CSP (opted-in + audit complete) = “CSP received booking”. “CSP accepted / slot
-    proposed” = current depth ≥ 3 (slot proposed or awaiting customer slot confirmation, or
-    further). “Slot confirmed by customer” = depth ≥ 4 (confirmed slot or awaiting technician, or
-    further). Speed = task creation → ALLOCATION_ACCEPTED event (timing only). <b>By booking
+    to an enrolled CSP (opted-in + audit complete) = “CSP received booking”. “CSP slot proposed”
+    = current depth ≥ 3 (slot proposed or awaiting customer slot confirmation, or further) — read
+    as a share <i>of bookings received</i>, not of accepts. “Slot confirmed by customer” = depth ≥ 4
+    (confirmed slot or awaiting technician, or further). Speed = task creation → ALLOCATION_ACCEPTED event (timing only). <b>By booking
     day</b>: all outcomes attach to the booking's confirm day — recent days mature upward.
     <b>By event day</b>: each event counts on the day it happened, shown as absolute counts/day
     (accepts and confirmations there can belong to bookings from earlier days). Only complete IST
@@ -975,7 +991,7 @@ function setCohMode(m){COHMODE=m;document.querySelectorAll('#coh-mode button').f
 function setCohBefore(id){BEFORE_SEL=id;if(COH)renderCohort(COH);}
 document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('#coh-mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===COHMODE)));
 const COLS=[['bk_per_csp_day','Bookings / CSP / day',false,''],
-            ['accept_pct','Accepted % (matured)',false,'%'],
+            ['accept_pct','Slot proposed % (matured)',false,'%'],
             ['confirm_pct','Confirmed % (matured)',false,'%'],
             ['install_ratio','Install ratio (matured)',false,'%'],
             ['med_hrs_to_accept','Median hrs to accept',true,' h']];
@@ -1081,7 +1097,7 @@ function renderLadder(c,win){
     });
     svg+=`<text x="${W-4}" y="${y+13}" font-size="11" fill="${MUTED}" text-anchor="end">${asPct(r,'install')==null?'':asPct(r,'install')+'% inst'}</text>`;
   });
-  svg+=`</svg><div class="legend"><span><i style="background:${PINK}"></i>accepted</span>
+  svg+=`</svg><div class="legend"><span><i style="background:${PINK}"></i>slot proposed</span>
     <span><i style="background:${PURPLE}"></i>confirmed</span><span><i style="background:#008043"></i>installed</span>
     <span style="color:var(--muted)">(% of bookings received)</span></div>`;
   $('coh-ladder').innerHTML=svg;
@@ -1469,7 +1485,10 @@ function buildFlowModes(){
     sh_bookings:c.sh_bookings,sh_slot_selected:ac.sh_n,sh_slot_pct:_fpct(ac.sh_n,c.sh_bookings),sh_cust_confirmed:cf.sh_n,sh_confirm_pct:_fpct(cf.sh_n,ac.sh_n),total_bookings:t.bookings};});
   const cc=o.confirm_cohort.daily.map(od=>{const f=A('cc',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
   const cce=o.confirm_cohort_ever.daily.map(od=>{const f=A('cc_ever',od.day_ist);return {...od,cust_confirmed:f.confirmed,installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed)};});
-  return {cohort:_fwrap(cohort),cohort_ever:_fwrap(cohort_ever),event:_fwrap(event),
+  // CSP view (task level) — same flow filter as everything else
+  const cohort_task=(o.cohort_task||o.cohort).daily.map(od=>{const f=A('cohort_task',od.day_ist);return {...od,bookings:f.bookings,slot_selected:f.accepted,slot_pct:_fpct(f.accepted,f.bookings),cust_confirmed:f.confirmed,confirm_pct:_fpct(f.confirmed,f.accepted),installs:f.installed,install_ratio:_fpct(f.installed,f.confirmed),
+    sh_bookings:f.sh_bookings,sh_slot_selected:f.sh_accepted,sh_slot_pct:_fpct(f.sh_accepted,f.sh_bookings),sh_cust_confirmed:f.sh_confirmed,sh_confirm_pct:_fpct(f.sh_confirmed,f.sh_accepted)};});
+  return {cohort:_fwrap(cohort),cohort_ever:_fwrap(cohort_ever),event:_fwrap(event),cohort_task:_fwrap(cohort_task),
           confirm_cohort:_fwrap(cc,o.confirm_cohort.mature_cutoff),confirm_cohort_ever:_fwrap(cce,o.confirm_cohort_ever.mature_cutoff)};
 }
 function l1modes(){if(!flowActive())return DATA.l1.modes;if(!DATA._flowModes)DATA._flowModes=buildFlowModes();return DATA._flowModes;}
@@ -1495,21 +1514,61 @@ function renderL1(l1,meta){
      color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.med_hrs_to_accept??'–'} h</b> median<br>${N}non-enrolled: <b>${r.sh_med_hrs_to_accept??'–'} h</b>`},
     MODE==='cohort'
-    ?{title:'CSP accepted / slot proposed (%)'+bsuf,kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
+    ?{title:'CSP slot proposed (%)'+bsuf,kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
       shKey:'sh_slot_pct',
       tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.slot_pct??'–'}%</b> (${fmt(r.slot_selected)} of ${fmt(r.bookings)} bookings)<br>${N}non-enrolled: <b>${r.sh_slot_pct??'–'}%</b>`}
-    :{title:'CSP accepted / slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
+    :{title:'CSP slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
       shKey:'sh_slot_selected',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> accepted (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled: <b>${fmt(r.sh_slot_selected)}</b>`},
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> slot proposed (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled: <b>${fmt(r.sh_slot_selected)}</b>`},
     MODE==='cohort'
     ?{title:'Slot confirmed by customer (%)'+bsuf,kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
       shKey:'sh_confirm_pct',
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.confirm_pct??'–'}%</b> (${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} accepted)<br>${N}non-enrolled: <b>${r.sh_confirm_pct??'–'}%</b>`}
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.confirm_pct??'–'}%</b> (${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} slot proposed)<br>${N}non-enrolled: <b>${r.sh_confirm_pct??'–'}%</b>`}
     :{title:'Slot confirmed by customer (count / day)',kind:'bar',key:'cust_confirmed',color:PINK,goodUp:true,
       shKey:'sh_cust_confirmed',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.cust_confirmed)}</b> confirmed (${fmt(r.slot_selected)} accepted that day)<br>${N}non-enrolled: <b>${fmt(r.sh_cust_confirmed)}</b>`},
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.cust_confirmed)}</b> confirmed (${fmt(r.slot_selected)} slot proposed that day)<br>${N}non-enrolled: <b>${fmt(r.sh_cust_confirmed)}</b>`},
   ];
   specs.forEach(s=>g.appendChild(chartCard(s,m,meta)));
+  renderL1Views(M,ever);
+}
+
+// The same L1 funnel at both grains. Wiom = one row per booking (connection,
+// deduped); CSP = one row per CSP task, so a re-farmed booking counts once per CSP
+// it passed through. Same universe, same booking-day anchor, same depth ladder —
+// only the grain differs, which is why the two are directly comparable.
+function renderL1Views(M,ever){
+  const show=MODE==='cohort';
+  $('l1-views').hidden=!show;
+  if(!show) return;
+  const wiom=M[ever?'cohort_ever':'cohort'], csp=M.cohort_task;
+  $('l1v-sub').innerHTML=`Booking-day anchored · pre (${DATA.meta.pre[0]} – ${DATA.meta.pre[1]}) vs post
+    (${DATA.meta.post_start}+) daily averages · enrolled CSPs · Wiom view on
+    <b>${ever?'ever-reached':'live pipeline'}</b>`;
+  const cell=(v,unit)=>v==null?'–':`${v}${unit}`;
+  const row=(label,pre,post,unit)=>`<tr><td>${label}</td>
+    <td style="text-align:right">${cell(pre,unit)}</td>
+    <td style="text-align:right">${cell(post,unit)}</td>
+    <td style="text-align:right">${deltaChip(pre,post,true,unit==='%'?' pp':'')}</td></tr>`;
+  const tbl=(m,recv)=>!m?`<tbody><tr><td style="color:var(--muted)">unavailable</td></tr></tbody>`
+    :`<thead><tr><th>Rung</th><th style="text-align:right">pre</th>
+      <th style="text-align:right">post</th><th style="text-align:right">delta</th></tr></thead><tbody>
+      ${row(recv,m.pre_avg.bookings,m.post_avg.bookings,'')}
+      ${row('CSP slot proposed',m.pre_avg.slot_pct,m.post_avg.slot_pct,'%')}
+      ${row('Slot confirmed by customer',m.pre_avg.confirm_pct,m.post_avg.confirm_pct,'%')}
+    </tbody>`;
+  $('l1v-wiom').innerHTML=tbl(wiom,'Bookings received / day');
+  $('l1v-csp').innerHTML=tbl(csp,'Tasks received / day');
+  $('l1v-foot').innerHTML=`Both tables run on the <b>same</b> Q11528 booking universe, the same
+    booking-day anchor and the same depth ladder — the only difference is the grain of the
+    denominator. <b>Wiom view</b> counts each booking once (the connection, deduped to its
+    current CSP task), so it reads the customer's outcome. <b>CSP view</b> counts every CSP
+    task, so a booking re-farmed across CSPs counts once per CSP that received it — this is the
+    per-CSP conversion, and the basis MG is paid on. The CSP view therefore reads lower on the
+    rates and higher on volume; the gap between the two <i>is</i> the re-farm cost.
+    <b>CSP slot proposed</b> is a share of the row above it (bookings / tasks received), not of
+    accepts. The CSP view has no ever-reached variant: each task row already carries the deepest
+    rung that task itself reached, so the Live pipeline / Ever reached toggle moves the Wiom
+    table only. Accept-speed is connection-grain and is not split by view.`;
 }
 
 function deltaChip(pre,post,goodUp,unit){

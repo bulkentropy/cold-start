@@ -334,6 +334,7 @@ def compute_l1(enrolled_ids):
 
     coh, eacc, econf = bucket("cohort"), bucket("event_accept"), bucket("event_confirm")
     coh_ever = bucket("cohort_ever")
+    coh_task = bucket("cohort_task")   # CSP view (task level, re-farm counted)
     ccoh = bucket("confirm_cohort")
     ccoh_ever = bucket("confirm_cohort_ever")
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
@@ -364,6 +365,9 @@ def compute_l1(enrolled_ids):
 
     def agg_cohort():        return _agg_cohort(coh)        # current-state (live pipeline)
     def agg_cohort_ever():   return _agg_cohort(coh_ever)   # ever-reached (progression)
+    # CSP view: identical row shape (task counts land in 'bookings'), so the same
+    # aggregator applies — only the grain underneath differs.
+    def agg_cohort_task():   return _agg_cohort(coh_task)
 
     def agg_event():
         out = []
@@ -415,6 +419,7 @@ def compute_l1(enrolled_ids):
 
     modes = {}
     for mode, rows in (("cohort", agg_cohort()), ("cohort_ever", agg_cohort_ever()),
+                       ("cohort_task", agg_cohort_task()),
                        ("event", agg_event()),
                        ("confirm_cohort", agg_confirm()),
                        ("confirm_cohort_ever", agg_confirm_ever())):

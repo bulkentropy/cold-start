@@ -5,6 +5,8 @@
 -- Modes emitted (day meaning varies):
 --   'cohort'   day=booking day : bookings/accepted/confirmed/installed (current) +
 --                                accepted_ever/confirmed_ever/installed_ever (high-water)
+--   'cohort_task' day=booking day : TASK-level counts (CSP view, re-farm counted);
+--                                'bookings' carries the task count
 --   'ev_acc'   day=accept day  : accepts
 --   'ev_conf'  day=confirm day : confirms
 --   'cc'       day=confirm day : confirmed/installed (current-state install ratio)
@@ -90,7 +92,24 @@ accepts AS (
      AND e._FIVETRAN_DELETED = FALSE AND e.EVENT_TIMESTAMP >= j.task_created_at
     GROUP BY 1
 ),
-full_j AS (SELECT j.*, a.accepted_at FROM joined j LEFT JOIN accepts a USING (CONNECTION_ID))
+full_j AS (SELECT j.*, a.accepted_at FROM joined j LEFT JOIN accepts a USING (CONNECTION_ID)),
+-- CSP view (task level): same universe/anchor/ladder, one row per CSP task
+-- (re-farm counted) instead of per connection. Mirrors tasks_all in l1_daily_agg.sql
+-- so the flow filter applies to the CSP view too.
+tasks_all AS (
+    SELECT cn.booking_date, cn.flow,
+           IFF(t.CSP_ID IN (SELECT CSP_ID FROM mg_csp),1,0) AS enr,
+           CASE WHEN t.OTP_VERIFIED = TRUE OR t.INSTALLATION_COMPLETED_AT IS NOT NULL
+                     OR t.COMPLETED_STEP >= 7 THEN 6
+                WHEN t.EXECUTOR_ID IS NOT NULL OR t.CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
+                     'INSTALLATION_IN_PROGRESS_POST_FEE','AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING') THEN 5
+                WHEN t.CONFIRMED_SLOT_AT IS NOT NULL OR t.CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT' THEN 4
+                WHEN t.PROPOSED_SLOT_DATE IS NOT NULL
+                     OR t.CURRENT_STATE = 'AWAITING_CUSTOMER_SLOT_CONFIRMATION' THEN 3 ELSE 2 END AS depth
+    FROM conn cn
+    JOIN PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES t
+      ON t.CONNECTION_ID = cn.CONNECTION_ID AND t.ETL_CURRENT = TRUE
+)
 -- Columns (17): mode, flow, day, then ENROLLED (enr=1): bookings, accepted, confirmed,
 -- installed, accepted_ever, confirmed_ever, installed_ever, n; then NON-ENROLLED (enr=0)
 -- shadow: sh_bookings, sh_accepted, sh_confirmed, sh_accepted_ever, sh_confirmed_ever, sh_n.
@@ -127,6 +146,17 @@ SELECT 'cc_ever', flow, TO_DATE(DATEADD(minute,330,ever_confirmed_at))::STRING,
        SUM(IFF(enr=1 AND depth_ever>=6 AND installed_at <= DATEADD(hour,96,ever_confirmed_at),1,0)),NULL,NULL,NULL,NULL,
        NULL,NULL,NULL,NULL,NULL,NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2,3
+UNION ALL
+-- CSP view (task level): 'bookings' carries the TASK count so the payload shape
+-- matches 'cohort'. No _ever columns — a task row already holds the deepest rung
+-- that task itself reached.
+SELECT 'cohort_task', flow, booking_date::STRING,
+       SUM(IFF(enr=1,1,0)), SUM(IFF(enr=1 AND depth>=3,1,0)),
+       SUM(IFF(enr=1 AND depth>=4,1,0)), SUM(IFF(enr=1 AND depth>=6,1,0)),
+       NULL,NULL,NULL,NULL,
+       SUM(IFF(enr=0,1,0)), SUM(IFF(enr=0 AND depth>=3,1,0)),
+       SUM(IFF(enr=0 AND depth>=4,1,0)), NULL,NULL,NULL
+FROM tasks_all GROUP BY 2,3
 UNION ALL
 -- all qualified bookings per flow/day (pre-CSP, both enrolled & non-enrolled & no-CSP):
 -- powers the "all bookings created" line so it filters by flow too.
