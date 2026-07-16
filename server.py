@@ -64,22 +64,23 @@ BANNER_F1 = ["1782846718"]
 BANNER_F2 = ["1782823566"]
 
 L1_START = "2026-06-24"        # pre-period start (last 7 days of June)
-# MBG push-click tracking (L0 reach). CLICK_CAMPAIGN_IDS is an INVENTORY, not a
-# constant: CleverTap mints a NEW id whenever a campaign is stopped & recreated,
-# and this card would silently read ~zero. Append the new id here — the SQL SUMs
-# across all of them. Re-confirm the live id on the CleverTap board if clicks dip
-# unexpectedly. These are Push campaigns (not the in-app card — see l0_clicks.sql).
-CLICK_CAMPAIGN_IDS = ["1780477786"]
-CLICKS_START = "2026-07-10"    # first day of MBG push-click data
 
-# In-app HOME-BANNER opens (custom native event `banner_opened`). See sql/l0_banner.sql
-# for why this is a SUPERSET and cannot be narrowed to the MBP banner: the event's
-# `banner` property is a PER-CSP uuid (all 619 distinct uuids map to exactly 1 CSP),
-# so nothing in CleverTap marks an open as MBP. The MBP status banner is a native
-# component, NOT the CleverTap InApp campaigns in §7 of the logic doc (5 of those 7
-# ids emit zero clicks and predate the banner go-live — they are the comms popups).
-BANNER_START = "2026-07-01"          # early enough to show the pre-MBP floor
-MBP_BANNER_GOLIVE = "2026-07-09"     # Ashish: banner live & tested 9 Jul (marked on the chart)
+# In-app HOME-BANNER opens (custom native event `banner_opened`) — the L0 card is a
+# reproduction of CleverTap board 1783687017 ("Wiom CSP → MBG Board"), per
+# mbg_click_funnel_LOGIC.md. See sql/l0_banner.sql for the full reasoning.
+#
+# ALL USERS, NO COHORT FILTER: the board's cards carry no CSP segment, and the card
+# matches that so portal and board agree. It is therefore not a reach % — there is no
+# denominator. (The push-click funnel that used to sit beside this was removed 16 Jul:
+# the logic doc covers the banner only. Push reach is no longer computed anywhere.)
+#
+# SUPERSET: `banner_opened` covers every home banner, not just MBP — its `banner`
+# property is a per-CSP uuid, so nothing in CleverTap marks an open as MBP.
+BANNER_START = "2026-07-10"          # the board's window: "After Jul 09, 2026"
+MBG_BOARD_URL = "https://eu1.dashboard.clevertap.com/44Z-644-777Z/dashboards/custom/1783687017"
+# Board snapshot from the logic doc, for the card's parity note. STATIC — it is a
+# 15-Jul reading, labelled as such on the card; it does not track the live board.
+BOARD_SNAPSHOT = {"date": "2026-07-15", "opens": 2394, "users": 398}
 PRE_END = "2026-06-30"         # inclusive
 POST_START = "2026-07-01"
 # Belief-cohort before/after cut: matured pre-window vs the live post-window.
@@ -510,102 +511,79 @@ def compute_l1(enrolled_ids):
             "complete_through": yday}
 
 
-def compute_clicks(enrolled_ids):
-    """MBG push-click funnel for the L0 tab (see sql/l0_clicks.sql).
+def compute_banner():
+    """MBG Board reproduction — in-app home-banner opens (see sql/l0_banner.sql).
 
-    Highlight = unique CSPs who clicked in the last 3 COMPLETE IST days. Today is
-    excluded: it is always partial (up to the last Fivetran sync), so including it
-    would understate the number against a full day — and complete-days-only is the
-    standing convention for every day-on-day series here.
+    Mirrors CleverTap board 1783687017, whose three cards all read one event,
+    `banner_opened`, with NO CSP segment. Takes no cohort: this is deliberately an
+    all-users number so the portal and the board agree. There is no denominator, so
+    no reach % — do not reintroduce one against the enrolled count.
+
+    SUPERSET, NOT MBP-ONLY: `banner_opened` covers every home banner, and its
+    `banner` property is a per-CSP uuid, so MBP cannot be isolated from CleverTap
+    alone. Labelled as such on the card. No impression event exists for the native
+    banner, so there is no CTR here.
+
+    Also returns last3/prev3 — unique CSPs engaging over the last 3 COMPLETE IST
+    days vs the 3 before, the leading-indicator card. Complete days only, so these
+    exclude today while the board tiles include it; that divergence is intentional
+    (a trend needs like-for-like windows, board parity needs today).
     """
-    if not enrolled_ids:
-        raise RuntimeError("no enrolled partners — clicks skipped")
     today = datetime.now(IST).date()
-    last3_end = today - timedelta(days=1)          # yesterday = newest complete day
+    last3_end = today - timedelta(days=1)           # yesterday = newest complete day
     last3_start = today - timedelta(days=3)
-    sql = open(os.path.join(BASE_DIR, "sql", "l0_clicks.sql"), encoding="utf-8").read()
-    sql = (sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
-              .replace("{CAMPAIGN_IDS}", ",".join(f"'{c}'" for c in CLICK_CAMPAIGN_IDS))
-              .replace("{START_DATE}", CLICKS_START)
-              .replace("{LAST3_START}", last3_start.isoformat())
-              .replace("{LAST3_END}", last3_end.isoformat()))
-    raw = metabase_sql(sql)
+    prev3_end = last3_start - timedelta(days=1)
+    prev3_start = last3_start - timedelta(days=3)
+    # The prev3 window can only be trusted if it sits fully inside the query window —
+    # otherwise the ev CTE silently clips it and the delta reads as a crash rather
+    # than as missing data. Suppress the comparison instead of lying about it.
+    prev3_valid = prev3_start.isoformat() >= BANNER_START
 
-    daily = sorted(({"day_ist": str(r["k"])[:10], "clickers": r["clickers"] or 0,
-                     "clicks": r["clicks"] or 0}
-                    for r in raw if r["mode"] == "daily" and r["k"]),
-                   key=lambda r: r["day_ist"])
-    tot = next((r for r in raw if r["mode"] == "total"), {})
-    l3 = next((r for r in raw if r["mode"] == "last3"), {})
-    hist = sorted(({"bucket": int(r["k"]), "csps": r["clickers"] or 0}
-                   for r in raw if r["mode"] == "hist" and r["k"]),
-                  key=lambda r: r["bucket"])
-
-    targeted = tot.get("targeted") or 0
-    clickers = tot.get("clickers") or 0
-    clicks = tot.get("clicks") or 0
-    return {
-        "targeted": targeted, "clickers": clickers, "clicks": clicks,
-        "never_clicked": max(targeted - clickers, 0),
-        "reach_pct": round(100 * clickers / targeted, 1) if targeted else None,
-        "avg_per_clicker": round(clicks / clickers, 1) if clickers else None,
-        "daily": daily, "hist": hist,
-        "last3": {"clickers": l3.get("clickers") or 0, "clicks": l3.get("clicks") or 0,
-                  "targeted": l3.get("targeted") or 0,
-                  "pct": round(100 * (l3.get("clickers") or 0) / (l3.get("targeted") or 0), 1)
-                         if l3.get("targeted") else None,
-                  "start": last3_start.isoformat(), "end": last3_end.isoformat()},
-        "window_start": CLICKS_START, "campaign_ids": CLICK_CAMPAIGN_IDS,
-        "today_ist": today.isoformat(),
-    }
-
-
-def compute_banner(enrolled_ids):
-    """In-app home-banner opens for the enrolled cohort (see sql/l0_banner.sql).
-
-    SUPERSET, NOT MBP-ONLY: `banner_opened` covers every home banner and predates
-    the MBP banner's 9-Jul go-live, and its `banner` property is a per-CSP uuid so
-    MBP cannot be isolated from CleverTap alone. Labelled as such on the card. No
-    impression event exists for the native banner, so there is no CTR here.
-    """
-    if not enrolled_ids:
-        raise RuntimeError("no enrolled partners — banner skipped")
-    today = datetime.now(IST).date()
-    last3_end = today - timedelta(days=1)
-    last3_start = today - timedelta(days=3)
     sql = open(os.path.join(BASE_DIR, "sql", "l0_banner.sql"), encoding="utf-8").read()
-    sql = (sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
-              .replace("{START_DATE}", BANNER_START)
+    sql = (sql.replace("{START_DATE}", BANNER_START)
               .replace("{LAST3_START}", last3_start.isoformat())
-              .replace("{LAST3_END}", last3_end.isoformat()))
+              .replace("{LAST3_END}", last3_end.isoformat())
+              .replace("{PREV3_START}", prev3_start.isoformat())
+              .replace("{PREV3_END}", prev3_end.isoformat()))
     raw = metabase_sql(sql)
 
-    def pct(a, b):
-        return round(100 * a / b, 1) if b else None
-
-    daily = sorted(({"day_ist": str(r["k"])[:10], "openers": r["openers"] or 0,
-                     "opens": r["opens"] or 0}
+    daily = sorted(({"day_ist": str(r["k"])[:10], "opens": r["opens"] or 0,
+                     "uniq_csps": r["uniq_csps"] or 0, "uniq_users": r["uniq_users"] or 0}
                     for r in raw if r["mode"] == "daily" and r["k"]),
                    key=lambda r: r["day_ist"])
     tot = next((r for r in raw if r["mode"] == "total"), {})
     l3 = next((r for r in raw if r["mode"] == "last3"), {})
-    hist = sorted(({"bucket": int(r["k"]), "csps": r["openers"] or 0}
+    p3 = next((r for r in raw if r["mode"] == "prev3"), {})
+    # histogram is per USER (identity), not per CSP — matches the board's card.
+    hist = sorted(({"bucket": int(r["k"]), "users": r["uniq_users"] or 0}
                    for r in raw if r["mode"] == "hist" and r["k"]),
                   key=lambda r: r["bucket"])
 
-    targeted = tot.get("targeted") or 0
-    openers, opens = tot.get("openers") or 0, tot.get("opens") or 0
+    opens = tot.get("opens") or 0
+    uniq_csps = tot.get("uniq_csps") or 0
+    uniq_users = tot.get("uniq_users") or 0
+
+    l3_csps = l3.get("uniq_csps") or 0
+    p3_csps = p3.get("uniq_csps") or 0
+    l3_opens = l3.get("opens") or 0
     return {
-        "targeted": targeted, "openers": openers, "opens": opens,
-        "reach_pct": pct(openers, targeted),
-        "avg_per_opener": round(opens / openers, 1) if openers else None,
+        "opens": opens, "uniq_csps": uniq_csps, "uniq_users": uniq_users,
+        "avg_per_user": round(opens / uniq_users, 1) if uniq_users else None,
         "daily": daily, "hist": hist,
-        "last3": {"openers": l3.get("openers") or 0, "opens": l3.get("opens") or 0,
-                  "targeted": l3.get("targeted") or 0,
-                  "pct": pct(l3.get("openers") or 0, l3.get("targeted") or 0),
-                  "start": last3_start.isoformat(), "end": last3_end.isoformat()},
-        "window_start": BANNER_START, "golive": MBP_BANNER_GOLIVE,
-        "today_ist": today.isoformat(),
+        "last3": {
+            "csps": l3_csps, "opens": l3_opens,
+            "users": l3.get("uniq_users") or 0,
+            "avg_per_csp": round(l3_opens / l3_csps, 1) if l3_csps else None,
+            "start": last3_start.isoformat(), "end": last3_end.isoformat(),
+            # prev3 is None (not 0) when the comparison window falls outside the
+            # query window — the card hides the delta rather than showing a fake drop.
+            "prev_csps": p3_csps if prev3_valid else None,
+            "delta": (l3_csps - p3_csps) if prev3_valid else None,
+            "prev_start": prev3_start.isoformat() if prev3_valid else None,
+            "prev_end": prev3_end.isoformat() if prev3_valid else None,
+        },
+        "window_start": BANNER_START, "today_ist": today.isoformat(),
+        "board_url": MBG_BOARD_URL, "board": BOARD_SNAPSHOT,
     }
 
 
@@ -1428,14 +1406,9 @@ def refresh(force=False):
             payload["nsm"] = prev.get("nsm")
 
         try:
-            payload["clicks"] = compute_clicks(enrolled)
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"clicks: {type(e).__name__}: {e}")
-            payload["clicks"] = prev.get("clicks")
-
-        try:
-            payload["banner"] = compute_banner(enrolled)
+            # No cohort argument by design — the board this reproduces has no CSP
+            # segment, so this reads all users.
+            payload["banner"] = compute_banner()
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"banner: {type(e).__name__}: {e}")

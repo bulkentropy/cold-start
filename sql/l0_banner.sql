@@ -1,23 +1,21 @@
--- In-app HOME-BANNER opens (L0 · reach). Sibling of l0_clicks.sql (the PUSH card).
+-- MBG Board reproduction (L0 · reach) — in-app HOME-BANNER opens.
+-- Per mbg_click_funnel_LOGIC.md: this mirrors CleverTap dashboard 1783687017
+-- ("Wiom CSP → MBG Board"), whose three cards all read ONE event: `banner_opened`.
 --
--- ⚠ READ THIS BEFORE USING THE NUMBER: this counts ALL home banners, not just the
--- MBP/MBG status banner. It is a SUPERSET. Do not label it "MBG banner clicks".
+-- ⚠ ALL USERS, NOT THE ENROLLED COHORT. The board's cards carry NO CSP segment
+-- (Event = banner_opened · Segment = All users · After Jul 09). This query matches
+-- that on purpose, so the portal and the board tell the same story. It is therefore
+-- NOT a cohort reach number and has no denominator — do not divide it by 466.
 --
--- Why it cannot be narrowed (verified against the warehouse, 15 Jul):
+-- ⚠ SUPERSET: this counts ALL home banners, not just the MBP/MBG status banner.
+-- Do not label it "MBG banner clicks". Why it cannot be narrowed (verified against
+-- the warehouse, 15 Jul):
 --   • The MBP banner is a NATIVE app component, not a CleverTap campaign. It emits
---     the custom event `banner_opened`. (The CleverTap InApp campaigns listed in §7
---     of mbg_click_funnel_LOGIC.md are NOT this banner: 5 of those 7 ids emit zero
---     'Notification Clicked' at all, and they predate the banner's 9-Jul go-live.
---     They are the in-app comms/education popups.)
---   • `banner_opened` carries a `banner` property, but it is a PER-CSP UUID: all 619
---     distinct UUIDs seen since 10 Jul map to exactly ONE CSP each. There is no
---     shared banner/template id in the event, so nothing in CleverTap identifies an
---     open as the MBP banner. That mapping lives in the banner backend (Ashish/i2e1).
---   • `banner_opened` also predates MBP (~115 CSPs/day on 5 Jul, before go-live), so
---     the series has a non-MBP floor. The MBP go-live (9 Jul) is marked on the chart:
---     the step up from ~90 to ~187 CSPs/day across 9→10 Jul IS the MBP banner
---     landing, and reconciles with Ashish's reported 232 CSPs / 600 clicks.
---
+--     the custom event `banner_opened`, which carries no campaign / wzrk_id.
+--   • `banner_opened` carries a `banner` property, but it is a PER-CSP UUID: every
+--     distinct UUID maps to exactly ONE CSP. There is no shared banner/template id,
+--     so nothing in CleverTap identifies an open as the MBP banner. That mapping
+--     lives in the banner backend (Ashish/i2e1).
 -- THE FIX, when someone wants an MBP-only number: get the banner-UUID → banner-type
 -- mapping from the banner backend, or (better, durable) have a `banner_type` property
 -- added to the `banner_opened` event. Then filter here and drop this caveat.
@@ -25,40 +23,67 @@
 -- There is NO impression event for the native banner, so unlike a CleverTap campaign
 -- this surface cannot yield a CTR — only opens and unique openers.
 --
--- {PARTNER_IN_LIST} {START_DATE} {LAST3_START} {LAST3_END} substituted at run time.
-WITH universe AS (
-    SELECT DISTINCT CSP_ID AS csp_id
-    FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
-    WHERE _fivetran_active = TRUE
-      AND CSP_ID NOT IN ('a0a0b1','a0a6w1')
-      AND PARTNER_ID::TEXT IN ({PARTNER_IN_LIST})
-),
-ev AS (   -- one row per banner open by an enrolled CSP. TIMESTAMP is UTC: +330min
-    -- BEFORE TO_DATE or opens land on the wrong IST day near midnight.
-    SELECT p.CSPID AS csp_id,
+-- THREE WAYS TO COUNT "UNIQUE" — the card shows two of them; the board shows a third
+-- it alone can compute:
+--   uniq_csps  = COUNT(DISTINCT CSPID)       ≈ 360 — a CSP once (owner+admin merged)
+--   uniq_users = COUNT(DISTINCT CLEVERTAP_ID) ≈ 468 — each identity separate
+--   board card = CleverTap device-attributed  ≈ 398 — Mobile+Tablet; NOT reproducible
+--                from the warehouse (CleverTap-internal Device Stats). It sits between
+--                the two above, which is the tell that it is a third definition.
+--
+-- LEFT JOIN (not inner) on PROFILE_DATA is deliberate: `opens` must be the true
+-- COUNT(*) of the event, so the daily bars sum exactly to the total. CSPID is NULL
+-- for any unmatched identity and COUNT(DISTINCT) skips NULLs on its own.
+--
+-- Timezone: EVENTS_DATA.TIMESTAMP is UTC → +330min BEFORE TO_DATE, or opens land on
+-- the wrong IST day near midnight. The board's date boundary uses the CleverTap
+-- ACCOUNT timezone, not IST, so it starts a few hours later — this is most of the
+-- ~3% gap vs the board and is expected, not a bug.
+--
+-- Pre-aggregated on purpose: the raw identity x day grain would breach Metabase's
+-- ~2000-row native cap.
+--
+-- last3 / prev3 are the LEADING-INDICATOR card: unique CSPs engaging with the banner
+-- over the last 3 COMPLETE IST days, and the 3 before that for direction. Each is its
+-- OWN COUNT(DISTINCT) over its window — summing the daily bars would double-count any
+-- CSP active on more than one day. Today is excluded from both: it is partial up to
+-- the last Fivetran sync and would understate against a full day. (The tiles on the
+-- board card DO include today, deliberately — that is board parity. These don't,
+-- because a trend needs like-for-like windows. The two disagree on purpose.)
+--
+-- {START_DATE} {LAST3_START} {LAST3_END} {PREV3_START} {PREV3_END} substituted at run time.
+WITH ev AS (   -- one row per banner open, by anyone (no cohort filter — see above)
+    SELECT e.CLEVERTAP_ID AS ct_id,
+           p.CSPID        AS csp_id,
            TO_DATE(DATEADD(minute, 330, e.TIMESTAMP)) AS day_ist
     FROM PROD_DB.CLEVERTAP_CSP_API.EVENTS_DATA e
-    JOIN PROD_DB.CLEVERTAP_CSP_API.PROFILE_DATA p
+    LEFT JOIN PROD_DB.CLEVERTAP_CSP_API.PROFILE_DATA p
       ON e.CLEVERTAP_ID = p.CLEVERTAP_ID
     WHERE e.EVENT_NAME = 'banner_opened'
       AND TO_DATE(DATEADD(minute, 330, e.TIMESTAMP)) >= '{START_DATE}'
-      AND p.CSPID IN (SELECT csp_id FROM universe)
 )
+-- day-on-day: opens + both unique definitions, one row per IST day
 SELECT 'daily' AS mode, day_ist::STRING AS k,
-       COUNT(DISTINCT csp_id) AS openers, COUNT(*) AS opens, NULL AS targeted
+       COUNT(*)                AS opens,
+       COUNT(DISTINCT csp_id)  AS uniq_csps,
+       COUNT(DISTINCT ct_id)   AS uniq_users
 FROM ev GROUP BY 2
 UNION ALL
-SELECT 'total', NULL, COUNT(DISTINCT csp_id), COUNT(*), (SELECT COUNT(*) FROM universe)
+-- whole-window totals = the board's "Total clikes on banner" + "Unique CSP ids"
+SELECT 'total', NULL, COUNT(*), COUNT(DISTINCT csp_id), COUNT(DISTINCT ct_id)
 FROM ev
 UNION ALL
--- HIGHLIGHT: unique CSPs who opened a banner in the last 3 COMPLETE IST days. Own
--- COUNT(DISTINCT) over the window — summing the daily bars double-counts anyone who
--- opened on more than one of the three days.
-SELECT 'last3', NULL, COUNT(DISTINCT csp_id), COUNT(*), (SELECT COUNT(*) FROM universe)
+-- LEADING INDICATOR: unique CSPs engaging in the last 3 COMPLETE IST days...
+SELECT 'last3', NULL, COUNT(*), COUNT(DISTINCT csp_id), COUNT(DISTINCT ct_id)
 FROM ev WHERE day_ist BETWEEN '{LAST3_START}'::DATE AND '{LAST3_END}'::DATE
 UNION ALL
--- opens-per-CSP histogram (1..9, 10+)
-SELECT 'hist', LEAST(t, 10)::STRING, COUNT(*), NULL, NULL
-FROM (SELECT csp_id, COUNT(*) AS t FROM ev GROUP BY 1)
+-- ...and the 3 days before that, so the card can show direction rather than a level.
+SELECT 'prev3', NULL, COUNT(*), COUNT(DISTINCT csp_id), COUNT(DISTINCT ct_id)
+FROM ev WHERE day_ist BETWEEN '{PREV3_START}'::DATE AND '{PREV3_END}'::DATE
+UNION ALL
+-- "MBG- Banner metrics" histogram: opens PER USER (identity), bucketed 1..9 then 10+.
+-- Per-user, not per-CSP, to match the board card.
+SELECT 'hist', LEAST(n, 10)::STRING, NULL, NULL, COUNT(*)
+FROM (SELECT ct_id, COUNT(*) AS n FROM ev GROUP BY 1)
 GROUP BY 2
 ORDER BY 1, 2;

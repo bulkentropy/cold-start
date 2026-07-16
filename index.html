@@ -479,44 +479,28 @@ svg text{font-family:inherit}
     <div class="foot" id="eng-foot" style="margin-top:10px"></div>
   </div>
 
-  <!-- L0 · reach — two DIFFERENT surfaces. Push = can we wake a CSP who isn't in the
-       app. In-app banner = engagement of a CSP already in the app. Kept apart on
-       purpose: they are not the same number and their caveats differ. -->
-  <div class="section card" id="l0-clk-hi" style="border-left:3px solid var(--accent)" hidden>
-    <div class="label">Push reach — CSPs clicking the MBG push in the last 3 days</div>
-    <div class="strip" id="clk-hi" style="margin-top:12px"></div>
-    <div class="foot" id="clk-hi-foot" style="margin-top:10px"></div>
-  </div>
+  <!-- L0 · reach — MBG Board reproduction (CleverTap 1783687017), per
+       mbg_click_funnel_LOGIC.md. ALL USERS, no cohort filter, deliberately: the
+       board's cards carry no CSP segment and this exists to agree with them. So
+       there is no reach % here — there is no denominator. Don't reintroduce one.
+       The push-click funnel that used to sit above this was removed 16 Jul (the
+       logic doc covers the banner only); push reach is no longer computed. -->
   <div class="section card" id="l0-bnr-hi" style="border-left:3px solid var(--purple)" hidden>
-    <div class="label">In-app banner reach — CSPs opening a home banner in the last 3 days</div>
+    <div class="label">Banner engagement — unique CSPs opening the banner in the last 3 days</div>
     <div class="strip" id="bnr-hi" style="margin-top:12px"></div>
     <div class="foot" id="bnr-hi-foot" style="margin-top:10px"></div>
   </div>
-  <div class="section card" id="l0-clk" hidden>
-    <div class="label">MBG push-click funnel — targeted → clicked</div>
-    <div class="sub" id="clk-sub"></div>
-    <div class="strip" id="clk-tiles" style="margin-top:14px"></div>
-    <div style="margin-top:18px">
-      <div class="label" style="margin-bottom:8px">Clicks per day (IST)</div>
-      <div id="clk-daily" style="overflow-x:auto"></div>
-    </div>
-    <div style="margin-top:18px">
-      <div class="label" style="margin-bottom:8px">How often each CSP clicks</div>
-      <div id="clk-hist" style="overflow-x:auto"></div>
-    </div>
-    <div class="foot" id="clk-foot" style="margin-top:12px"></div>
-  </div>
 
   <div class="section card" id="l0-bnr" hidden>
-    <div class="label">In-app home-banner opens — all banners</div>
+    <div class="label">MBG banner opens — CleverTap MBG Board</div>
     <div class="sub" id="bnr-sub"></div>
     <div class="strip" id="bnr-tiles" style="margin-top:14px"></div>
     <div style="margin-top:18px">
-      <div class="label" style="margin-bottom:8px">Banner opens per day (IST) — MBP go-live marked</div>
+      <div class="label" style="margin-bottom:8px">Banner opens per day (IST)</div>
       <div id="bnr-daily" style="overflow-x:auto"></div>
     </div>
     <div style="margin-top:18px">
-      <div class="label" style="margin-bottom:8px">How often each CSP opens a banner</div>
+      <div class="label" style="margin-bottom:8px">How often each user opens a banner</div>
       <div id="bnr-hist" style="overflow-x:auto"></div>
     </div>
     <div class="foot" id="bnr-foot" style="margin-top:12px"></div>
@@ -1066,7 +1050,6 @@ function render(d){
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
-  if(d.clicks)renderClicks(d.clicks);
   if(d.banner)renderBanner(d.banner);
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
@@ -1538,188 +1521,129 @@ function renderFailures(f){
       :`<tr><td colspan="3" style="color:var(--muted)">No Wiom-owned failures ${f.through}.</td></tr>`);
 }
 
-/* MBG PUSH-click funnel (L0 · reach). This is the push-notification click on the
-   CleverTap campaign inventory in server.py — NOT the in-app home-banner tap,
-   which is a different set of InApp campaigns (one per screen, ids rotate on
-   recreation). Labelled accordingly; don't loosen the wording to "in-app". */
-function renderClicks(c){
-  $('l0-clk-hi').hidden=false; $('l0-clk').hidden=false;
-  const d=s=>s?s.split('-').reverse().slice(0,2).join(' ').replace(/^0/,''):'';
-
-  // ---- highlight: unique CSPs who clicked in the last 3 COMPLETE IST days ----
-  const l3=c.last3||{};
-  $('clk-hi').innerHTML=`
-    <div class="tile"><div class="v" style="color:var(--accent)">${fmt(l3.clickers)}</div>
-      <div class="d">unique CSPs clicked · last 3 days</div></div>
-    <div class="tile"><div class="v">${l3.pct==null?'–':l3.pct+'%'}</div>
-      <div class="d">of ${fmt(l3.targeted)} targeted (enrolled cohort)</div></div>
-    <div class="tile"><div class="v">${fmt(l3.clicks)}</div>
-      <div class="d">total clicks in the window</div></div>`;
-  $('clk-hi-foot').innerHTML=`Distinct CSPs with ≥1 click on the MBG push between
-    <b>${l3.start}</b> and <b>${l3.end}</b> (inclusive) — the last 3 <b>complete</b> IST days.
-    Counted once each, however many times they clicked: this is a COUNT(DISTINCT) over the whole
-    window, <i>not</i> the sum of the daily bars below (a CSP clicking on two of the three days
-    would otherwise be counted twice). <b>Today (${c.today_ist}) is excluded</b> — it is always
-    partial up to the last Fivetran sync, so it would understate against a full day.`;
-
-  // ---- funnel ----
-  const nev=c.never_clicked;
-  $('clk-sub').innerHTML=`CleverTap campaign ${c.campaign_ids.join(' + ')} ·
-    <b>Push notification</b> (channel wiom_task_alerts) · since ${c.window_start} · IST`;
-  $('clk-tiles').innerHTML=[
-    [fmt(c.targeted),'targeted · enrolled cohort',''],
-    [fmt(c.clickers),'clicked ≥1×','var(--accent)'],
-    [c.reach_pct==null?'–':c.reach_pct+'%','reach (clickers ÷ targeted)',''],
-    [fmt(nev),'never clicked','var(--muted)'],
-    [fmt(c.clicks),'total clicks',''],
-    [c.avg_per_clicker??'–','avg clicks / clicker',''],
-  ].map(([v,l,col])=>`<div class="tile"><div class="v"${col?` style="color:${col}"`:''}>${v}</div>
-      <div class="d">${l}</div></div>`).join('');
-
-  // ---- daily bars: total clicks (dark) + unique clickers (light) ----
-  const rows=c.daily||[];
-  if(rows.length){
-    const W=Math.max(560,rows.length*84), H=200, L=38, R=8, T=12, B=30;
-    const mx=Math.max(1,...rows.map(r=>r.clicks));
-    const bw=(W-L-R)/rows.length;
-    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
-    [0,.5,1].forEach(f=>{const y=T+(H-T-B)*(1-f);
-      s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--grid)"/>
-          <text x="${L-6}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${Math.round(mx*f)}</text>`;});
-    rows.forEach((r,i)=>{
-      const x=L+i*bw, h=c=>(H-T-B)*(c/mx);
-      const partial=r.day_ist===c.today_ist;
-      s+=`<rect x="${x+bw*.14}" y="${H-B-h(r.clicks)}" width="${bw*.34}" height="${h(r.clicks)}"
-            rx="2" fill="var(--dark)" ${partial?'opacity=".45"':''}/>
-          <rect x="${x+bw*.52}" y="${H-B-h(r.clickers)}" width="${bw*.34}" height="${h(r.clickers)}"
-            rx="2" fill="var(--accent)" ${partial?'opacity=".45"':''}/>
-          <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${d(r.day_ist)}${partial?'*':''}</text>`;
-    });
-    s+=`</svg><div class="legend"><span><i style="background:var(--dark)"></i>total clicks</span>
-        <span><i style="background:var(--accent)"></i>unique clickers</span></div>`;
-    $('clk-daily').innerHTML=s;
-  } else $('clk-daily').innerHTML='<div class="sub" style="color:var(--muted)">no click days yet</div>';
-
-  // ---- clicks-per-CSP histogram (1..9, 10+) ----
-  const hs=c.hist||[];
-  if(hs.length){
-    const W=Math.max(480,hs.length*54), H=170, L=34, R=8, T=12, B=28;
-    const mx=Math.max(1,...hs.map(h=>h.csps)), bw=(W-L-R)/hs.length;
-    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
-    hs.forEach((h,i)=>{const x=L+i*bw, bh=(H-T-B)*(h.csps/mx);
-      s+=`<rect x="${x+bw*.2}" y="${H-B-bh}" width="${bw*.6}" height="${bh}" rx="2" fill="var(--purple)"/>
-          <text x="${x+bw*.5}" y="${H-B-bh-4}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.csps}</text>
-          <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.bucket===10?'10+':h.bucket}</text>`;});
-    s+=`</svg><div class="sub" style="margin-top:2px">CSPs (bar value) by their total number of clicks (x-axis)</div>`;
-    $('clk-hist').innerHTML=s;
-  } else $('clk-hist').innerHTML='<div class="sub" style="color:var(--muted)">no clicks yet</div>';
-
-  $('clk-foot').innerHTML=`<b>This is the push notification, not the in-app card.</b> The campaign
-    tracked here is <b>Campaign type = Push</b>; the MBG in-app home banner is a separate set of InApp
-    campaigns — one per screen (secured / almost / keep-going / no-leads) — whose ids rotate on every
-    recreation, so it needs its own id inventory before it can be tracked. <b>Targeted</b> = the
-    enrolled MBG cohort (opted-in Flow-1 + audit-done Flow-2) minus 2 test CSPs; it is <b>dynamic</b>
-    and grows as CSPs enrol. It is a <b>reach proxy, not delivered-sent</b> — CleverTap does not
-    expose push "Sent" to the warehouse, so a true CTR (clicks ÷ sent) can only be read off the
-    CleverTap board manually. Scoping to the enrolled cohort is also why these numbers sit below the
-    CleverTap board's, which counts the campaign's full target segment — same event, different
-    audience filter. Days marked <b>*</b> are partial (up to the last Fivetran sync).
-    <b>Campaign ids are an inventory</b>: if the push is stopped and recreated, CleverTap mints a new
-    id and this card silently drops to ~zero — add the new id to <code>CLICK_CAMPAIGN_IDS</code> in
-    server.py and both are summed.`;
-}
-
-/* In-app HOME-BANNER opens. A DIFFERENT surface from the push card above: this is
-   the native `banner_opened` event, i.e. a CSP already inside the app tapping a home
-   banner. It is a SUPERSET — it counts every home banner, not just MBP, because the
-   event's `banner` property is a per-CSP uuid and nothing marks an open as MBP. The
-   MBP go-live (9 Jul) is marked so the lift is legible against the pre-MBP floor. */
+/* MBG Board reproduction — in-app HOME-BANNER opens (native `banner_opened`).
+   Mirrors CleverTap board 1783687017 per mbg_click_funnel_LOGIC.md: ALL USERS, no
+   CSP segment, over the board's window (10 Jul onward). There is no denominator, so
+   NO reach % — don't reintroduce one against the enrolled count. It is also a
+   SUPERSET: every home banner, not just MBP, because the event's `banner` property
+   is a per-CSP uuid and nothing marks an open as MBP. */
 function renderBanner(b){
   $('l0-bnr-hi').hidden=false; $('l0-bnr').hidden=false;
   const d=s=>s?s.split('-').reverse().slice(0,2).join(' ').replace(/^0/,''):'';
+
+  // ---- LEADING INDICATOR: unique CSPs engaging over the last 3 COMPLETE IST days,
+  //      vs the 3 before for direction. Complete days only, so this EXCLUDES today
+  //      while the board tiles below include it — intentional, and said on the card. ----
   const l3=b.last3||{};
-
+  const dl=l3.delta, hasPrev=l3.prev_csps!=null;
+  const arrow=!hasPrev||dl===0?'':(dl>0?'▲':'▼');
+  const dcol=!hasPrev||dl===0?'var(--muted)':(dl>0?'var(--green)':'var(--red)');
   $('bnr-hi').innerHTML=`
-    <div class="tile"><div class="v" style="color:var(--purple)">${fmt(l3.openers)}</div>
-      <div class="d">unique CSPs opened a banner · last 3 days</div></div>
-    <div class="tile"><div class="v">${l3.pct==null?'–':l3.pct+'%'}</div>
-      <div class="d">of ${fmt(l3.targeted)} targeted (enrolled cohort)</div></div>
+    <div class="tile"><div class="v" style="color:var(--purple)">${fmt(l3.csps)}</div>
+      <div class="d">unique CSPs opened the banner · last 3 days</div></div>
+    <div class="tile"><div class="v" style="color:${dcol}">${
+        hasPrev?`${arrow}${dl>0?'+':''}${dl}`:'–'}</div>
+      <div class="d">${hasPrev?`vs ${fmt(l3.prev_csps)} the previous 3 days`
+                              :'no comparable prior window yet'}</div></div>
     <div class="tile"><div class="v">${fmt(l3.opens)}</div>
-      <div class="d">total opens in the window</div></div>`;
-  $('bnr-hi-foot').innerHTML=`Distinct CSPs who opened <b>any</b> in-app home banner between
-    <b>${l3.start}</b> and <b>${l3.end}</b> — the last 3 <b>complete</b> IST days, today excluded as
-    partial. COUNT(DISTINCT) over the window, not the sum of the daily bars.
-    <b>⚠ This is not MBP-only.</b> It counts every home banner: the event carries a per-CSP
-    banner uuid, so nothing identifies an open as the MBG status banner. Read it as the ceiling
-    for MBP banner engagement, not as MBP itself — see the card below for the go-live lift.`;
+      <div class="d">total opens in the window</div></div>
+    <div class="tile"><div class="v">${l3.avg_per_csp??'–'}</div>
+      <div class="d">avg opens / engaged CSP</div></div>`;
+  $('bnr-hi-foot').innerHTML=`<b>The leading read on program interest.</b> Distinct CSPs who opened
+    the in-app banner between <b>${l3.start}</b> and <b>${l3.end}</b> (inclusive) — the last 3
+    <b>complete</b> IST days${hasPrev?`, against <b>${l3.prev_start}</b>–<b>${l3.prev_end}</b>`:''}.
+    Counted once each however many times they opened: this is a COUNT(DISTINCT) over the whole
+    window, <i>not</i> the sum of the daily bars below (a CSP opening on two of the three days would
+    otherwise count twice). <b>Today (${b.today_ist}) is excluded</b> — it is partial up to the last
+    Fivetran sync and would understate against a full day. Note this makes the window
+    <b>deliberately narrower than the tiles below</b>, which include today to match the board.
+    <b>⚠ Read it as a ceiling, not as MBG interest itself.</b> It counts <b>any</b> home banner and
+    <b>any</b> CSP — the event carries a per-CSP banner uuid and no cohort segment, so nothing
+    identifies an open as the MBG card or the opener as enrolled.`;
 
-  $('bnr-sub').innerHTML=`Native <code>banner_opened</code> event · enrolled cohort · since
-    ${b.window_start} · IST · <b>all home banners — MBP not separable</b>`;
+  $('bnr-sub').innerHTML=`Native <code>banner_opened</code> event · <b>all users — no CSP
+    filter</b> · since ${b.window_start} · IST · <b>all home banners — MBP not separable</b>`;
+
+  // ---- the board's three cards, as tiles ----
   $('bnr-tiles').innerHTML=[
-    [fmt(b.targeted),'targeted · enrolled cohort',''],
-    [fmt(b.openers),'opened ≥1 banner','var(--purple)'],
-    [b.reach_pct==null?'–':b.reach_pct+'%','reach (openers ÷ targeted)',''],
-    [fmt(b.opens),'total opens',''],
-    [b.avg_per_opener??'–','avg opens / opener',''],
+    [fmt(b.opens),'total banner opens','var(--deep)'],
+    [fmt(b.uniq_csps),'unique CSPs · owner+admin merged','var(--purple)'],
+    [fmt(b.uniq_users),'unique users · identities',''],
+    [b.avg_per_user??'–','avg opens / user',''],
   ].map(([v,l,col])=>`<div class="tile"><div class="v"${col?` style="color:${col}"`:''}>${v}</div>
       <div class="d">${l}</div></div>`).join('');
 
+  // ---- daily bars: opens (dark) + unique CSPs + unique users ----
   const rows=b.daily||[];
   if(rows.length){
-    const W=Math.max(620,rows.length*58), H=210, L=38, R=8, T=16, B=30;
+    const W=Math.max(620,rows.length*84), H=210, L=38, R=8, T=16, B=30;
     const mx=Math.max(1,...rows.map(r=>r.opens)), bw=(W-L-R)/rows.length;
     let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
     [0,.5,1].forEach(f=>{const y=T+(H-T-B)*(1-f);
       s+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="var(--grid)"/>
           <text x="${L-6}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${Math.round(mx*f)}</text>`;});
-    // MBP go-live marker — everything left of this line is the pre-MBP floor.
-    const gi=rows.findIndex(r=>r.day_ist===b.golive);
-    if(gi>=0){const gx=L+gi*bw;
-      s+=`<line x1="${gx}" y1="${T}" x2="${gx}" y2="${H-B}" stroke="var(--accent)"
-             stroke-width="1.5" stroke-dasharray="4 3"/>
-          <text x="${gx+4}" y="${T+9}" font-size="9.5" font-weight="700" fill="var(--accent)">MBP banner live</text>`;}
     rows.forEach((r,i)=>{
       const x=L+i*bw, h=c=>(H-T-B)*(c/mx);
       const partial=r.day_ist===b.today_ist;
-      s+=`<rect x="${x+bw*.14}" y="${H-B-h(r.opens)}" width="${bw*.34}" height="${h(r.opens)}"
-            rx="2" fill="var(--deep)" ${partial?'opacity=".45"':''}/>
-          <rect x="${x+bw*.52}" y="${H-B-h(r.openers)}" width="${bw*.34}" height="${h(r.openers)}"
-            rx="2" fill="var(--purple)" ${partial?'opacity=".45"':''}/>
+      const o=partial?'opacity=".45"':'';
+      s+=`<rect x="${x+bw*.08}" y="${H-B-h(r.opens)}" width="${bw*.26}" height="${h(r.opens)}"
+            rx="2" fill="var(--deep)" ${o}/>
+          <rect x="${x+bw*.37}" y="${H-B-h(r.uniq_csps)}" width="${bw*.26}" height="${h(r.uniq_csps)}"
+            rx="2" fill="var(--purple)" ${o}/>
+          <rect x="${x+bw*.66}" y="${H-B-h(r.uniq_users)}" width="${bw*.26}" height="${h(r.uniq_users)}"
+            rx="2" fill="var(--accent)" ${o}/>
           <text x="${x+bw*.5}" y="${H-B+14}" font-size="9.5" fill="var(--muted)" text-anchor="middle">${d(r.day_ist)}${partial?'*':''}</text>`;
     });
     s+=`</svg><div class="legend"><span><i style="background:var(--deep)"></i>total opens</span>
-        <span><i style="background:var(--purple)"></i>unique openers</span></div>`;
+        <span><i style="background:var(--purple)"></i>unique CSPs</span>
+        <span><i style="background:var(--accent)"></i>unique users</span></div>`;
     $('bnr-daily').innerHTML=s;
   } else $('bnr-daily').innerHTML='<div class="sub" style="color:var(--muted)">no banner opens yet</div>';
 
+  // ---- "MBG- Banner metrics": opens PER USER (identity), bucketed 1..9, 10+ ----
   const hs=b.hist||[];
   if(hs.length){
     const W=Math.max(480,hs.length*54), H=170, L=34, R=8, T=12, B=28;
-    const mx=Math.max(1,...hs.map(h=>h.csps)), bw=(W-L-R)/hs.length;
+    const mx=Math.max(1,...hs.map(h=>h.users)), bw=(W-L-R)/hs.length;
     let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
-    hs.forEach((h,i)=>{const x=L+i*bw, bh=(H-T-B)*(h.csps/mx);
+    hs.forEach((h,i)=>{const x=L+i*bw, bh=(H-T-B)*(h.users/mx);
       s+=`<rect x="${x+bw*.2}" y="${H-B-bh}" width="${bw*.6}" height="${bh}" rx="2" fill="var(--purple)"/>
-          <text x="${x+bw*.5}" y="${H-B-bh-4}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.csps}</text>
+          <text x="${x+bw*.5}" y="${H-B-bh-4}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.users}</text>
           <text x="${x+bw*.5}" y="${H-B+14}" font-size="10" fill="var(--muted)" text-anchor="middle">${h.bucket===10?'10+':h.bucket}</text>`;});
-    s+=`</svg><div class="sub" style="margin-top:2px">CSPs (bar value) by their total banner opens (x-axis)</div>`;
+    s+=`</svg><div class="sub" style="margin-top:2px">Users (bar value) by their total banner opens
+        (x-axis) — per identity, as on the board</div>`;
     $('bnr-hist').innerHTML=s;
   } else $('bnr-hist').innerHTML='<div class="sub" style="color:var(--muted)">no opens yet</div>';
 
-  $('bnr-foot').innerHTML=`<b>What this is, precisely.</b> The MBP status banner is a <b>native app
-    component</b>, not a CleverTap campaign — it fires the custom <code>banner_opened</code> event.
-    (The CleverTap InApp campaigns listed in the tracking doc are <i>not</i> this banner: 5 of those 7
-    ids emit no clicks at all and they predate the banner's go-live — they are the in-app comms
-    popups.) <b>Why it isn't MBP-only:</b> <code>banner_opened</code> carries a <code>banner</code>
-    property, but it is a <b>per-CSP uuid</b> — every one of the 619 distinct uuids seen maps to
-    exactly one CSP — so nothing in the event marks an open as MBP. The series also has a
-    <b>pre-MBP floor</b> (other home banners), which is why the 9 Jul go-live is marked: opens per
-    day step from a <i>declining</i> ~44–73 to a steady ~150–170 right after it, and that step is the
-    MBP banner landing. It reconciles with the ~232 CSPs / 600 clicks reported in-channel on 10 Jul.
-    <b>No CTR is possible here</b> — the native banner has no impression event (unlike a CleverTap
-    campaign, which fires 'Notification Viewed'). <b>The fix for an MBP-only number:</b> get the
-    banner-uuid → banner-type mapping from the banner backend, or better, have a
-    <code>banner_type</code> property added to <code>banner_opened</code> — then this filters
-    exactly and the caveat goes away. Days marked <b>*</b> are partial.`;
+  const bd=b.board||{};
+  $('bnr-foot').innerHTML=`<b>This mirrors the CleverTap
+    <a href="${b.board_url}" target="_blank" rel="noopener">MBG Board</a></b> (dashboard 1783687017),
+    whose three cards all read the single event <code>banner_opened</code> with <b>no CSP
+    segment</b> — so this card carries none either, and the numbers here are <b>not</b> a cohort
+    reach. There is no denominator: don't read them against the 466 enrolled.
+    <b>Three ways to count "unique", and the board uses a fourth-of-sorts:</b>
+    <b>unique CSPs</b> = <code>COUNT(DISTINCT CSPID)</code> — a CSP once, owner and admin merged.
+    <b>unique users</b> = <code>COUNT(DISTINCT CLEVERTAP_ID)</code> — each identity separately, so a
+    CSP where both owner and admin opened counts twice. The board's own "Unique CSP ids" card
+    (<b>${fmt(bd.users)}</b> as of ${bd.date}) is neither: it is CleverTap <b>Device Stats</b>
+    (Mobile+Tablet), which is why it lands <i>between</i> the two — it is only reproducible from the
+    CleverTap Counts/Events API, not the warehouse.
+    <b>Expect ~3% off the board, permanently.</b> The board's "after Jul 09" boundary uses the
+    <b>CleverTap account timezone</b>, not IST, so it starts a few hours later
+    (board ${fmt(bd.opens)} opens as of ${bd.date} vs ~2,477 here). Bit-exact parity isn't
+    achievable from Snowflake — read direction, not the last digit.
+    <b>Why it isn't MBP-only:</b> the MBP status banner is a <b>native app component</b>, not a
+    CleverTap campaign, and <code>banner_opened</code> carries no campaign id. Its <code>banner</code>
+    property is a <b>per-CSP uuid</b> — every distinct uuid maps to exactly one CSP — so nothing marks
+    an open as MBP. Read this as the <b>ceiling</b> for MBP banner engagement.
+    <b>No CTR is possible</b> — the native banner has no impression event (unlike a CleverTap
+    campaign, which fires 'Notification Viewed'). <b>The fix:</b> get the banner-uuid → banner-type
+    mapping from the banner backend, or better, have a <code>banner_type</code> property added to
+    <code>banner_opened</code> — then this filters exactly and the caveat goes away.
+    <b>Today counts.</b> Days marked <b>*</b> are partial (up to the last Fivetran sync), and the
+    tiles above are open-ended — they <i>include</i> today, exactly as the board does. So the totals
+    climb through the day and today's bar is always short. That is board parity, not a bug; it is
+    also why this card has no "last 3 complete days" figure, unlike the rest of the portal.`;
 }
 
 function renderNsm(n){
