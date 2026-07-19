@@ -63,6 +63,52 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .mtile .m-tgt{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px;
       border-top:1px solid var(--n200);padding-top:8px}
 .mtile .m-tgt b{color:var(--text)}
+/* Sehat enrollment-funnel (sign-up feed) — recreation of the CSP-Guarantee dashboard */
+.s-note{border-radius:10px;padding:11px 14px;font-size:12.5px;font-weight:600;line-height:1.55;margin:4px 0 6px}
+.s-note.await{background:#FFF3DD;border:1px solid #F2DCA8;color:#7A5200}
+.s-note.live{background:#E1FAED;border:1px solid #BFE9CF;color:var(--green)}
+.s-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.s-card{background:var(--card);border:1px solid var(--n200);border-radius:14px;padding:16px 18px;border-top:4px solid var(--sc,#ccc)}
+.s-card .nm{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:800}
+.s-card .nm .sw{width:11px;height:11px;border-radius:50%;background:var(--sc)}
+.s-card .g{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-top:14px}
+.s-card .cl{font-size:11px;font-weight:700;color:var(--muted)}
+.s-card .cv{font-size:22px;font-weight:800;letter-spacing:-.3px;margin-top:2px}
+.s-card .cv small{font-size:12px;font-weight:700;color:var(--n300)}
+.s-funnels{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.s-fp{background:var(--card);border:1px solid var(--n200);border-radius:14px;padding:16px 18px;border-top:4px solid var(--sc,#ccc)}
+.s-fp .ft{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:800}
+.s-fp .ft .sw{width:12px;height:12px;border-radius:50%;background:var(--sc)}
+.s-fp .fs{font-size:12px;color:var(--muted);font-weight:600;margin:5px 0 14px;line-height:1.45}
+.s-step{margin:10px 0}
+.s-step .l{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;font-weight:700;margin-bottom:4px}
+.s-step .l .v{font-weight:800;font-size:13px}
+.s-step .l .v small{color:var(--n300);font-weight:700;font-size:11px;margin-left:3px}
+.s-step .trk{background:var(--n200);border-radius:6px;height:22px;overflow:hidden}
+.s-step .br{height:100%;border-radius:6px;min-width:3px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.s-step .dp{font-size:11px;font-weight:700;color:var(--amber);margin-top:3px;height:13px}
+.s-step .dp.zero{color:var(--green)}
+.s-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.s-panel{background:var(--card);border:1px solid var(--n200);border-radius:14px;padding:16px 18px}
+.s-q .qr{margin-bottom:12px}
+.s-q .ql{font-size:12.5px;font-weight:700;margin-bottom:5px;display:flex;justify-content:space-between}
+.s-q .qb{background:var(--n200);border-radius:6px;height:9px;overflow:hidden}
+.s-q .qb span{display:block;height:100%;border-radius:6px}
+.s-screens{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
+.s-sp{background:var(--card);border:1px solid var(--n200);border-radius:14px;padding:16px 18px 20px;
+  border-top:4px solid var(--sc,#ccc);display:flex;flex-direction:column;align-items:center}
+.s-sp .ft{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:800;align-self:flex-start}
+.s-sp .ft .sw{width:12px;height:12px;border-radius:50%;background:var(--sc)}
+.s-sp .fs{font-size:12px;color:var(--muted);font-weight:600;margin:5px 0 14px;align-self:flex-start;line-height:1.45}
+.s-phone{width:300px;max-width:100%;height:600px;border-radius:28px;padding:8px;background:var(--dark);
+  box-shadow:0 10px 30px rgba(22,16,33,.28);position:relative}
+.s-phone::before{content:"";position:absolute;top:15px;left:50%;transform:translateX(-50%);
+  width:70px;height:5px;border-radius:3px;background:#3B3348;z-index:2}
+.s-phone iframe{width:100%;height:100%;border:0;border-radius:20px;background:#fff;display:block}
+.s-link{margin-top:13px;font-size:12px;font-weight:700;text-decoration:none;color:var(--sc);
+  border:1px solid var(--n200);border-radius:999px;padding:6px 14px}
+.s-hint{font-size:11px;color:var(--n300);font-weight:600;margin-top:8px;text-align:center}
+@media(max-width:760px){.s-cards,.s-funnels,.s-two,.s-screens{grid-template-columns:1fr}}
 .await{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
       background:var(--n200);color:var(--muted);padding:3px 9px;border-radius:40px}
 /* tabs */
@@ -264,6 +310,49 @@ svg text{font-family:inherit}
     <div class="sub" style="margin:6px 0 14px">The movement that has to happen for P0 to land, visible
       long before the 15th. These are the early-warning metrics.</div>
     <div class="mtiles" id="sehat-p1"></div>
+  </div>
+
+  <div class="card section">
+    <div class="label">Enrollment funnel — the sign-up feed</div>
+    <div class="sub" style="margin:6px 0 10px">Live intake for the two opt-in campaigns, from CleverTap
+      events split by <code>offer_id</code>, counted as <b>unique CSPs</b>. This is unblocker (3) below —
+      it lights up automatically the moment the feed syncs.
+      <a id="sehat-src" href="#" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Source dashboard ↗</a></div>
+    <div id="sehat-signup-note"></div>
+    <div class="strip" id="sehat-kpis" style="margin-top:14px"></div>
+    <div id="sehat-cards" class="s-cards"></div>
+    <div style="margin-top:20px">
+      <div class="label" style="margin-bottom:10px">Enrollment funnels — by cohort</div>
+      <div id="sehat-funnels" class="s-funnels"></div>
+    </div>
+    <div class="s-two" style="margin-top:20px">
+      <div>
+        <div class="label" style="margin-bottom:10px">Quiz accuracy</div>
+        <div id="sehat-quiz" class="s-panel s-q"></div>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:10px">Enrollments per day</div>
+        <div class="s-panel"><svg id="sehat-trend" viewBox="0 0 520 220" preserveAspectRatio="none"
+          style="width:100%;height:220px"></svg></div>
+      </div>
+    </div>
+    <div style="margin-top:20px">
+      <div class="label" style="margin-bottom:10px">Campaign screens — what the CSP sees</div>
+      <div id="sehat-screens" class="s-screens"></div>
+    </div>
+    <div class="foot" id="sehat-funnel-foot" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card section">
+    <div class="label">Observation layer — quality trend by cohort</div>
+    <div class="sub" style="margin:6px 0 10px">Day-on-day movement on the number each track is
+      <b>paid to improve</b> — Optical Power for Track A, Service SLA for Track B — for the
+      <b>opted-in vs non-opted-in</b> CSPs. This is the real test of Sehat MG: does signing up move
+      the metric? Rolling windows match the CSP's in-app number (Optical 15-day, SLA 60-day),
+      card 11616 logic. <b>Higher is better; the dashed line is the 80% payout gate.</b></div>
+    <div id="sehat-quality-note"></div>
+    <div class="s-two" id="sehat-quality-charts" style="margin-top:14px"></div>
+    <div class="foot" id="sehat-quality-foot" style="margin-top:12px"></div>
   </div>
 
   <div class="card section">
@@ -731,6 +820,25 @@ const SEHAT_OPEN=[
 ];
 
 function renderSehat(){
+  // Feed the P0 "Sign-up conversion" tile from the live funnel, if it exists yet.
+  const S=(typeof DATA==='object'&&DATA)?DATA.sehat:null;
+  const signup=SEHAT_METRICS.find(m=>m.name==='Sign-up conversion');
+  if(signup){
+    if(S&&S.live){
+      const enr=S.campaigns.reduce((a,c)=>a+(c.funnel.enrolled||0),0);
+      signup.value=S.eligible_total?Math.round(100*enr/S.eligible_total)+'%':null;
+    } else signup.value=null;
+  }
+  // Feed the P1 lift tiles from the observation layer's latest median (opted if the
+  // split is live, else whole-cohort).
+  const SQ=(typeof DATA==='object'&&DATA)?DATA.sehat_quality:null;
+  if(SQ){
+    const latest=key=>{const c=SQ.cohorts.find(x=>x.key===key);if(!c)return null;
+      const s=c.series.opted||c.series.all||[];const l=[...s].reverse().find(p=>p.median!=null);return l?l.median:null;};
+    const setv=(name,v)=>{const m=SEHAT_METRICS.find(x=>x.name===name);if(m)m.value=(v==null?null:v+'%');};
+    setv('Optical Power lift · Track A', latest('sehat_optical'));
+    setv('Service lift · Track B', latest('sehat_sla'));
+  }
   const tile=m=>`<div class="mtile ${m.tier}">
     <span class="label">${m.tier.toUpperCase()}</span>
     <div class="m-name">${m.name}</div>
@@ -766,6 +874,188 @@ function renderSehat(){
     <th>Recommendation (not decided)</th></tr></thead><tbody>`+
     SEHAT_OPEN.map(r=>`<tr><td class="tt2">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')+
     `</tbody>`;
+
+  if(S)renderSehatFunnel(S);
+}
+
+/* Sehat MG enrollment funnel — warehouse recreation of the CSP-Guarantee campaign
+   dashboard. `live` is false until the CleverTap events sync, so the whole block
+   renders an honest "awaiting sign-up feed" state (real Eligible, dashes elsewhere)
+   rather than fake zeros. Two cohorts: Optical Power (Track A) / Service SLA (Track B). */
+function renderSehatFunnel(S){
+  const live=!!S.live, iN=n=>Number(n||0).toLocaleString('en-IN'), pc=(a,b)=>b?Math.round(a/b*100):0;
+  const dash=v=>live?v:'—';
+  const C=S.campaigns, steps=S.steps;
+  if($('sehat-src'))$('sehat-src').href=S.source_url;
+
+  // status banner — the awaiting state must NOT read as "zero CSPs signed up"
+  const note=$('sehat-signup-note');
+  if(live){
+    const enr=C.reduce((a,c)=>a+(c.funnel.enrolled||0),0);
+    note.className='s-note live';
+    note.innerHTML=`● Live — <b>${iN(enr)}</b> enrolled of ${iN(S.eligible_total)} eligible
+      (<b>${pc(enr,S.eligible_total)}%</b>) · counting since ${S.window_start}`;
+  } else {
+    note.className='s-note await';
+    note.innerHTML=`⏳ <b>Awaiting the sign-up feed.</b> The campaign's CleverTap events aren't in the
+      warehouse yet (launch ${S.window_start}); the source dashboard is on its sample fallback too.
+      This is <b>not</b> confirmation that zero CSPs signed up — only that no event has synced.
+      Eligible counts below are real; everything else shows a dash until the feed lands.`;
+  }
+
+  // KPIs — combined across both cohorts
+  const sum=k=>C.reduce((a,c)=>a+(c.funnel[k]||0),0);
+  const elig=S.eligible_total, reached=sum('reached'), enrolled=sum('enrolled');
+  $('sehat-kpis').innerHTML=[
+    ['Eligible (live for)', iN(elig), C.map(c=>c.label+' '+c.eligible).join(' · ')],
+    ['Reached', dash(iN(reached)), live?`<b>${pc(reached,elig)}%</b> of eligible`:'awaiting feed'],
+    ['Enrolled (opt-in)', dash(iN(enrolled)), live?`<b>${pc(enrolled,reached)}%</b> of reached`:'awaiting feed'],
+    ['Opt-in rate', dash(pc(enrolled,reached)+'%'), 'enrolled ÷ reached'],
+  ].map(k=>`<div class="tile"><div class="v" style="color:${live?'var(--accent)':'var(--n300)'}">${k[1]}</div>
+    <div class="d">${k[0]} · ${k[2]}</div></div>`).join('');
+
+  // per-cohort cards
+  $('sehat-cards').innerHTML=C.map(c=>{const f=c.funnel;return `
+    <div class="s-card" style="--sc:${c.color}"><div class="nm"><span class="sw"></span>${c.label}
+      <span style="font-weight:600;color:var(--muted);font-size:12px">· ${c.suffix}</span></div>
+      <div class="g">
+        <div><div class="cl">Reached</div><div class="cv">${dash(iN(f.reached))}</div></div>
+        <div><div class="cl">Enrolled</div><div class="cv">${dash(iN(f.enrolled))}</div></div>
+        <div><div class="cl">Opt-in rate</div><div class="cv" style="color:${c.color}">${dash(pc(f.enrolled,f.reached)+'%')}</div></div>
+        <div><div class="cl">Seen, not enrolled</div><div class="cv">${dash(iN(f.reached-f.enrolled))} <small>of ${dash(iN(f.reached))}</small></div></div>
+      </div></div>`;}).join('');
+
+  // two funnels — baseline is the eligible cohort; every step = % of eligible
+  $('sehat-funnels').innerHTML=C.map(c=>{
+    const f=c.funnel, base=c.eligible||1;
+    const fs=[['eligible','Eligible (live for)',c.eligible]].concat(steps.map(s=>[s[0],s[1],f[s[0]]||0]));
+    const rows=fs.map((s,i)=>{
+      const v=s[2], p=pc(v,base), prev=i>0?fs[i-1][2]:v, drop=prev-v, dp=pc(drop,prev);
+      const dropTxt=(!live||i===0)?'':(drop>0?`↓ ${iN(drop)} dropped (−${dp}%)`:'✓ all continued');
+      return `<div class="s-step"><div class="l"><span>${s[1]}</span>
+        <span class="v">${i===0?iN(v):dash(iN(v))} <small>${i===0||live?p+'%':'—'}</small></span></div>
+        <div class="trk"><div class="br" style="width:${live||i===0?p:0}%;background:${c.color}"></div></div>
+        <div class="dp ${drop>0?'':'zero'}">${dropTxt}</div></div>`;
+    }).join('');
+    return `<div class="s-fp" style="--sc:${c.color}"><div class="ft"><span class="sw"></span>${c.label}
+      <span style="font-weight:600;color:var(--muted);font-size:12px">· ${c.suffix}</span></div>
+      <div class="fs">${c.desc}<br>Live for ${iN(c.eligible)} eligible${live?` · ${iN(f.reached)} reached
+        (${pc(f.reached,c.eligible)}% coverage) → ${iN(f.enrolled)} enrolled`:' · awaiting feed'}</div>${rows}</div>`;
+  }).join('');
+
+  // quiz accuracy — not wired: no quiz-answer event is being computed yet
+  $('sehat-quiz').innerHTML=`<div class="sub" style="color:var(--muted);line-height:1.6">
+    Quiz-accuracy (Q1/Q2 correct) needs the per-answer event, which isn't part of the six funnel
+    events wired here. Provisioned — add the quiz event to <code>sehat_funnel.sql</code> to light it up.</div>`;
+
+  // enrollments-per-day trend
+  drawSehatTrend(S, live);
+
+  $('sehat-funnel-foot').innerHTML=`Events: `+steps.map(s=>`<code>${s[2]}</code>`).join(' ')+
+    `<br>Split by <code>offer_id</code> — Optical = <code>sehat_optical</code> (Track A),
+    SLA = <code>sehat_sla</code> (Track B). Unique CSP IDs (<code>PROFILE_DATA.CSPID</code>), region eu1.
+    Warehouse-computed — <b>not</b> the source's <code>data.json</code>; it goes live on the same feed.`;
+
+  // campaign creatives — the real in-app flow, embedded from the source repo
+  $('sehat-screens').innerHTML=C.map(c=>c.creative?`
+    <div class="s-sp" style="--sc:${c.color}"><div class="ft"><span class="sw"></span>${c.label}
+      <span style="font-weight:600;color:var(--muted);font-size:12px">· ${c.suffix}</span></div>
+      <div class="fs">${c.desc}</div>
+      <div class="s-phone"><iframe src="${c.creative}" loading="lazy" title="${c.label} campaign preview"></iframe></div>
+      <a class="s-link" href="${c.creative}" target="_blank" rel="noopener">Open full screen ↗</a>
+      <div class="s-hint">Live creative from the source repo — tap through the real flow</div></div>`:'').join('');
+}
+
+function drawSehatTrend(S, live){
+  const svg=$('sehat-trend'), W=520,H=220,pad={l:34,r:14,t:14,b:26};
+  const C=S.campaigns, days=(C[0].daily||[]).map(d=>d.date);
+  if(!live||!days.length){
+    svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="var(--n300)"
+      font-size="13" font-weight="700">Awaiting the first enrolments</text>`;
+    return;
+  }
+  const maxY=Math.max(1,...C.flatMap(c=>c.daily.map(d=>d.enrolled)));
+  const x=i=>pad.l+(days.length<2?0:i/(days.length-1)*(W-pad.l-pad.r));
+  const y=v=>H-pad.b-(v/maxY)*(H-pad.t-pad.b);
+  let g='';
+  for(let t=0;t<=maxY;t+=Math.max(1,Math.ceil(maxY/4)))
+    g+=`<line x1="${pad.l}" y1="${y(t)}" x2="${W-pad.r}" y2="${y(t)}" stroke="var(--grid)" stroke-dasharray="3 4"/>
+        <text x="${pad.l-8}" y="${y(t)+4}" text-anchor="end" fill="var(--muted)" font-size="11">${t}</text>`;
+  days.forEach((d,i)=>{g+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="var(--muted)" font-size="11">${d.slice(5)}</text>`;});
+  C.forEach(c=>{
+    const pts=c.daily.map((d,i)=>`${x(i)},${y(d.enrolled)}`).join(' ');
+    g+=`<polyline points="${pts}" fill="none" stroke="${c.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+    c.daily.forEach((d,i)=>{g+=`<circle cx="${x(i)}" cy="${y(d.enrolled)}" r="4.5" fill="#fff" stroke="${c.color}" stroke-width="2.5"/>`;});
+  });
+  svg.innerHTML=g;
+}
+
+/* Sehat observation layer — day-on-day quality trend per cohort (Optical Power /
+   Service SLA), opted-in vs non-opted-in. Rolling medians from CSP_QUALITY_SERVICE,
+   card 11616 logic. HIGH = good; the 80% payout gate is drawn on each chart. Until
+   the sheet's opt-in column is populated each cohort shows one whole-cohort line. */
+function renderSehatQuality(Q){
+  const note=$('sehat-quality-note'), src=Q.cohort_source||'sheet';
+  if(Q.split_live){
+    note.className='s-note live';
+    note.innerHTML=`● <b>Split live</b> — opted-in vs non-opted-in per cohort, from the
+      <a href="${Q.sheet_url}" target="_blank" rel="noopener">Sehat MG sheet</a>.`;
+  } else {
+    note.className='s-note await';
+    note.innerHTML=`⏳ <b>Showing the whole-cohort trend.</b> The opted-in vs non-opted-in split lights
+      up automatically once the <a href="${Q.sheet_url}" target="_blank" rel="noopener">Sehat MG
+      sheet</a>'s <b>“Opted in”</b> column is populated — it reads live, no code change.
+      ${src.startsWith('snapshot')?`<br>Cohort is the committed snapshot right now (${src}).`:'Cohort membership is from that sheet.'}`;
+  }
+  $('sehat-quality-charts').innerHTML=Q.cohorts.map((c,i)=>
+    `<div class="s-panel" style="--sc:${c.color}">
+       <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:14.5px">
+         <span style="width:12px;height:12px;border-radius:50%;background:${c.color}"></span>
+         ${c.metric} · Track ${c.track}</div>
+       <div style="font-size:12px;color:var(--muted);font-weight:600;margin:5px 0 10px">
+         ${c.n} CSPs · ${c.unit}</div>
+       <svg id="sq-${i}" viewBox="0 0 520 210" style="width:100%;height:210px"></svg>
+       <div id="sqlg-${i}" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;font-weight:700"></div>
+     </div>`).join('');
+  Q.cohorts.forEach((c,i)=>drawQualityChart(c,'sq-'+i,'sqlg-'+i));
+  $('sehat-quality-foot').innerHTML=`Rolling medians across each cohort, recomputed daily; today
+    excluded as partial. Optical Power = in-range pings ÷ total (15-day window); Service SLA =
+    complaints resolved within the 4-hour TAT ÷ total (60-day window) — <b>higher is good</b>, both
+    gated at <b>80%</b>. Metric logic mirrors Metabase card 11616, computed live from
+    <code>CSP_QUALITY_SERVICE</code>. Window ${Q.obs_start} → ${Q.obs_end}.`;
+}
+
+function drawQualityChart(c, svgId, lgId){
+  const svg=$(svgId), W=520,H=210,pad={l:36,r:14,t:12,b:26};
+  const GRP={all:{label:'Whole cohort',color:c.color,dash:''},
+             opted:{label:'Opted in',color:c.color,dash:''},
+             notopted:{label:'Not opted in',color:'var(--muted)',dash:'5 4'}};
+  const groups=Object.keys(c.series).filter(gr=>c.series[gr].length);
+  if(!groups.length){svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="var(--n300)" font-size="13" font-weight="700">No telemetry in window</text>`;$(lgId).innerHTML='';return;}
+  const dates=[...new Set(groups.flatMap(gr=>c.series[gr].map(p=>p.date)))].sort();
+  const xi=d=>dates.indexOf(d), x=i=>pad.l+(dates.length<2?0:i/(dates.length-1)*(W-pad.l-pad.r));
+  const vals=groups.flatMap(gr=>c.series[gr].map(p=>p.median)).filter(v=>v!=null);
+  let lo=Math.min(...vals,c.gate), hi=Math.max(...vals,c.gate);
+  lo=Math.max(0,Math.floor((lo-4)/5)*5); hi=Math.min(100,Math.ceil((hi+3)/5)*5);
+  const y=v=>H-pad.b-((v-lo)/((hi-lo)||1))*(H-pad.t-pad.b);
+  let g='';
+  for(let t=0;t<=4;t++){const v=lo+(hi-lo)*t/4;
+    g+=`<line x1="${pad.l}" y1="${y(v)}" x2="${W-pad.r}" y2="${y(v)}" stroke="var(--grid)" stroke-dasharray="3 4"/>
+        <text x="${pad.l-6}" y="${y(v)+4}" text-anchor="end" fill="var(--muted)" font-size="10.5">${Math.round(v)}%</text>`;}
+  const step=Math.max(1,Math.ceil(dates.length/6));
+  dates.forEach((d,i)=>{if(i%step===0||i===dates.length-1)g+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="var(--muted)" font-size="10">${d.slice(5)}</text>`;});
+  if(c.gate>=lo&&c.gate<=hi)g+=`<line x1="${pad.l}" y1="${y(c.gate)}" x2="${W-pad.r}" y2="${y(c.gate)}" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="${W-pad.r}" y="${y(c.gate)-4}" text-anchor="end" fill="var(--green)" font-size="10" font-weight="700">gate ${c.gate}%</text>`;
+  groups.forEach(gr=>{const st=GRP[gr]||GRP.all, s=c.series[gr];
+    const pts=s.filter(p=>p.median!=null).map(p=>`${x(xi(p.date))},${y(p.median)}`).join(' ');
+    g+=`<polyline points="${pts}" fill="none" stroke="${st.color}" stroke-width="2.5" ${st.dash?`stroke-dasharray="${st.dash}"`:''} stroke-linecap="round" stroke-linejoin="round"/>`;
+    s.forEach(p=>{if(p.median!=null)g+=`<circle cx="${x(xi(p.date))}" cy="${y(p.median)}" r="3.2" fill="#fff" stroke="${st.color}" stroke-width="2"><title>${st.label} · ${p.date}: ${p.median}% (n=${p.n})</title></circle>`;});
+  });
+  svg.innerHTML=g;
+  $(lgId).innerHTML=groups.map(gr=>{const st=GRP[gr]||GRP.all, s=c.series[gr], last=[...s].reverse().find(p=>p.median!=null);
+    return `<span style="display:flex;align-items:center;gap:6px;color:var(--text)">
+      <i style="width:14px;height:0;border-top:3px ${st.dash?'dashed':'solid'} ${st.color};display:inline-block"></i>
+      ${st.label}${last?` · <b style="color:${st.color==='var(--muted)'?'var(--text)':st.color}">${last.median}%</b> <small style="color:var(--muted);font-weight:600">(n=${last.n})</small>`:''}</span>`;}).join('');
 }
 
 const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
@@ -1051,6 +1341,8 @@ function render(d){
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
+  if(d.sehat)renderSehatFunnel(d.sehat);
+  if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);

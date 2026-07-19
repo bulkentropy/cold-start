@@ -78,6 +78,54 @@ L1_START = "2026-06-24"        # pre-period start (last 7 days of June)
 # property is a per-CSP uuid, so nothing in CleverTap marks an open as MBP.
 BANNER_START = "2026-07-10"          # the board's window: "After Jul 09, 2026"
 MBG_BOARD_URL = "https://eu1.dashboard.clevertap.com/44Z-644-777Z/dashboards/custom/1783687017"
+
+# Sehat MG enrollment funnel (sign-up feed) — the second initiative's opt-in tracker,
+# a warehouse-computed recreation of vikaswiom.github.io/wiom-csp-guarantee-campaign.
+# See sql/sehat_funnel.sql. Awaiting-data until the CleverTap events sync (launch 16 Jul).
+SEHAT_START = "2026-07-16"           # campaign go-live
+# The six funnel events, in order (key, label, CleverTap event name).
+SEHAT_STEPS = [
+    ("reached",        "Reached",           "Sehat_View_education"),
+    ("learn_more",     "Learn more",        "Sehat_Learn_More"),
+    ("view_plan",      "Viewed plan",       "Sehat_View_plan"),
+    ("start_quiz",     "Started quiz",      "Sehat_Start_Quiz"),
+    ("quiz_complete",  "Completed quiz",    "Sehat_Quiz_Complete"),
+    ("enrolled",       "Enrolled (opt-in)", "Sehat_OptIn"),
+]
+EVENT_TO_STEP = {ev: key for key, _, ev in SEHAT_STEPS}
+# Two cohorts. `eligible` is the addressable count from the provision (the 99-CSP
+# launch cohort: 61 Track A + 37 Track B; the 1 unclassified CSP has no track).
+# creative = the source repo's live in-app flow, embedded as a phone-frame iframe.
+SEHAT_COHORTS = [
+    {"key": "sehat_optical", "label": "Optical Power", "suffix": "low",
+     "desc": "Track A · Ilaaj — CSPs whose Optical Power is low", "color": "#D9008D",
+     "eligible": 61,
+     "creative": "https://vikaswiom.github.io/wiom-csp-guarantee-campaign/index.html"},
+    {"key": "sehat_sla", "label": "Service SLA", "suffix": "poor",
+     "desc": "Track B · Fit rakhna — CSPs whose Service SLA is poor", "color": "#2563EB",
+     "eligible": 37,
+     "creative": "https://vikaswiom.github.io/wiom-csp-guarantee-campaign/sla.html"},
+]
+
+# Sehat MG observation layer — day-on-day quality trend per cohort (card 11616 logic,
+# rolled per day). Cohort membership + opt-in status come from the "Sehat MG" tab of
+# the offer sheet, read LIVE via gviz so the opted-vs-not split lights up the moment
+# the "Opted in" column is populated; falls back to data/sehat_cohort.json.
+SEHAT_SHEET_ID = "1XHqjybQYKyfCpgdraPiL32GBm2R2wf-CguxlHalmu8M"
+SEHAT_SHEET_GID = "1116493306"
+SEHAT_SHEET_URL = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
+                   f"/edit?gid={SEHAT_SHEET_GID}#gid={SEHAT_SHEET_GID}")
+SEHAT_OBS_START = "2026-07-01"        # a pre-launch baseline, then across the cycle
+SEHAT_GATE = 80                        # the payout gate on both tracks (≥80%)
+# metric spec per cohort: which quality table + columns + rolling window feed the trend
+SEHAT_QUALITY = {
+    "sehat_optical": {"table": "TELEMETRY_ROLLUP_RECORDS", "good": "OPTICAL_NUMERATOR",
+                      "total": "OPTICAL_DENOMINATOR", "datecol": "SIGNAL_DATE", "window": 15,
+                      "metric": "Optical Power", "unit": "% in-range pings · 15-day rolling"},
+    "sehat_sla":     {"table": "COMPLAINT_RESOLUTION_LEDGER", "good": "IFF(RESOLVED_WITHIN_TAT,1,0)",
+                      "total": "1", "datecol": "OPENED_AT", "window": 60,
+                      "metric": "Service SLA", "unit": "% resolved in 4h TAT · 60-day rolling"},
+}
 # Board snapshot from the logic doc, for the card's parity note. STATIC — it is a
 # 15-Jul reading, labelled as such on the card; it does not track the live board.
 BOARD_SNAPSHOT = {"date": "2026-07-15", "opens": 2394, "users": 398}
@@ -584,6 +632,153 @@ def compute_banner():
         },
         "window_start": BANNER_START, "today_ist": today.isoformat(),
         "board_url": MBG_BOARD_URL, "board": BOARD_SNAPSHOT,
+    }
+
+
+def compute_sehat_funnel():
+    """Sehat MG enrollment funnel — the sign-up feed for the second initiative.
+
+    Warehouse recreation of the CSP-Guarantee campaign dashboard: the six opt-in
+    events per cohort (offer_id), counted as unique CSPs, plus a daily
+    reached/enrolled trend. `live` is False until any event appears, so the tab
+    renders 'awaiting sign-up feed' rather than fake zeros — matching the provision.
+    Takes no cohort argument: eligibility is the fixed 99-CSP launch cohort, split
+    61/37 by track in SEHAT_COHORTS.
+    """
+    today = datetime.now(IST).date()
+    sql = open(os.path.join(BASE_DIR, "sql", "sehat_funnel.sql"), encoding="utf-8").read()
+    sql = sql.replace("{START_DATE}", SEHAT_START)
+    raw = metabase_sql(sql)
+
+    # index step counts and daily rows by cohort
+    steps = {c["key"]: {} for c in SEHAT_COHORTS}       # offer -> {step_key: distinct csps}
+    daily = {c["key"]: {} for c in SEHAT_COHORTS}       # offer -> {day: {reached, enrolled}}
+    for r in raw:
+        offer = r.get("offer")
+        if offer not in steps:
+            continue
+        if r["mode"] == "step":
+            step_key = EVENT_TO_STEP.get(r["k"])
+            if step_key:
+                steps[offer][step_key] = r["a"] or 0
+        elif r["mode"] == "daily" and r["k"]:
+            daily[offer][str(r["k"])[:10]] = {"reached": r["a"] or 0, "enrolled": r["b"] or 0}
+
+    campaigns = []
+    for c in SEHAT_COHORTS:
+        funnel = {key: steps[c["key"]].get(key, 0) for key, _, _ in SEHAT_STEPS}
+        day_rows = [{"date": d, **v} for d, v in sorted(daily[c["key"]].items())]
+        campaigns.append({**{k: c[k] for k in
+                             ("key", "label", "suffix", "desc", "color", "eligible", "creative")},
+                          "funnel": funnel, "daily": day_rows})
+
+    total_events = sum(sum(cc["funnel"].values()) for cc in campaigns)
+    return {
+        "live": total_events > 0,
+        "steps": [[k, lbl, ev] for k, lbl, ev in SEHAT_STEPS],
+        "campaigns": campaigns,
+        "eligible_total": sum(c["eligible"] for c in SEHAT_COHORTS),
+        "window_start": SEHAT_START, "today_ist": today.isoformat(),
+        "source_url": "https://vikaswiom.github.io/wiom-csp-guarantee-campaign/dashboard.html",
+    }
+
+
+def _fetch_sehat_cohort():
+    """Cohort + opt-in status from the offer sheet's 'Sehat MG' tab (gid), live via
+    gviz CSV. Any non-blank 'Opted in' cell = opted. Falls back to the committed
+    snapshot (data/sehat_cohort.json) with no opt-in info if the sheet is unreachable.
+    Returns {optical:[ids], sla:[ids], opted_optical:set, opted_sla:set, source}.
+    """
+    import csv, io
+    url = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
+           f"/gviz/tq?tqx=out:csv&gid={SEHAT_SHEET_GID}")
+    out = {"optical": [], "sla": [], "opted_optical": set(), "opted_sla": set(),
+           "source": "sheet"}
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            text = r.read().decode("utf-8", "replace")
+        if "<html" in text[:200].lower():
+            raise RuntimeError("gviz returned HTML (sheet not accessible unauth)")
+        for row in csv.DictReader(io.StringIO(text)):
+            cid = (row.get("CSP ID") or "").strip()
+            iv = (row.get("Sehat Intervention") or "").lower()
+            track = "optical" if "optical" in iv else ("sla" if "sla" in iv else None)
+            if not cid or not track:
+                continue
+            out[track].append(cid)
+            if (row.get("Opted in") or "").strip():
+                out["opted_" + track].add(cid)
+        if out["optical"] or out["sla"]:
+            return out
+        raise RuntimeError("sheet parsed empty")
+    except Exception as e:
+        snap = json.load(open(os.path.join(BASE_DIR, "data", "sehat_cohort.json"), encoding="utf-8"))
+        return {"optical": snap.get("optical", []), "sla": snap.get("sla", []),
+                "opted_optical": set(), "opted_sla": set(),
+                "source": f"snapshot ({type(e).__name__})"}
+
+
+def compute_sehat_quality():
+    """Sehat MG observation layer — day-on-day quality trend per cohort.
+
+    Optical cohort → rolling 15-day Optical Power; SLA cohort → rolling 60-day
+    on-time %. Card 11616's metric logic, computed per day (see sql/sehat_quality.sql).
+    Splits opted-vs-not when the sheet's opt-in column is populated; until then each
+    cohort renders a single whole-cohort line. HIGH = GOOD on both; gate = 80%.
+    """
+    coh = _fetch_sehat_cohort()
+    today = datetime.now(IST).date()
+    obs_end = today - timedelta(days=1)                 # complete IST days only
+    obs_start = datetime.strptime(SEHAT_OBS_START, "%Y-%m-%d").date()
+    ndays = (obs_end - obs_start).days + 1
+    tmpl = open(os.path.join(BASE_DIR, "sql", "sehat_quality.sql"), encoding="utf-8").read()
+
+    cohorts = []
+    for cdef in SEHAT_COHORTS:
+        track = "optical" if cdef["key"] == "sehat_optical" else "sla"
+        ids = coh[track]
+        opted = coh["opted_" + track] & set(ids)
+        q = SEHAT_QUALITY[cdef["key"]]
+        # split only if BOTH groups are non-empty — otherwise one whole-cohort line
+        split = 0 < len(opted) < len(ids)
+        if split:
+            opted_in = ",".join(f"'{c}'" for c in sorted(opted))
+            group_case = f"CASE WHEN t.CSP_ID IN ({opted_in}) THEN 'opted' ELSE 'notopted' END"
+        else:
+            group_case = "'all'"
+        series = {}
+        if ids and ndays > 0:
+            sql = (tmpl.replace("{TABLE}", q["table"]).replace("{GOOD}", q["good"])
+                       .replace("{TOTAL}", q["total"]).replace("{DATECOL}", q["datecol"])
+                       .replace("{WINDOW}", str(q["window"]))
+                       .replace("{CSP_IN}", ",".join(f"'{c}'" for c in ids))
+                       .replace("{GROUP_CASE}", group_case)
+                       .replace("{OBS_START}", obs_start.isoformat())
+                       .replace("{OBS_END}", obs_end.isoformat())
+                       .replace("{NDAYS}", str(ndays)))
+            for r in metabase_sql(sql):
+                grp = r["grp"]
+                series.setdefault(grp, []).append({
+                    "date": str(r["day"])[:10],
+                    "median": round(r["median_pct"], 1) if r["median_pct"] is not None else None,
+                    "mean": round(r["mean_pct"], 1) if r["mean_pct"] is not None else None,
+                    "n": r["n_csps"] or 0})
+            for g in series:
+                series[g].sort(key=lambda x: x["date"])
+        cohorts.append({
+            "key": cdef["key"], "label": cdef["label"], "color": cdef["color"],
+            "track": "A · Ilaaj" if track == "optical" else "B · Fit rakhna",
+            "metric": q["metric"], "unit": q["unit"], "window": q["window"],
+            "gate": SEHAT_GATE, "n": len(ids), "n_opted": len(opted),
+            "split": split, "series": series,
+        })
+
+    return {
+        "cohorts": cohorts, "obs_start": obs_start.isoformat(), "obs_end": obs_end.isoformat(),
+        "today_ist": today.isoformat(), "gate": SEHAT_GATE,
+        "cohort_source": coh["source"], "sheet_url": SEHAT_SHEET_URL,
+        "split_live": any(c["split"] for c in cohorts),
     }
 
 
@@ -1413,6 +1608,23 @@ def refresh(force=False):
             traceback.print_exc()
             payload["meta"]["errors"].append(f"banner: {type(e).__name__}: {e}")
             payload["banner"] = prev.get("banner")
+
+        try:
+            # Sehat MG sign-up feed (second initiative). Awaiting-data until the
+            # campaign's CleverTap events sync; renders regardless.
+            payload["sehat"] = compute_sehat_funnel()
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"sehat: {type(e).__name__}: {e}")
+            payload["sehat"] = prev.get("sehat")
+
+        try:
+            # Observation layer — day-on-day OP/SLA trend per Sehat cohort.
+            payload["sehat_quality"] = compute_sehat_quality()
+        except Exception as e:
+            traceback.print_exc()
+            payload["meta"]["errors"].append(f"sehat_quality: {type(e).__name__}: {e}")
+            payload["sehat_quality"] = prev.get("sehat_quality")
 
         try:
             payload["feedback"] = compute_feedback(enrolled)
