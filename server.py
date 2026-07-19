@@ -693,7 +693,7 @@ def _fetch_sehat_cohort():
     url = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
            f"/gviz/tq?tqx=out:csv&gid={SEHAT_SHEET_GID}")
     out = {"optical": [], "sla": [], "opted_optical": set(), "opted_sla": set(),
-           "source": "sheet"}
+           "names": {}, "source": "sheet"}
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -707,6 +707,7 @@ def _fetch_sehat_cohort():
             if not cid or not track:
                 continue
             out[track].append(cid)
+            out["names"][cid] = (row.get("Name") or "").strip()
             if (row.get("Opted in") or "").strip():
                 out["opted_" + track].add(cid)
         if out["optical"] or out["sla"]:
@@ -716,7 +717,7 @@ def _fetch_sehat_cohort():
         snap = json.load(open(os.path.join(BASE_DIR, "data", "sehat_cohort.json"), encoding="utf-8"))
         return {"optical": snap.get("optical", []), "sla": snap.get("sla", []),
                 "opted_optical": set(), "opted_sla": set(),
-                "source": f"snapshot ({type(e).__name__})"}
+                "names": snap.get("names", {}), "source": f"snapshot ({type(e).__name__})"}
 
 
 def compute_sehat_quality():
@@ -728,11 +729,47 @@ def compute_sehat_quality():
     cohort renders a single whole-cohort line. HIGH = GOOD on both; gate = 80%.
     """
     coh = _fetch_sehat_cohort()
+    names = coh.get("names", {})
     today = datetime.now(IST).date()
     obs_end = today - timedelta(days=1)                 # complete IST days only
     obs_start = datetime.strptime(SEHAT_OBS_START, "%Y-%m-%d").date()
     ndays = (obs_end - obs_start).days + 1
     tmpl = open(os.path.join(BASE_DIR, "sql", "sehat_quality.sql"), encoding="utf-8").read()
+    mtmpl = open(os.path.join(BASE_DIR, "sql", "sehat_movers.sql"), encoding="utf-8").read()
+
+    FLAT_BAND = 0.5   # |delta| below this = "flat" (not real movement)
+
+    def _median(xs):
+        xs = sorted(xs)
+        n = len(xs)
+        if not n:
+            return None
+        return xs[n // 2] if n % 2 else round((xs[n // 2 - 1] + xs[n // 2]) / 2, 1)
+
+    def _bucket_movers(rows):
+        """rows: per-CSP {csp_id, first_pct, last_pct, delta, days_observed}."""
+        up, down, flat = [], [], []
+        for r in rows:
+            d = r["delta"]
+            if d is None:
+                continue
+            rec = {"csp_id": r["csp_id"], "name": names.get(r["csp_id"], ""),
+                   "first": r["first_pct"], "last": r["last_pct"], "delta": d,
+                   "days": r["days_observed"]}
+            (up if d > FLAT_BAND else down if d < -FLAT_BAND else flat).append(rec)
+        up.sort(key=lambda x: -x["delta"]); down.sort(key=lambda x: x["delta"])
+        def side(recs):
+            deltas = [x["delta"] for x in recs]
+            return {"count": len(recs),
+                    "total_pts": round(sum(deltas), 1),
+                    "median": _median([abs(x) for x in deltas]),
+                    "max": round(max(deltas, key=abs), 1) if deltas else None,
+                    "top": recs[:6]}
+        return {"improved": side(up), "dropped": side(down),
+                "flat": {"count": len(flat)},
+                "n": len(up) + len(down) + len(flat),
+                "net_pts": round(sum(x["delta"] for x in up + down + flat), 1),
+                "flat_band": FLAT_BAND}
 
     cohorts = []
     for cdef in SEHAT_COHORTS:
@@ -747,17 +784,18 @@ def compute_sehat_quality():
             group_case = f"CASE WHEN t.CSP_ID IN ({opted_in}) THEN 'opted' ELSE 'notopted' END"
         else:
             group_case = "'all'"
-        series = {}
+        def _fill(t):
+            return (t.replace("{TABLE}", q["table"]).replace("{GOOD}", q["good"])
+                     .replace("{TOTAL}", q["total"]).replace("{DATECOL}", q["datecol"])
+                     .replace("{WINDOW}", str(q["window"]))
+                     .replace("{CSP_IN}", ",".join(f"'{c}'" for c in ids))
+                     .replace("{GROUP_CASE}", group_case)
+                     .replace("{OBS_START}", obs_start.isoformat())
+                     .replace("{OBS_END}", obs_end.isoformat())
+                     .replace("{NDAYS}", str(ndays)))
+        series, movers = {}, None
         if ids and ndays > 0:
-            sql = (tmpl.replace("{TABLE}", q["table"]).replace("{GOOD}", q["good"])
-                       .replace("{TOTAL}", q["total"]).replace("{DATECOL}", q["datecol"])
-                       .replace("{WINDOW}", str(q["window"]))
-                       .replace("{CSP_IN}", ",".join(f"'{c}'" for c in ids))
-                       .replace("{GROUP_CASE}", group_case)
-                       .replace("{OBS_START}", obs_start.isoformat())
-                       .replace("{OBS_END}", obs_end.isoformat())
-                       .replace("{NDAYS}", str(ndays)))
-            for r in metabase_sql(sql):
+            for r in metabase_sql(_fill(tmpl)):
                 grp = r["grp"]
                 series.setdefault(grp, []).append({
                     "date": str(r["day"])[:10],
@@ -766,12 +804,13 @@ def compute_sehat_quality():
                     "n": r["n_csps"] or 0})
             for g in series:
                 series[g].sort(key=lambda x: x["date"])
+            movers = _bucket_movers(metabase_sql(_fill(mtmpl)))
         cohorts.append({
             "key": cdef["key"], "label": cdef["label"], "color": cdef["color"],
             "track": "A · Ilaaj" if track == "optical" else "B · Fit rakhna",
             "metric": q["metric"], "unit": q["unit"], "window": q["window"],
             "gate": SEHAT_GATE, "n": len(ids), "n_opted": len(opted),
-            "split": split, "series": series,
+            "split": split, "series": series, "movers": movers,
         })
 
     return {

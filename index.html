@@ -109,6 +109,15 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
   border:1px solid var(--n200);border-radius:999px;padding:6px 14px}
 .s-hint{font-size:11px;color:var(--n300);font-weight:600;margin-top:8px;text-align:center}
 @media(max-width:760px){.s-cards,.s-funnels,.s-two,.s-screens{grid-template-columns:1fr}}
+.s-mv{margin-top:13px;border-top:1px solid var(--n200);padding-top:11px}
+.s-mv-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;font-weight:800;margin-bottom:8px}
+.s-mv-sum .up{color:var(--green)} .s-mv-sum .dn{color:var(--red)} .s-mv-sum .fl{color:var(--muted)}
+.s-mv table{width:100%;border-collapse:collapse;font-size:11.5px}
+.s-mv td{padding:3px 6px;border-bottom:1px solid var(--n200);vertical-align:top;line-height:1.4}
+.s-mv tr:last-child td{border-bottom:none}
+.s-mv .d-up{color:var(--green);font-weight:800;white-space:nowrap;text-align:right}
+.s-mv .d-dn{color:var(--red);font-weight:800;white-space:nowrap;text-align:right}
+.s-mv .mv-cap{font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:9px 0 3px}
 .await{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
       background:var(--n200);color:var(--muted);padding:3px 9px;border-radius:40px}
 /* tabs */
@@ -1016,13 +1025,36 @@ function renderSehatQuality(Q){
          ${c.n} CSPs · ${c.unit}</div>
        <svg id="sq-${i}" viewBox="0 0 520 210" style="width:100%;height:210px"></svg>
        <div id="sqlg-${i}" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;font-weight:700"></div>
+       <div id="sqmv-${i}" class="s-mv"></div>
      </div>`).join('');
-  Q.cohorts.forEach((c,i)=>drawQualityChart(c,'sq-'+i,'sqlg-'+i));
+  Q.cohorts.forEach((c,i)=>{drawQualityChart(c,'sq-'+i,'sqlg-'+i);renderMovers(c,'sqmv-'+i);});
   $('sehat-quality-foot').innerHTML=`Rolling medians across each cohort, recomputed daily; today
     excluded as partial. Optical Power = in-range pings ÷ total (15-day window); Service SLA =
     complaints resolved within the 4-hour TAT ÷ total (60-day window) — <b>higher is good</b>, both
     gated at <b>80%</b>. Metric logic mirrors Metabase card 11616, computed live from
     <code>CSP_QUALITY_SERVICE</code>. Window ${Q.obs_start} → ${Q.obs_end}.`;
+}
+
+/* Per-CSP movement drill-down under each quality chart — what the cohort median
+   hides: how many CSPs improved vs dropped, by how much, and the biggest movers. */
+function renderMovers(c, hostId){
+  const host=$(hostId), m=c.movers;
+  if(!m||!m.n){host.innerHTML='';return;}
+  const imp=m.improved, dr=m.dropped, sign=v=>(v>0?'+':'')+v;
+  const row=(r,cls)=>`<tr><td>${(r.name||r.csp_id)}${r.days<c.window?` <span style="color:var(--n300)" title="only ${r.days} days observed">·${r.days}d</span>`:''}</td>
+    <td style="color:var(--muted);white-space:nowrap">${r.first}%→${r.last}%</td><td class="${cls}">${sign(r.delta)}</td></tr>`;
+  let h=`<div class="s-mv-sum">
+    <span class="up">▲ ${imp.count} improved${imp.count?` · +${imp.total_pts} pts`:''}</span>
+    <span class="dn">▼ ${dr.count} dropped${dr.count?` · ${dr.total_pts} pts`:''}</span>
+    <span class="fl">— ${m.flat.count} flat</span></div>`;
+  if(imp.count)h+=`<div class="mv-cap" style="color:var(--green)">Biggest gains · median +${imp.median} pt</div>
+    <table>${imp.top.slice(0,3).map(r=>row(r,'d-up')).join('')}</table>`;
+  if(dr.count)h+=`<div class="mv-cap" style="color:var(--red)">Biggest drops · median −${dr.median} pt</div>
+    <table>${dr.top.slice(0,3).map(r=>row(r,'d-dn')).join('')}</table>`;
+  h+=`<div style="font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.5">Each CSP's rolling
+    value on its last vs first observed day; movement = last − first. |Δ| &lt; ${m.flat_band} = flat.
+    <b>Net ${sign(m.net_pts)} pts</b> across ${m.n} CSPs — the median line hides this spread.</div>`;
+  host.innerHTML=h;
 }
 
 function drawQualityChart(c, svgId, lgId){
