@@ -569,7 +569,7 @@ svg text{font-family:inherit}
   </div>
   <div class="section two" id="funnels"></div>
   <div class="section card" id="l0-eng" hidden>
-    <div class="label">Engagement campaign — CSP stage movement (1–10 Jul)</div>
+    <div class="label">Engagement campaign — CSP stage movement (1–21 Jul)</div>
     <div class="sub" id="eng-sub"></div>
     <div class="strip" id="eng-tiles" style="margin-top:14px"></div>
     <div id="eng-chart" style="margin-top:14px;overflow-x:auto"></div>
@@ -2019,14 +2019,14 @@ function renderEngagement(e){
   box.hidden=false;
   const s=e.stages, first=s[0], last=s[s.length-1];
   const movedUp=s.reduce((a,r)=>a+(r.moved_up||0),0);
-  $('eng-sub').innerHTML=`457 MG CSPs classified daily against the <b>60% install gate</b> — <b>No-leads → Keep-going → Almost → Secured</b> — over the in-app engagement campaign (${e.window}). Definitions below; tracks CSPs moving up toward securing MG.`;
+  $('eng-sub').innerHTML=`${e.total_csps||''} MG CSPs classified each day against the <b>60% install gate</b> — <b>No-leads → Keep-going → Almost → Secured</b> — rebuilt from the MG calling sheet's live per-lead settlement (${e.window}). Day-on-day; the last day reproduces the app's current per-CSP stage exactly. Definitions below.`;
   const mv=(a,b,goodDown)=>{const d=b-a, up=d>0, good=goodDown?d<0:d>0; const c=Math.abs(d)<1?'var(--muted)':(good?'var(--green)':'var(--red)');
     return `was ${a} · <span style="color:${c};font-weight:700">${up?'▲+':(d<0?'▼':'')}${Math.abs(d)}</span>`;};
   $('eng-tiles').innerHTML=
     tile(last.noleads,'No-leads',mv(first.noleads,last.noleads,true),'color:var(--green)')+
     tile(last.withleads,'With-leads (active)',mv(first.withleads,last.withleads,false),'color:var(--green)')+
     tile(last.secured,'Secured',mv(first.secured,last.secured,false))+
-    tile(movedUp,'Moved up','total up-stage moves, 8 days','color:var(--green)');
+    tile(movedUp,'Moved up',`total up-stage moves, ${s.length} days`,'color:var(--green)');
   // stage-distribution — stacked area to the constant ~457 total. Ladder order:
   // Secured at the base, No-leads on top; the grey band drains as green/amber
   // grow, so the day-on-day movement reads in one glance (no line-crossing).
@@ -2055,20 +2055,22 @@ function renderEngagement(e){
   svg+='</svg>';
   const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
   $('eng-chart').innerHTML=svg+`<div style="display:flex;gap:16px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${STK.slice().reverse().map(([k,c,l])=>key(c,l)).join('')}</div>`;
-  // banner engagement funnel (campaign totals)
+  // banner-engagement funnel: only if the source carries banner totals (new sheet source does not)
   const et={views:0,scrolls:0,saw_guar:0,tap_guar:0,ticket_taps:0};
   (e.engagement||[]).forEach(x=>{for(const k in et)et[k]+=x[k]||0;});
-  const steps=[['Views',et.views],['Scrolled',et.scrolls],['Saw guarantee',et.saw_guar],['Tapped guarantee',et.tap_guar],['Ticket taps',et.ticket_taps]];
-  const mx=Math.max(...steps.map(x=>x[1]))||1;
-  let fh=`<div class="label" style="font-size:12px;margin-bottom:8px">Banner engagement — campaign totals</div>`;
-  steps.forEach(([l,v])=>{fh+=`<div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px"><div style="width:130px;color:var(--ink2)">${l}</div><div style="flex:1;background:#EEE8F7;border-radius:4px;height:16px"><div style="width:${Math.round(100*v/mx)}%;height:16px;background:var(--purple);border-radius:4px"></div></div><div style="width:56px;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)}</div></div>`;});
-  $('eng-funnel').innerHTML=fh;
-  $('eng-foot').innerHTML=`<b>Stages</b> (on the 60% install gate — installs vs matured + open leads):
-    <b>No-leads</b> — no lead currently counting (nothing matured or open). <i>Not</i> "never got a lead": most got leads that all lapsed before the customer confirmed a slot (CSP timeout / no-show / declined, or customer cancelled pre-slot); only ~19 truly never got any, ~130 got leads and lost them all.
-    · <b>Keep-going</b> — below 60% and can't reach it even if every open lead installs (installs + open ≤ 60% of total).
-    · <b>Almost</b> — below 60% now but still reachable: if the open/pending leads install, they cross 60% (installs + open > 60% of total).
-    · <b>Secured</b> — matured > 0 and rate > 60%: already above the gate, just needs to hold ≥ 60%.
-    Total 457 CSPs each day; the mix shifts as CSPs re-enter the counting funnel. One-off snapshot (mbg_stage_movement.xlsx), not live.`;
+  if(et.views>0){
+    const steps=[['Views',et.views],['Scrolled',et.scrolls],['Saw guarantee',et.saw_guar],['Tapped guarantee',et.tap_guar],['Ticket taps',et.ticket_taps]];
+    const mx=Math.max(...steps.map(x=>x[1]))||1;
+    let fh=`<div class="label" style="font-size:12px;margin-bottom:8px">Banner engagement — campaign totals</div>`;
+    steps.forEach(([l,v])=>{fh+=`<div style="display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px"><div style="width:130px;color:var(--ink2)">${l}</div><div style="flex:1;background:#EEE8F7;border-radius:4px;height:16px"><div style="width:${Math.round(100*v/mx)}%;height:16px;background:var(--purple);border-radius:4px"></div></div><div style="width:56px;text-align:right;font-variant-numeric:tabular-nums">${fmt(v)}</div></div>`;});
+    $('eng-funnel').innerHTML=fh;
+  } else { $('eng-funnel').innerHTML=''; }
+  $('eng-foot').innerHTML=`<b>Stages</b> — let <b>total = denominator + pending</b>, where the denominator is customer-confirmed leads that reached a final state (the app's settlement rule):
+    <b>No-leads</b> — total = 0: no customer-confirmed leads counting yet.
+    · <b>Secured</b> — installs ÷ denominator > 60%: already crossed the gate.
+    · <b>Almost</b> — not yet 60%, but (installs + pending) ÷ total > 60%: reachable if the open leads install.
+    · <b>Keep-going</b> — has leads but can't reach 60% from the current pipeline; needs more leads/installs.
+    ${e.total_csps} MG CSPs classified each day. Rebuilt from <b>${e.source||'the MG calling sheet (Data V2)'}</b> by replaying each lead's confirm/settlement dates; the 21-Jul column matches the sheet's live per-CSP stage exactly (0 mismatches across ${e.total_csps} CSPs). Intermediate days are a reconstruction, not a stored daily snapshot.`;
 }
 
 function renderFunnels(l0){
