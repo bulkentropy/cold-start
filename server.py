@@ -134,8 +134,8 @@ POST_START = "2026-07-01"
 # Belief-cohort before/after cut: matured pre-window vs the live post-window.
 COHORT_BEFORE = ("2026-06-01", "2026-06-15")
 # CSP-status (moved/ignition/demand) before vs after: two equal 7-day windows.
-IGN_BEFORE = ("2026-06-24", "2026-06-30")   # last 7 days of June
-IGN_AFTER = ("2026-07-01", "2026-07-07")    # first week of July
+IGN_BEFORE = ("2026-06-01", "2026-06-30")   # whole of June
+IGN_AFTER = ("2026-07-01", None)            # 1 July to date (end filled at runtime)
 # week-on-week ignition windows: (start, end, label, tasks-key, installs-key in l1_status)
 IGN_WEEKS = [("2026-06-24", "2026-06-30", "24–30 Jun", "tb", "ib"),
              ("2026-07-01", "2026-07-07", "1–7 Jul", "ta", "ia"),
@@ -1066,8 +1066,9 @@ def compute_cohort(enrolled_ids, latest):
             return "ignition"        # tasks created, none installed
         return "demand"              # 0 tasks — nothing reached the CSP
 
-    out_b = {p: classify(p, "tb", "ib") for p in enrolled_ids}
-    out_a = {p: classify(p, "ta", "ia") for p in enrolled_ids}
+    # before/after matrix: BEFORE = whole of June (jb/jbi), AFTER = 1 July to date (jd/jdi)
+    out_b = {p: classify(p, "jb", "jbi") for p in enrolled_ids}
+    out_a = {p: classify(p, "jd", "jdi") for p in enrolled_ids}
 
     def split(out, keys):
         s = {"moved": 0, "ignition": 0, "demand": 0}
@@ -1121,7 +1122,8 @@ def compute_cohort(enrolled_ids, latest):
                       "split": split(out_w, allk), "maturity": _week_mat(w0, w1)["pct"]})
     maturity = _week_mat(*IGN_WEEKS[-1][:2])   # maturity band references the latest week
 
-    ignition = {"before_window": list(IGN_BEFORE), "after_window": list(IGN_AFTER), "days": 7,
+    ignition = {"before_window": list(IGN_BEFORE), "after_window": ["2026-07-01", today.isoformat()],
+                "days": None,
                 "enrolled": len(enrolled_ids), "weeks": weeks,
                 "totals_before": split(out_b, allk), "totals_after": split(out_a, allk),
                 "by_belief": by_belief, "transition": transition, "maturity": maturity}

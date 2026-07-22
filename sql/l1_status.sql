@@ -54,6 +54,15 @@ SELECT partner_id,
        AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)) AS tc,
   COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
        AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ic,
+  -- Before/after matrix windows: BEFORE = whole of June, AFTER = 1 July to date (now).
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-01 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)) AS jb,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-01 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS jbi,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  CURRENT_TIMESTAMP()) AS jd,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  CURRENT_TIMESTAMP() AND is_installed) AS jdi,
   -- MG-doc gate (final-state anchored, month-to-date)
   COUNT_IF(confirmed_at IS NOT NULL AND NOT is_open AND NOT is_system
        AND final_state_at >= DATEADD(minute,-330,'{MONTH_START} 00:00:00'::TIMESTAMP_NTZ)) AS recv_m,

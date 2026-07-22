@@ -425,7 +425,10 @@ svg text{font-family:inherit}
   <div class="card section" style="margin-top:20px" id="ign-transition-card">
     <div class="label">Installation behaviour — who started / stopped installing, before → after</div>
     <div class="sub">"Active" = ≥1 install that window. Of those not installing, split by whether they had
-      demand: available demand (got tasks, didn't convert) vs demand deficit (0 tasks).</div>
+      demand: available demand (got tasks, didn't convert) vs demand deficit (0 tasks).
+      <b>Before = whole of June · After = 1 July to date.</b>
+      Note: July tasks created in the last ~2 weeks may not have matured yet (~14-day install runway), so
+      "available demand, not installing" is somewhat inflated for the after window and will settle as those tasks mature.</div>
     <div class="strip" id="ign-transition" style="margin-top:14px"></div>
     <div class="tablewrap" style="margin-top:14px"><table class="board" id="ign-tr-table" style="min-width:640px"></table></div>
   </div>
@@ -434,7 +437,7 @@ svg text{font-family:inherit}
     <div class="sub">Did more CSPs in each belief cohort install after the intervention than before?</div>
     <div class="tablewrap" style="margin-top:14px"><table class="board" id="ign-table" style="min-width:720px"></table></div>
     <div style="margin-top:20px">
-      <div class="label" style="margin-bottom:8px">Composition now (first week of July) by belief</div>
+      <div class="label" style="margin-bottom:8px">Composition now (July to date) by belief</div>
       <div id="ign-belief"></div>
     </div>
   </div>
@@ -443,9 +446,9 @@ svg text{font-family:inherit}
     Per enrolled CSP, counted by TAS install tasks <b>created</b> in the window (any booking vintage,
     not booking-confirm anchored like the L1 funnel): <b>Moved</b> = ≥1 of those tasks installed.
     <b>Ignition failure</b> = ≥1 task received, none installed. <b>Demand failure</b> = 0 tasks
-    received — nothing reached the CSP (demand engine not routing to them). <b>Before</b> = 24–30 Jun
-    (last week of June, matured), <b>after</b> = 1–7 Jul (first week of July) — equal windows, same
-    CSPs, current belief.
+    received — nothing reached the CSP (demand engine not routing to them). <b>Before</b> = whole of June
+    (1–30 Jun, matured), <b>after</b> = 1 July to date — same CSPs, current belief. The after window is still
+    maturing (tasks created in the last ~2 weeks may yet install), so its "available demand" is a soft ceiling.
   </div>
 </div>
 
