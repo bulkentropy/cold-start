@@ -54,6 +54,10 @@ SELECT partner_id,
        AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)) AS tc,
   COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
        AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ic,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ)) AS t4,
+  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)
+       AND created_at <  DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i4,
   -- Before/after matrix windows: BEFORE = whole of June, AFTER = 1 July to date (now).
   COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-01 00:00:00'::TIMESTAMP_NTZ)
        AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)) AS jb,

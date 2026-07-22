@@ -139,7 +139,8 @@ IGN_AFTER = ("2026-07-01", None)            # 1 July to date (end filled at runt
 # week-on-week ignition windows: (start, end, label, tasks-key, installs-key in l1_status)
 IGN_WEEKS = [("2026-06-24", "2026-06-30", "24–30 Jun", "tb", "ib"),
              ("2026-07-01", "2026-07-07", "1–7 Jul", "ta", "ia"),
-             ("2026-07-08", "2026-07-14", "8–14 Jul", "tc", "ic")]
+             ("2026-07-08", "2026-07-14", "8–14 Jul", "tc", "ic"),
+             ("2026-07-15", "2026-07-21", "15–21 Jul", "t4", "i4")]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
