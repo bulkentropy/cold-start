@@ -1348,6 +1348,7 @@ function render(d){
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
   if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
+  renderSehat();   // refresh P0/P1 tiles + hero on every data load (not only on tab-switch)
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);

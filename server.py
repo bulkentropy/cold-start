@@ -717,7 +717,8 @@ def _fetch_sehat_cohort():
     except Exception as e:
         snap = json.load(open(os.path.join(BASE_DIR, "data", "sehat_cohort.json"), encoding="utf-8"))
         return {"optical": snap.get("optical", []), "sla": snap.get("sla", []),
-                "opted_optical": set(), "opted_sla": set(),
+                "opted_optical": set(snap.get("opted_optical", [])),
+                "opted_sla": set(snap.get("opted_sla", [])),
                 "names": snap.get("names", {}), "source": f"snapshot ({type(e).__name__})"}
 
 
