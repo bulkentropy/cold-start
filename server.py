@@ -709,7 +709,7 @@ def _fetch_sehat_cohort():
                 continue
             out[track].append(cid)
             out["names"][cid] = (row.get("Name") or "").strip()
-            if (row.get("Opted in") or "").strip():
+            if (row.get("Opted in") or "").strip().lower() == "yes":
                 out["opted_" + track].add(cid)
         if out["optical"] or out["sla"]:
             return out
@@ -772,19 +772,22 @@ def compute_sehat_quality():
                 "net_pts": round(sum(x["delta"] for x in up + down + flat), 1),
                 "flat_band": FLAT_BAND}
 
+    # enrollment summary (from the offer sheet) — feeds the P0 sign-up tile
+    enroll = {"total_eligible": len(coh["optical"]) + len(coh["sla"]),
+              "total_enrolled": len(coh["opted_optical"]) + len(coh["opted_sla"]),
+              "optical": {"eligible": len(coh["optical"]), "enrolled": len(coh["opted_optical"])},
+              "sla": {"eligible": len(coh["sla"]), "enrolled": len(coh["opted_sla"])}}
+
     cohorts = []
     for cdef in SEHAT_COHORTS:
         track = "optical" if cdef["key"] == "sehat_optical" else "sla"
-        ids = coh[track]
-        opted = coh["opted_" + track] & set(ids)
+        eligible_ids = coh[track]
+        # ENROLLED CSPs only — all post-P0 quality is computed on the signed-up set
+        ids = sorted(coh["opted_" + track] & set(eligible_ids))
+        opted = set(ids)
         q = SEHAT_QUALITY[cdef["key"]]
-        # split only if BOTH groups are non-empty — otherwise one whole-cohort line
-        split = 0 < len(opted) < len(ids)
-        if split:
-            opted_in = ",".join(f"'{c}'" for c in sorted(opted))
-            group_case = f"CASE WHEN t.CSP_ID IN ({opted_in}) THEN 'opted' ELSE 'notopted' END"
-        else:
-            group_case = "'all'"
+        split = False
+        group_case = "'all'"
         def _fill(t):
             return (t.replace("{TABLE}", q["table"]).replace("{GOOD}", q["good"])
                      .replace("{TOTAL}", q["total"]).replace("{DATECOL}", q["datecol"])
@@ -794,7 +797,7 @@ def compute_sehat_quality():
                      .replace("{OBS_START}", obs_start.isoformat())
                      .replace("{OBS_END}", obs_end.isoformat())
                      .replace("{NDAYS}", str(ndays)))
-        series, movers = {}, None
+        series, movers, at_gate, crossed = {}, None, 0, 0
         if ids and ndays > 0:
             for r in metabase_sql(_fill(tmpl)):
                 grp = r["grp"]
@@ -805,18 +808,27 @@ def compute_sehat_quality():
                     "n": r["n_csps"] or 0})
             for g in series:
                 series[g].sort(key=lambda x: x["date"])
-            movers = _bucket_movers(metabase_sql(_fill(mtmpl)))
+            mrows = metabase_sql(_fill(mtmpl))
+            movers = _bucket_movers(mrows)
+            # snapshot: how many CSPs sit at/above the 80% gate today, and how many
+            # newly crossed it (were below on the first observed day, at/above now).
+            at_gate = sum(1 for r in mrows if r.get("last_pct") is not None
+                          and r["last_pct"] >= SEHAT_GATE)
+            crossed = sum(1 for r in mrows if r.get("last_pct") is not None
+                          and r["last_pct"] >= SEHAT_GATE
+                          and r.get("first_pct") is not None and r["first_pct"] < SEHAT_GATE)
         cohorts.append({
             "key": cdef["key"], "label": cdef["label"], "color": cdef["color"],
             "track": "A · Ilaaj" if track == "optical" else "B · Fit rakhna",
             "metric": q["metric"], "unit": q["unit"], "window": q["window"],
-            "gate": SEHAT_GATE, "n": len(ids), "n_opted": len(opted),
+            "gate": SEHAT_GATE, "n": len(ids), "eligible": len(eligible_ids), "n_opted": len(opted),
             "split": split, "series": series, "movers": movers,
+            "at_gate": at_gate, "crossed": crossed,
         })
 
     return {
         "cohorts": cohorts, "obs_start": obs_start.isoformat(), "obs_end": obs_end.isoformat(),
-        "today_ist": today.isoformat(), "gate": SEHAT_GATE,
+        "today_ist": today.isoformat(), "gate": SEHAT_GATE, "enroll": enroll,
         "cohort_source": coh["source"], "sheet_url": SEHAT_SHEET_URL,
         "split_live": any(c["split"] for c in cohorts),
     }
@@ -1652,16 +1664,10 @@ def refresh(force=False):
             payload["banner"] = prev.get("banner")
 
         try:
-            # Sehat MG sign-up feed (second initiative). Awaiting-data until the
-            # campaign's CleverTap events sync; renders regardless.
-            payload["sehat"] = compute_sehat_funnel()
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"sehat: {type(e).__name__}: {e}")
-            payload["sehat"] = prev.get("sehat")
-
-        try:
-            # Observation layer — day-on-day OP/SLA trend per Sehat cohort.
+            # Observation layer — day-on-day OP/SLA trend per Sehat cohort, on the
+            # ENROLLED set; also carries the enrollment summary (from the offer sheet)
+            # that feeds the P0 sign-up tile. (The old CleverTap sign-up funnel card
+            # was removed — its data was wrong; enrolment now comes from the sheet.)
             payload["sehat_quality"] = compute_sehat_quality()
         except Exception as e:
             traceback.print_exc()

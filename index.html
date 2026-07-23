@@ -322,50 +322,19 @@ svg text{font-family:inherit}
   </div>
 
   <div class="card section">
-    <div class="label">Enrollment funnel — the sign-up feed</div>
-    <div class="sub" style="margin:6px 0 10px">Live intake for the two opt-in campaigns, from CleverTap
-      events split by <code>offer_id</code>, counted as <b>unique CSPs</b>. This is unblocker (3) below —
-      it lights up automatically the moment the feed syncs.
-      <a id="sehat-src" href="#" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700">Source dashboard ↗</a></div>
-    <div id="sehat-signup-note"></div>
-    <div class="strip" id="sehat-kpis" style="margin-top:14px"></div>
-    <div id="sehat-cards" class="s-cards"></div>
-    <div style="margin-top:20px">
-      <div class="label" style="margin-bottom:10px">Enrollment funnels — by cohort</div>
-      <div id="sehat-funnels" class="s-funnels"></div>
-    </div>
-    <div class="s-two" style="margin-top:20px">
-      <div>
-        <div class="label" style="margin-bottom:10px">Quiz accuracy</div>
-        <div id="sehat-quiz" class="s-panel s-q"></div>
-      </div>
-      <div>
-        <div class="label" style="margin-bottom:10px">Enrollments per day</div>
-        <div class="s-panel"><svg id="sehat-trend" viewBox="0 0 520 220" preserveAspectRatio="none"
-          style="width:100%;height:220px"></svg></div>
-      </div>
-    </div>
-    <div style="margin-top:20px">
-      <div class="label" style="margin-bottom:10px">Campaign screens — what the CSP sees</div>
-      <div id="sehat-screens" class="s-screens"></div>
-    </div>
-    <div class="foot" id="sehat-funnel-foot" style="margin-top:14px"></div>
-  </div>
-
-  <div class="card section">
     <div class="label">Observation layer — quality trend by cohort</div>
     <div class="sub" style="margin:6px 0 10px">Day-on-day movement on the number each track is
-      <b>paid to improve</b> — Optical Power for Track A, Service SLA for Track B — for the
-      <b>opted-in vs non-opted-in</b> CSPs. This is the real test of Sehat MG: does signing up move
-      the metric? Rolling windows match the CSP's in-app number (Optical 15-day, SLA 60-day),
-      card 11616 logic. <b>Higher is better; the dashed line is the 80% payout gate.</b></div>
+      <b>paid to improve</b> — Optical Power for Track A, Service SLA for Track B — across the
+      <b>enrolled CSPs</b> (opted in on the offer sheet). Rolling windows match the CSP's in-app number
+      (Optical 15-day, SLA 60-day), card 11616 logic. <b>Higher is better; the dashed line is the 80% payout gate.</b></div>
     <div id="sehat-quality-note"></div>
+    <div id="sehat-snapshot" style="margin-top:14px"></div>
     <div class="s-two" id="sehat-quality-charts" style="margin-top:14px"></div>
     <div class="foot" id="sehat-quality-foot" style="margin-top:12px"></div>
   </div>
 
   <div class="card section">
-    <div class="label">Launch cohort — the 99 priority CSPs</div>
+    <div class="label">Launch cohort — the 96 CSPs</div>
     <div class="sub" style="margin:6px 0 4px">Track assignment at the 80% Optical Power split.
       Baselines below are the doc's pull (July 2026) — not yet live here (see the data note).</div>
     <div class="tablewrap"><table class="board" id="sehat-cohort" style="min-width:640px"></table></div>
@@ -380,12 +349,6 @@ svg text{font-family:inherit}
       TAT ÷ total, 60-day lookback. Telemetry moves daily — every count is accurate to its pull date and
       must be re-run before the cohort is frozen for payout.
     </div>
-  </div>
-
-  <div class="card section">
-    <div class="label">Open before launch</div>
-    <div class="sub" style="margin:6px 0 12px">Both created by the single-day grading rule. Neither is decided.</div>
-    <div class="tablewrap"><table class="board" id="sehat-open" style="min-width:640px"></table></div>
   </div>
 
   <div class="card section" style="border-left:3px solid var(--amber)">
@@ -805,7 +768,7 @@ function showInit(i){
    here; the tiles render themselves. */
 const SEHAT_METRICS=[
   {tier:'p0', name:'Sign-up conversion',
-   def:'Share of the 99 eligible CSPs who explicitly accept the offer in the app. The front-door gate — the program cannot work on CSPs who never signed up. Window is the first ~5 days from the 16 Jul launch, then it closes; late sign-ups roll to Cycle 2.',
+   def:'Enrolled ÷ the 96 eligible CSPs (from the Sehat MG offer sheet). The front-door gate — the program cannot work on CSPs who never signed up. Window is the first ~5 days from the 16 Jul launch, then it closes; late sign-ups roll to Cycle 2.',
    c1:'≥ 70%', c2:'≥ 90%', value:null},
   {tier:'p0', name:'MG attainment',
    def:'Share of signed-up CSPs who move from below their gate to above it (≥80% on their track\'s parameter) and earn the ₹10,000. This is the whole job of the program.',
@@ -815,39 +778,32 @@ const SEHAT_METRICS=[
    def:'Median Optical Power across the 61 Track-A CSPs, against their 67.9% baseline. Track A\'s entire task is to heal the plant, so this moving is the leading sign that attainment will land.',
    c1:'+8 pts', c2:'+15 pts', value:null, base:'67.9% baseline · 61 CSPs'},
   {tier:'p1', name:'Service lift · Track B',
-   def:'Median Samasya ka Samadhan (4-hour TAT) across the 37 Track-B CSPs, against their 58.3% baseline. The harder of the two asks — 22 points to travel.',
-   c1:'+10 pts', c2:'≥ 80%', value:null, base:'58.3% baseline · 37 CSPs'},
+   def:'Median Samasya ka Samadhan (4-hour TAT) across the Track-B CSPs, against their 58.3% baseline. The harder of the two asks — 22 points to travel.',
+   c1:'+10 pts', c2:'≥ 80%', value:null, base:'58.3% baseline · Track B'},
   {tier:'p1', name:'Customer impact',
    def:'Complaints per 100 customers, and uptime, across the 15,354 customers served by the cohort. The reason the program exists — quality the CSP controls should show up as customer experience.',
    c1:'Improving trend', c2:'Improving trend', value:null},
 ];
 const SEHAT_COHORT=[
   ['Track A — Ilaaj (heal the network)','Optical Power &lt; 80%','61','re-pull','67.9%','60.0%'],
-  ['Track B — Fit rakhna (keep it fit)','Optical Power ≥ 80%','37','re-pull','84.9%','58.3%'],
-  ['Unclassified (no telemetry)','no Optical Power reading','1','221','—','75.3%'],
-  ['<b>Total</b>','','<b>99</b>','<b>15,354</b>','',''],
-];
-const SEHAT_OPEN=[
-  ['Payout timing','Cycles close on the 15th but Install MG pays on Day 1, so the "same payout run" promise no longer holds without making a CSP wait ~16 days for money earned on the 15th.','Pay on its own run just after the 15th — a 16-day lag on a trust-building program is the more expensive mistake.'],
-  ['Single-day volatility','One-day grading removes the "recovery must be real and holding" protection: a CSP can fix the plant on the 14th and collect, or lose ₹10,000 to a transient fault on the 15th.','Confirm with the app team what the on-screen OP and Samasya ka Samadhan figures actually represent — if they are already rolling windows, the concern largely dissolves.'],
+  ['Track B — Fit rakhna (keep it fit)','Optical Power ≥ 80% (+ no-telemetry default)','35','re-pull','84.9%','58.3%'],
+  ['<b>Total</b>','','<b>96</b>','<b>15,354</b>','',''],
 ];
 
 function renderSehat(){
-  // Feed the P0 "Sign-up conversion" tile from the live funnel, if it exists yet.
-  const S=(typeof DATA==='object'&&DATA)?DATA.sehat:null;
-  const signup=SEHAT_METRICS.find(m=>m.name==='Sign-up conversion');
-  if(signup){
-    if(S&&S.live){
-      const enr=S.campaigns.reduce((a,c)=>a+(c.funnel.enrolled||0),0);
-      signup.value=S.eligible_total?Math.round(100*enr/S.eligible_total)+'%':null;
-    } else signup.value=null;
-  }
-  // Feed the P1 lift tiles from the observation layer's latest median (opted if the
-  // split is live, else whole-cohort).
   const SQ=(typeof DATA==='object'&&DATA)?DATA.sehat_quality:null;
+  // P0 · sign-up conversion — enrolled ÷ eligible, from the Sehat MG offer sheet.
+  const en=SQ&&SQ.enroll;
+  const signup=SEHAT_METRICS.find(m=>m.name==='Sign-up conversion');
+  if(signup) signup.value=(en&&en.total_eligible)?`${en.total_enrolled} / ${en.total_eligible} · ${Math.round(100*en.total_enrolled/en.total_eligible)}%`:null;
+  // P0 · MG attainment — enrolled CSPs at/above their 80% gate today (early, directional).
+  const atgate=SQ?SQ.cohorts.reduce((a,c)=>a+(c.at_gate||0),0):0;
+  const attain=SEHAT_METRICS.find(m=>m.name==='MG attainment');
+  if(attain) attain.value=(SQ&&en&&en.total_enrolled)?`${atgate} / ${en.total_enrolled} at gate`:null;
+  // P1 lift tiles from the observation layer's latest median (enrolled cohort only).
   if(SQ){
     const latest=key=>{const c=SQ.cohorts.find(x=>x.key===key);if(!c)return null;
-      const s=c.series.opted||c.series.all||[];const l=[...s].reverse().find(p=>p.median!=null);return l?l.median:null;};
+      const s=c.series.all||c.series.opted||[];const l=[...s].reverse().find(p=>p.median!=null);return l?l.median:null;};
     const setv=(name,v)=>{const m=SEHAT_METRICS.find(x=>x.name===name);if(m)m.value=(v==null?null:v+'%');};
     setv('Optical Power lift · Track A', latest('sehat_optical'));
     setv('Service lift · Track B', latest('sehat_sla'));
@@ -867,10 +823,10 @@ function renderSehat(){
 
   const days=Math.ceil((new Date('2026-08-15T00:00:00+05:30')-new Date())/864e5);
   $('sehat-hero').innerHTML=[
-    ['99','priority CSPs · launch cohort'],
-    ['61 / 37 / 1','Track A / Track B / unclassified'],
+    ['96','CSPs · launch cohort'],
+    ['61 / 35','Track A · Optical / Track B · SLA'],
     ['₹20,000','max per CSP · 2 binary cycles'],
-    ['15,354','customers served by the cohort'],
+    [(SQ&&SQ.enroll)?`${SQ.enroll.total_enrolled} / ${SQ.enroll.total_eligible}`:'—','enrolled (opted in)'],
     [days>0?days:'—','days to the Cycle-1 grade (15 Aug)'],
   ].map(([v,d])=>`<div class="tile"><div class="v" style="color:var(--accent)">${v}</div><div class="d">${d}</div></div>`).join('');
   $('sehat-foot').innerHTML=`<b>Cycle 1</b> 16 Jul – 15 Aug &nbsp;·&nbsp; <b>Cycle 2</b> 16 Aug – 15 Sep —
@@ -883,12 +839,6 @@ function renderSehat(){
     <th>Active customers</th><th>Median OP</th><th>Median SLA</th></tr></thead><tbody>`+
     SEHAT_COHORT.map(r=>`<tr>${r.map((c,i)=>`<td${i===3&&c==='re-pull'?' style="color:var(--amber)"':''}>${c}</td>`).join('')}</tr>`).join('')+
     `</tbody>`;
-  $('sehat-open').innerHTML=`<thead><tr><th>Question</th><th>Why it is open</th>
-    <th>Recommendation (not decided)</th></tr></thead><tbody>`+
-    SEHAT_OPEN.map(r=>`<tr><td class="tt2">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')+
-    `</tbody>`;
-
-  if(S)renderSehatFunnel(S);
 }
 
 /* Sehat MG enrollment funnel — warehouse recreation of the CSP-Guarantee campaign
@@ -1019,6 +969,26 @@ function renderSehatQuality(Q){
       up automatically once the <a href="${Q.sheet_url}" target="_blank" rel="noopener">Sehat MG
       sheet</a>'s <b>“Opted in”</b> column is populated — it reads live, no code change.
       ${src.startsWith('snapshot')?`<br>Cohort is the committed snapshot right now (${src}).`:'Cohort membership is from that sheet.'}`;
+  }
+  // snapshot card — directional early-improvement + how many are at the 80% gate today
+  const snap=$('sehat-snapshot');
+  if(snap){
+    if(Q.cohorts.some(c=>c.movers)){
+      const N=Q.cohorts.reduce((a,c)=>a+(c.n||0),0);
+      const imp=Q.cohorts.reduce((a,c)=>a+((c.movers&&c.movers.improved.count)||0),0);
+      const gate=Q.cohorts.reduce((a,c)=>a+(c.at_gate||0),0);
+      const cross=Q.cohorts.reduce((a,c)=>a+(c.crossed||0),0);
+      const perTrack=Q.cohorts.map(c=>`<span style="color:${c.color};font-weight:700">${c.metric}</span>: <b>${(c.movers&&c.movers.improved.count)||0}</b> improving · <b>${c.at_gate||0}</b> at gate`).join(' &nbsp;·&nbsp; ');
+      snap.innerHTML=`<div class="label" style="margin-bottom:8px">Snapshot — as of ${Q.obs_end}</div>
+        <div class="strip">
+          <div class="tile"><div class="v" style="color:var(--green)">${imp}<span style="font-size:.9rem;color:var(--muted)"> / ${N}</span></div>
+            <div class="d">showing early improvement<br><span style="font-size:11px;color:var(--amber);font-weight:700">directional — window still maturing</span></div></div>
+          <div class="tile"><div class="v" style="color:var(--accent)">${gate}</div>
+            <div class="d">at / above the 80% ₹10K gate today<br><span style="font-size:11px;color:var(--muted)">${cross} newly crossed since 1 Jul</span></div></div>
+        </div>
+        <div class="sub" style="margin-top:8px">${perTrack}</div>
+        <div class="warn" style="margin-top:10px">Read as <b>direction, not a settled Sehat effect</b>: the rolling window is still ~half (Optical) to ~88% (SLA) pre-launch data, so it can only fully reflect post-launch behaviour once it refreshes — Optical ~31 Jul, Service SLA ~mid-Sep.</div>`;
+    } else snap.innerHTML='';
   }
   $('sehat-quality-charts').innerHTML=Q.cohorts.map((c,i)=>
     `<div class="s-panel" style="--sc:${c.color}">
@@ -1377,7 +1347,6 @@ function render(d){
   if(d.nsm)renderNsm(d.nsm);
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
-  if(d.sehat)renderSehatFunnel(d.sehat);
   if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
   if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
   if(d.failures)renderFailures(d.failures);
