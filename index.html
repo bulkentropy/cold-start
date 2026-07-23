@@ -974,19 +974,15 @@ function renderSehatQuality(Q){
   const snap=$('sehat-snapshot');
   if(snap){
     if(Q.cohorts.some(c=>c.movers)){
-      const N=Q.cohorts.reduce((a,c)=>a+(c.n||0),0);
-      const imp=Q.cohorts.reduce((a,c)=>a+((c.movers&&c.movers.improved.count)||0),0);
-      const gate=Q.cohorts.reduce((a,c)=>a+(c.at_gate||0),0);
-      const cross=Q.cohorts.reduce((a,c)=>a+(c.crossed||0),0);
-      const perTrack=Q.cohorts.map(c=>`<span style="color:${c.color};font-weight:700">${c.metric}</span>: <b>${(c.movers&&c.movers.improved.count)||0}</b> improving · <b>${c.at_gate||0}</b> at gate`).join(' &nbsp;·&nbsp; ');
-      snap.innerHTML=`<div class="label" style="margin-bottom:8px">Snapshot — as of ${Q.obs_end}</div>
-        <div class="strip">
-          <div class="tile"><div class="v" style="color:var(--green)">${imp}<span style="font-size:.9rem;color:var(--muted)"> / ${N}</span></div>
-            <div class="d">showing early improvement<br><span style="font-size:11px;color:var(--amber);font-weight:700">directional — window still maturing</span></div></div>
-          <div class="tile"><div class="v" style="color:var(--accent)">${gate}</div>
-            <div class="d">at / above the 80% ₹10K gate today<br><span style="font-size:11px;color:var(--muted)">${cross} newly crossed since 1 Jul</span></div></div>
-        </div>
-        <div class="sub" style="margin-top:8px">${perTrack}</div>
+      const tiles=Q.cohorts.map(c=>{
+        const imp=(c.movers&&c.movers.improved.count)||0, n=c.n||0, g=c.at_gate||0, cr=c.crossed||0;
+        return `<div class="tile">
+          <div class="v" style="color:${c.color}">${imp}<span style="font-size:.9rem;color:var(--muted)"> / ${n}</span></div>
+          <div class="d"><b style="color:${c.color}">${c.metric}</b> — showing early improvement
+            <br><span style="font-size:11px;color:var(--muted)">${g} at the 80% ₹10K gate${cr?` · ${cr} newly crossed`:''}</span></div></div>`;
+      }).join('');
+      snap.innerHTML=`<div class="label" style="margin-bottom:8px">Snapshot — as of ${Q.obs_end} · by track</div>
+        <div class="strip">${tiles}</div>
         <div class="warn" style="margin-top:10px">Read as <b>direction, not a settled Sehat effect</b>: the rolling window is still ~half (Optical) to ~88% (SLA) pre-launch data, so it can only fully reflect post-launch behaviour once it refreshes — Optical ~31 Jul, Service SLA ~mid-Sep.</div>`;
     } else snap.innerHTML='';
   }
