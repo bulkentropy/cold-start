@@ -1114,9 +1114,10 @@ def compute_cohort(enrolled_ids, latest):
                                "total": matrix["moved"]["ignition"] + matrix["moved"]["demand"]},
         "stayed_installing": matrix["moved"]["moved"]}
 
-    # maturity of a window (tasks created in it; ~14-day install runway)
+    # maturity of a window (tasks created in it; 7-day install runway = the p99
+    # booking->install, so a task is treated as fully able to have installed 7 days on)
     today = datetime.now(IST).date()
-    runway = 14
+    runway = 7
 
     def _week_mat(w0, w1):
         ws = datetime.fromisoformat(w0).date()
