@@ -56,6 +56,9 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
        border-left:3px solid var(--n300)}
 .mtile.p0{border-left-color:var(--accent)}
 .mtile.p1{border-left-color:var(--purple)}
+.m-dod{font-size:12px;font-weight:800;margin-top:5px;letter-spacing:.2px}
+.m-dod.up{color:var(--green)} .m-dod.down{color:var(--red)} .m-dod.flat{color:var(--muted)}
+.m-dod-lbl{font-weight:600;color:var(--muted)}
 .mtile .m-name{font-size:14px;font-weight:700;line-height:1.35;margin:6px 0 4px}
 .mtile .m-def{font-size:12px;color:var(--muted);line-height:1.5}
 .mtile .m-val{font-size:2rem;font-weight:800;color:var(--n300);line-height:1.2;margin:10px 0 2px}
@@ -803,17 +806,23 @@ function renderSehat(){
   if(attain) attain.value=(SQ&&en&&en.total_enrolled)?`${atgate} / ${en.total_enrolled} at gate`:null;
   // P1 lift tiles from the observation layer's latest median (enrolled cohort only).
   if(SQ){
-    const latest=key=>{const c=SQ.cohorts.find(x=>x.key===key);if(!c)return null;
-      const s=c.series.all||c.series.opted||[];const l=[...s].reverse().find(p=>p.median!=null);return l?l.median:null;};
-    const setv=(name,v)=>{const m=SEHAT_METRICS.find(x=>x.name===name);if(m)m.value=(v==null?null:v+'%');};
-    setv('Optical Power lift · Track A', latest('sehat_optical'));
-    setv('Service lift · Track B', latest('sehat_sla'));
+    const cser=key=>{const c=SQ.cohorts.find(x=>x.key===key);return c?(c.series.all||c.series.opted||[]):[];};
+    const latest=key=>{const l=[...cser(key)].reverse().find(p=>p.median!=null);return l?l.median:null;};
+    // day-on-day movement: last two observed days carrying a median (obs_end = yesterday)
+    const dod=key=>{const pts=cser(key).filter(p=>p.median!=null);if(pts.length<2)return null;
+      const a=pts[pts.length-2],b=pts[pts.length-1];
+      return {delta:Math.round((b.median-a.median)*10)/10,from:a.date,to:b.date};};
+    const setv=(name,v,d)=>{const m=SEHAT_METRICS.find(x=>x.name===name);if(m){m.value=(v==null?null:v+'%');m.dod=d;}};
+    setv('Optical Power lift · Track A', latest('sehat_optical'), dod('sehat_optical'));
+    setv('Service lift · Track B', latest('sehat_sla'), dod('sehat_sla'));
   }
   const tile=m=>`<div class="mtile ${m.tier}">
     <span class="label">${m.tier.toUpperCase()}</span>
     <div class="m-name">${m.name}</div>
     <div class="m-def">${m.def}</div>
     <div class="m-val${m.value==null?'':' has'}">${m.value==null?'—':m.value}</div>
+    ${m.dod?(()=>{const d=m.dod.delta,cls=d>0?'up':d<0?'down':'flat',arw=d>0?'▲':d<0?'▼':'▬',sgn=d>0?'+':d<0?'−':'';
+      return `<div class="m-dod ${cls}" title="${m.dod.to} vs prior day ${m.dod.from}">${arw} ${sgn}${Math.abs(d).toFixed(1)} pts <span class="m-dod-lbl">day-on-day</span></div>`;})():''}
     ${m.value==null?'<span class="await">awaiting data</span>':''}
     ${m.base?`<div class="m-def" style="margin-top:6px">${m.base}</div>`:''}
     <div class="m-tgt">Cycle 1 (15 Aug): <b>${m.c1}</b> &nbsp;·&nbsp; Cycle 2 (15 Sep): <b>${m.c2}</b>
