@@ -740,6 +740,7 @@ const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
 let DATA=null, MODE='cohort', BASIS='current';
 let FLOWSEL=null, FLOWMODE='all';        // flow toggle: null/'all' | 'paid' (ex-G,H) | 'nofee' (G,H). Declared here (not by the flow fns below) so the top-level showTab() at load can't hit a TDZ.
 const _isNoFee=f=>f==='G'||f==='H';
+const _isI=f=>f==='I'||f==='I1';         // the current live flow: booking fee + 14-day free net
 
 /* ============================ INITIATIVES ============================
    The layer above the dashboard. 'install' = the existing Install MG command
@@ -2070,20 +2071,22 @@ function flowList(){return (DATA&&DATA.l1&&DATA.l1.flows&&DATA.l1.flows.list)||[
 function flowActive(){const L=flowList();return !!(FLOWSEL&&FLOWSEL.size>0&&FLOWSEL.size<L.length);}
 function renderFlowBar(){
   const bar=$('flow-bar'), L=flowList();
-  const hasNF=L.some(_isNoFee);
-  const show=(MTAB==='l1'||MTAB==='l2')&&L.length>0&&hasNF;
+  const hasNF=L.some(_isNoFee), hasI=L.some(_isI);
+  const show=(MTAB==='l1'||MTAB==='l2')&&L.length>0&&(hasNF||hasI);
   bar.style.display=show?'flex':'none'; if(!show)return;
   const seg=(lab,mode,sub)=>`<button onclick="setFlowMode('${mode}')" style="border:1px solid ${FLOWMODE===mode?'var(--accent)':'var(--n300)'};background:${FLOWMODE===mode?'var(--accent)':'transparent'};color:${FLOWMODE===mode?'#fff':'var(--muted)'};border-radius:40px;padding:5px 14px;font-size:12.5px;font-weight:700;cursor:pointer">${lab}${sub?`<span style="opacity:.75;font-weight:600"> ${sub}</span>`:''}</button>`;
   bar.innerHTML=`<span style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--muted)">Booking flow</span>`
     +seg('All','all')
     +seg('Ex-G,H','paid','· paid')
     +seg('G,H','nofee','· no-fee')
+    +(hasI?seg('I,I1','i','· 14-day'):'')
     +(flowActive()?`<span style="font-size:11.5px;color:var(--accent);font-weight:600">· enrolled, non-enrolled &amp; all-bookings all filter (TATs &amp; task-view stay all-flows)</span>`:'');
 }
 function setFlowMode(mode){
   const L=flowList(); FLOWMODE=mode;
   if(mode==='nofee')FLOWSEL=new Set(L.filter(_isNoFee));
   else if(mode==='paid')FLOWSEL=new Set(L.filter(f=>!_isNoFee(f)));
+  else if(mode==='i')FLOWSEL=new Set(L.filter(_isI));
   else FLOWSEL=new Set(L);
   DATA._flowModes=null;renderFlowBar();flowRerender();
 }
