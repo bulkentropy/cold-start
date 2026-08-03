@@ -159,6 +159,14 @@ try:
 except Exception:
     ENGAGEMENT = None
 
+# July MG settlement — a fixed one-off export of the finance 'MG Payout (prorata)'
+# sheet (Gaurantee - Finance.xlsx). Served as-is for the Payout tab; the sheet's
+# own computed Total-payout column is displayed, not recomputed here.
+try:
+    PAYOUT = json.load(open(os.path.join(BASE_DIR, "data", "july_payout.json"), encoding="utf-8"))
+except Exception:
+    PAYOUT = None
+
 # PUBLIC publishable (anon) key for the mbg-portal project — not a secret, it
 # ships inside client apps. RLS permits the reads this dashboard needs. A
 # service key in the env (SUPABASE_PORTAL_SERVICE_KEY) overrides it.
@@ -1224,11 +1232,39 @@ def compute_nsm(enrolled_ids):
           >= DATE_TRUNC('month', TO_DATE(DATEADD(minute, 330, CURRENT_TIMESTAMP())))"""
     mrow = (metabase_sql(msql) or [{}])[0]
 
+    # July view (fixed historical month) — feeds the NSM strip's Live/July toggle,
+    # so leadership can look back at July install performance. July is complete and
+    # sits well before the source's current-day ETL, so these numbers are final.
+    jsql = f"""
+    WITH mg_csp AS (SELECT DISTINCT CSP_ID
+        FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
+        WHERE _fivetran_active = TRUE AND PARTNER_ID IN ({inlist}))
+    SELECT TO_DATE(DATEADD(minute, 330, INSTALLATION_COMPLETED_AT))::STRING AS day_ist,
+           COUNT(DISTINCT IFF(CSP_ID IN (SELECT CSP_ID FROM mg_csp), CONNECTION_ID, NULL)) AS installs,
+           COUNT(DISTINCT CONNECTION_ID) AS total_installs
+    FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES
+    WHERE ETL_CURRENT = TRUE AND INSTALLATION_COMPLETED_AT IS NOT NULL
+      AND TO_DATE(DATEADD(minute, 330, INSTALLATION_COMPLETED_AT))
+          BETWEEN '2026-07-01' AND '2026-07-31'
+    GROUP BY 1 ORDER BY 1"""
+    jby = {str(r["day_ist"])[:10]: r for r in metabase_sql(jsql)}
+    jstart = datetime(2026, 7, 1)
+    jtrend = []
+    for i in range(31):
+        d = (jstart + timedelta(days=i)).date().isoformat()
+        r = jby.get(d, {})
+        jtrend.append({"day_ist": d, "installs": r.get("installs", 0),
+                       "total_installs": r.get("total_installs", 0)})
+    july = {"label": "Jul 2026", "trend": jtrend,
+            "month_mg": sum(r["installs"] for r in jtrend),
+            "month_total": sum(r["total_installs"] for r in jtrend)}
+
     return {"today": t["installs"], "today_total": t["total_installs"],
             "today_date": today.isoformat(), "trend": trend,
             "month_label": today.strftime("%b"),
             "month_mg": mrow.get("mg_installs", 0),
-            "month_total": mrow.get("total_installs", 0)}
+            "month_total": mrow.get("total_installs", 0),
+            "july": july}
 
 
 # ----------------------------------------------------------------------------
@@ -1650,6 +1686,7 @@ def refresh(force=False):
             payload["l0"] = prev.get("l0")
 
         enrolled = (payload["l0"] or {}).get("enrolled_partner_ids") or []
+        payload["payout"] = PAYOUT      # static July settlement, loaded at startup
         try:
             payload["nsm"] = compute_nsm(enrolled)
         except Exception as e:

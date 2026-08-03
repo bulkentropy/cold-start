@@ -196,6 +196,9 @@ details.card summary::-webkit-details-marker{display:inline}
 .nsm-mo-val{font-size:2rem;font-weight:800;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
 .nsm-mo-val.accent{color:var(--accent)}
 .nsm-mo-lbl{font-size:11px;font-weight:600;letter-spacing:.3px;color:var(--muted)}
+.nsm-toggle{display:inline-flex;border:1px solid var(--n200);border-radius:8px;overflow:hidden}
+.nsm-tg{background:transparent;border:0;padding:5px 16px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:background .12s}
+.nsm-tg.on{background:var(--accent);color:#fff}
 @media(max-width:760px){.nsm-month{padding-left:0;border-left:0;border-top:1px solid var(--n200);padding-top:16px;flex-direction:row;gap:28px}}
 /* migration strip */
 .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:20px;align-items:center}
@@ -203,6 +206,22 @@ details.card summary::-webkit-details-marker{display:inline}
 .tile .d{font-size:12px;color:var(--muted);margin-top:2px}
 .meter{grid-column:1/-1;height:14px;border-radius:7px;background:var(--n200);overflow:hidden;display:flex}
 .meter>div{background:var(--green);border-radius:7px 0 0 7px}
+/* payout tab */
+.payout-search{font:inherit;font-size:13px;padding:7px 12px;border:1px solid var(--n300);border-radius:8px;background:var(--card);color:var(--text);min-width:240px;outline:none}
+.payout-search:focus{border-color:var(--accent)}
+.payout-tablewrap{margin-top:12px;max-height:560px;overflow:auto;border:1px solid var(--n200);border-radius:10px}
+.payout-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.payout-table th,.payout-table td{padding:7px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--n200)}
+.payout-table th:first-child,.payout-table td:first-child,
+.payout-table th.l,.payout-table td.l{text-align:left;white-space:normal}
+.payout-table thead th{position:sticky;top:0;background:var(--deep);color:#fff;font-weight:600;font-size:11.5px;letter-spacing:.2px;z-index:1}
+.payout-table tbody tr:nth-child(even){background:var(--bg)}
+.payout-table tbody tr:hover{background:#F3E7F1}
+.payout-table td.tot{font-weight:800;color:var(--accent)}
+.pill{display:inline-block;padding:2px 9px;border-radius:40px;font-size:11px;font-weight:600;white-space:nowrap}
+.pill.sec{background:#E1FAED;color:var(--green)}
+.pill.min{background:#FFF3E0;color:var(--amber)}
+.pill.pr{background:var(--n200);color:var(--muted)}
 /* funnels */
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:20px}
 .frow{display:grid;grid-template-columns:200px 1fr 120px;align-items:center;gap:10px;margin-top:9px}
@@ -262,9 +281,13 @@ svg text{font-family:inherit}
     <div class="label">NSM · Installs by enrolled MG CSPs</div>
     <div class="nsm-hero" id="nsm-today">–</div>
     <div class="d" id="nsm-cap">today so far</div>
+    <div class="nsm-toggle" id="nsm-toggle" style="display:none;margin-top:12px">
+      <button class="nsm-tg on" id="nsm-tg-live" onclick="setNsmView('live')">Live</button>
+      <button class="nsm-tg" id="nsm-tg-july" onclick="setNsmView('july')">July</button>
+    </div>
   </div>
   <div class="nsm-trend">
-    <div class="label" style="margin-bottom:6px">Last 15 days</div>
+    <div class="label" style="margin-bottom:6px" id="nsm-trend-label">Last 15 days</div>
     <div id="nsm-bars"></div>
   </div>
   <div class="nsm-month" id="nsm-month">
@@ -283,6 +306,7 @@ svg text{font-family:inherit}
 <div class="tabs">
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
   <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
+  <button class="tab" id="tab-payout" onclick="showTab('payout')">Payout</button>
   <button class="tab" id="tab-docs" onclick="showTab('docs')">Knowledge repository</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
@@ -431,6 +455,49 @@ svg text{font-family:inherit}
   <div class="grid2" style="margin-top:20px">
     <div class="card"><div class="label">Latest decisions</div><div id="ov-decisions"></div></div>
     <div class="card"><div class="label">Open actions &amp; decision points</div><div id="ov-actions"></div></div>
+  </div>
+</div>
+
+<!-- ===================== PAYOUT (July settlement) ===================== -->
+<div id="pane-payout" style="display:none">
+  <div class="card section">
+    <div class="label">Install MG · July 2026 settlement</div>
+    <h2 style="margin-top:4px">Guarantee payout — July</h2>
+    <div class="sub" id="payout-caption" style="margin-top:6px">loading…</div>
+  </div>
+
+  <div class="card section">
+    <div class="label">How the payout is computed</div>
+    <div class="sub" style="margin-top:8px;line-height:1.6">
+      Each enrolled CSP has a <b>₹10,000/month minimum guarantee</b>, <b>prorated by enrollment date</b>
+      (eligible days ÷ 31 — a CSP live from 10-Jul earns 22/31 of ₹10,000). On top, they earn a
+      <b>piece rate of ₹300 per install</b> (raised to ₹1,000/install for a set of CSPs from 28-Jul).
+      <br><br>
+      A CSP is <b>Secured</b> — topped up to the full prorata guarantee — if their install rate is
+      <b>&gt; 60%</b>, <i>or</i> they received <b>≤ 2 leads</b> (can't be penalised for too little demand).
+      Everyone else is <b>Piece-rate only</b>: they keep just their installation money (installs × rate),
+      no top-up. So <b>Total payout = installation money + top-up</b>, where
+      top-up = max(0, prorata guarantee − installation money) for Secured &amp; ≤2-lead CSPs, else 0.
+      <br><br>
+      <span style="opacity:.7">Leads counted are those terminal by 31-Jul 23:59 IST. Figures below are the finance
+      sheet's own computed values (<span id="payout-gen"></span>), shown as-is.</span>
+    </div>
+  </div>
+
+  <div class="strip" id="payout-tiles" style="margin-top:4px"></div>
+
+  <div class="strip" id="payout-buckets" style="margin-top:4px"></div>
+
+  <div class="card section">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div class="label">Per-CSP payout · <span id="payout-count">–</span> CSPs</div>
+      <input id="payout-search" class="payout-search" placeholder="Search name / CSP ID / partner ID…"
+             oninput="filterPayout()" autocomplete="off">
+    </div>
+    <div class="payout-tablewrap">
+      <table class="payout-table" id="payout-table"><thead id="payout-thead"></thead><tbody id="payout-tbody"></tbody></table>
+    </div>
+    <div class="sub" id="payout-shown" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -1070,7 +1137,7 @@ function drawQualityChart(c, svgId, lgId){
       ${st.label}${last?` · <b style="color:${st.color==='var(--muted)'?'var(--text)':st.color}">${last.median}%</b> <small style="color:var(--muted);font-weight:600">(n=${last.n})</small>`:''}</span>`;}).join('');
 }
 
-const TABS=['ov','metrics','edu','docs','tasks','dec','log'];
+const TABS=['ov','metrics','payout','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
 let TAB='ov';
@@ -1131,6 +1198,7 @@ function loadHub(t){
   else if(t==='tasks')renderBoard();
   else if(t==='dec')renderDecisions();
   else if(t==='log')renderLog();
+  else if(t==='payout')renderPayout();
 }
 
 async function renderOverview(){
@@ -1351,6 +1419,7 @@ function render(d){
   $('banner').style.display=errs.length?'block':'none';
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
+  if(d.payout){PAYOUT_DATA=d.payout; if(TAB==='payout')renderPayout();}   // store; (re)render if the tab is open
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
   if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
@@ -1950,27 +2019,51 @@ function renderBanner(b){
     also why this card has no "last 3 complete days" figure, unlike the rest of the portal.`;
 }
 
+let NSM_DATA=null, NSM_VIEW='live';
+function setNsmView(v){
+  NSM_VIEW=v;
+  $('nsm-tg-live').classList.toggle('on',v==='live');
+  $('nsm-tg-july').classList.toggle('on',v==='july');
+  if(NSM_DATA) drawNsm();
+}
 function renderNsm(n){
-  NSM_READY=true;
+  NSM_DATA=n; NSM_READY=true;
   // NSM counts installs by enrolled Install-MG CSPs, so it stays hidden on Sehat MG.
   $('nsm').style.display=INIT==='install'?'flex':'none';
-  $('nsm-today').textContent=fmt(n.today);
-  $('nsm-cap').textContent='today so far ('+n.today_date+') · of '+fmt(n.today_total)+' across all CSPs';
-  if(n.month_total!=null){
-    $('nsm-month-label').textContent=(n.month_label||'This month')+' so far';
-    $('nsm-mo-total').textContent=fmt(n.month_total);
-    $('nsm-mo-mg').textContent=fmt(n.month_mg);
+  $('nsm-toggle').style.display=n.july?'':'none';   // July toggle only when the back end sends July
+  drawNsm();
+}
+function drawNsm(){
+  const n=NSM_DATA, july=(NSM_VIEW==='july'&&n.july)?n.july:null;
+  if(july){
+    $('nsm-today').textContent=fmt(july.month_mg);
+    $('nsm-cap').textContent='July 2026 total · of '+fmt(july.month_total)+' across all CSPs';
+    $('nsm-trend-label').textContent='July 2026 — installs/day';
+    $('nsm-month-label').textContent='July 2026';
+    $('nsm-mo-total').textContent=fmt(july.month_total);
+    $('nsm-mo-mg').textContent=fmt(july.month_mg);
     $('nsm-month').style.display='';
-  } else { $('nsm-month').style.display='none'; }
-  const t=n.trend, max=Math.max(...t.map(r=>Math.max(r.installs,r.total_installs||0)),1);
+  } else {
+    $('nsm-today').textContent=fmt(n.today);
+    $('nsm-cap').textContent='today so far ('+n.today_date+') · of '+fmt(n.today_total)+' across all CSPs';
+    $('nsm-trend-label').textContent='Last 15 days';
+    if(n.month_total!=null){
+      $('nsm-month-label').textContent=(n.month_label||'This month')+' so far';
+      $('nsm-mo-total').textContent=fmt(n.month_total);
+      $('nsm-mo-mg').textContent=fmt(n.month_mg);
+      $('nsm-month').style.display='';
+    } else { $('nsm-month').style.display='none'; }
+  }
+  const t=july?july.trend:n.trend, max=Math.max(...t.map(r=>Math.max(r.installs,r.total_installs||0)),1);
   const W=860,H=124,B=22,T=14,gap=5,bw=(W-(t.length-1)*gap)/t.length;
   const yv=v=>T+(H-T-B-16)*(1-v/max)+16;
   let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
   t.forEach((r,i)=>{
     const h=Math.max(H-B-yv(r.installs),2), x0=i*(bw+gap);
-    svg+=`<rect x="${x0}" y="${H-B-h}" width="${bw}" height="${h}" rx="4" fill="var(--purple)" opacity="${i===t.length-1?1:.75}"/>
+    const lbl=july?r.day_ist.slice(8):r.day_ist.slice(5);   // July: day-of-month only, else MM-DD
+    svg+=`<rect x="${x0}" y="${H-B-h}" width="${bw}" height="${h}" rx="4" fill="var(--purple)" opacity="${(!july&&i===t.length-1)?1:.75}"/>
       <text x="${x0+bw/2}" y="${H-B-h-4}" font-size="11.5" font-weight="600" fill="var(--text)" text-anchor="middle">${r.installs}</text>
-      <text x="${x0+bw/2}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="middle">${r.day_ist.slice(5)}</text>`;
+      <text x="${x0+bw/2}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="middle">${lbl}</text>`;
   });
   const pts=t.map((r,i)=>`${i*(bw+gap)+bw/2},${yv(r.total_installs||0)}`).join(' ');
   svg+=`<polyline points="${pts}" fill="none" stroke="var(--dark)" stroke-width="2" stroke-dasharray="4 4" opacity=".7"/>`;
@@ -1980,6 +2073,79 @@ function renderNsm(n){
   $('nsm-bars').innerHTML=svg+'</svg>'+
     `<div class="legend"><span><i style="background:var(--purple)"></i>enrolled MG CSPs</span>
      <span><i style="background:transparent;border-top:2px dashed var(--dark);height:0;width:12px;margin-bottom:4px"></i>all CSPs (total)</span></div>`;
+}
+
+/* ---------- Payout tab (static July settlement) ---------- */
+let PAYOUT_DATA=null, PAYOUT_BUILT=false;
+function inr(n){                                  // Indian digit grouping, e.g. 3284232 -> ₹32,84,232
+  n=Math.round(Number(n)||0); const neg=n<0; const s=String(Math.abs(n));
+  const last3=s.slice(-3); let rest=s.slice(0,-3);
+  if(rest)rest=rest.replace(/\B(?=(\d{2})+(?!\d))/g,',');
+  return (neg?'-':'')+'₹'+(rest?rest+',':'')+last3;
+}
+const lakh=n=>'₹'+((Number(n)||0)/1e5).toFixed(1).replace(/\.0$/,'')+'L';
+const ptile=(v,l,d,cls)=>`<div class="tile"><div class="v"${cls?` style="color:${cls}"`:''}>${v}</div>
+  <div class="label">${l}</div><div class="d">${d||''}</div></div>`;
+const bucketPill=b=>{const c=/Secured/.test(b)?'sec':/leads/.test(b)?'min':'pr';
+  return `<span class="pill ${c}">${esc(b)}</span>`;};
+
+function renderPayout(){
+  const p=PAYOUT_DATA;
+  if(!p){ $('payout-caption').textContent='Payout data not loaded — the finance export is missing on the server.'; return; }
+  if(PAYOUT_BUILT) return;                        // one-off settlement: build once, then filter client-side
+  const t=p.totals, b=p.buckets||{};
+  const rate=t.leads?Math.round(1000*t.installs/t.leads)/10:null;
+  $('payout-caption').innerHTML=`<b>${fmt(t.csps)}</b> enrolled CSPs settled for July · total guarantee payout `+
+    `<b>${inr(t.total)}</b> (${lakh(t.total)}). Leads terminal by 31-Jul 23:59 IST.`;
+  $('payout-gen').textContent='finance sheet generated '+(p.generated||'01-Aug-2026');
+
+  $('payout-tiles').innerHTML=
+    ptile(lakh(t.total),'Total payout','installation + top-up','var(--accent)')+
+    ptile(fmt(t.csps),'CSPs settled','every enrolled CSP')+
+    ptile(fmt(t.installs),'Installs',`across ${fmt(t.leads)} leads`)+
+    ptile((rate!=null?rate+'%':'–'),'Install rate','installs ÷ leads')+
+    ptile(lakh(t.install_money),'Installation money','installs × piece rate')+
+    ptile(lakh(t.topup),'Guarantee top-up','the net-new MG money');
+
+  const pctOf=n=>p.totals.csps?Math.round(100*n/p.totals.csps):0;
+  $('payout-buckets').innerHTML=
+    ptile(fmt(b['Secured (>60%)']||0),'Secured (>60%)',`topped to full guarantee · ${pctOf(b['Secured (>60%)']||0)}%`,'var(--green)')+
+    ptile(fmt(b['≤2 leads (min guarantee)']||0),'≤2 leads · min guarantee',`floor despite low demand · ${pctOf(b['≤2 leads (min guarantee)']||0)}%`,'var(--amber)')+
+    ptile(fmt(b['Piece-rate only']||0),'Piece-rate only',`below gate, no top-up · ${pctOf(b['Piece-rate only']||0)}%`,'var(--muted)');
+
+  const cols=[['Name','l'],['CSP ID','l'],['Flow','l'],['Enrolled','l'],['Days',''],['Leads',''],
+    ['Installs',''],['Rate',''],['Bucket','l'],['Per-install','l'],['Guarantee','' ],['Install ₹',''],['Top-up ₹',''],['Total ₹','']];
+  $('payout-thead').innerHTML='<tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr>';
+
+  $('payout-tbody').innerHTML=p.rows.map(r=>{
+    const s=`${r.name} ${r.csp_id} ${r.partner_id}`.toLowerCase();
+    return `<tr data-s="${esc(s)}">`+
+      `<td class="l">${esc(r.name)}</td>`+
+      `<td class="l">${esc(r.csp_id)}</td>`+
+      `<td class="l">${esc(r.flow)}</td>`+
+      `<td class="l">${esc(r.enroll)}</td>`+
+      `<td>${r.days}</td>`+
+      `<td>${r.leads}</td>`+
+      `<td>${r.installs}</td>`+
+      `<td>${esc(r.rate)}</td>`+
+      `<td class="l">${bucketPill(r.bucket)}</td>`+
+      `<td class="l">${esc(r.per_install_rate)}</td>`+
+      `<td>${inr(r.mg_prorata)}</td>`+
+      `<td>${inr(r.install_money)}</td>`+
+      `<td>${inr(r.topup)}</td>`+
+      `<td class="tot">${inr(r.total)}</td>`+
+    `</tr>`;
+  }).join('');
+  $('payout-count').textContent=fmt(p.totals.csps);
+  PAYOUT_BUILT=true;
+  filterPayout();
+}
+
+function filterPayout(){
+  const q=($('payout-search').value||'').trim().toLowerCase();
+  let shown=0; const rows=$('payout-tbody').querySelectorAll('tr');
+  rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
+  $('payout-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`:`Showing all ${fmt(rows.length)} CSPs · sorted by install rate.`;
 }
 
 function renderMigration(m){
