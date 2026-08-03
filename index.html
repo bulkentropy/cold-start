@@ -488,6 +488,23 @@ svg text{font-family:inherit}
 
   <div class="strip" id="payout-buckets" style="margin-top:4px"></div>
 
+  <div class="grid2" style="margin-top:4px">
+    <div class="card section">
+      <div class="label">Top 5 CSPs by installs</div>
+      <div class="sub" style="margin:2px 0 4px">July installs, with each CSP's confirmed-lead → install ratio</div>
+      <table class="payout-table lead-table">
+        <thead><tr><th class="l">#</th><th class="l">CSP</th><th>Installs</th><th>Confirmed leads</th><th>Install ratio</th></tr></thead>
+        <tbody id="lead-installs"></tbody></table>
+    </div>
+    <div class="card section">
+      <div class="label">Top 5 CSPs by installation money</div>
+      <div class="sub" style="margin:2px 0 4px">Piece-rate earnings (installs × rate) — <b>excludes</b> guarantee top-up</div>
+      <table class="payout-table lead-table">
+        <thead><tr><th class="l">#</th><th class="l">CSP</th><th>Installs</th><th>Per-install</th><th>Installation ₹</th></tr></thead>
+        <tbody id="lead-money"></tbody></table>
+    </div>
+  </div>
+
   <div class="card section">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div class="label">Per-CSP payout · <span id="payout-count">–</span> CSPs</div>
@@ -2137,8 +2154,26 @@ function renderPayout(){
     `</tr>`;
   }).join('');
   $('payout-count').textContent=fmt(p.totals.csps);
+  renderPayoutLeaders(p.rows);
   PAYOUT_BUILT=true;
   filterPayout();
+}
+
+function renderPayoutLeaders(rows){
+  const rank=i=>`<td class="l" style="color:var(--muted);font-weight:700">${i+1}</td>`;
+  // Top 5 by installs — with confirmed-lead → install ratio
+  const byInst=[...rows].sort((a,b)=>(b.installs-a.installs)||(b.total-a.total)).slice(0,5);
+  $('lead-installs').innerHTML=byInst.map((r,i)=>{
+    const ratio=r.leads>0?Math.round(r.installs/r.leads*100)+'%':'–';
+    return `<tr>${rank(i)}<td class="l">${esc(r.name)}</td><td>${fmt(r.installs)}</td>`+
+           `<td>${fmt(r.leads)}</td><td class="tot">${ratio}</td></tr>`;
+  }).join('');
+  // Top 5 by installation money (piece-rate earnings, excludes top-up)
+  const byMoney=[...rows].sort((a,b)=>(b.install_money-a.install_money)||(b.installs-a.installs)).slice(0,5);
+  $('lead-money').innerHTML=byMoney.map((r,i)=>
+    `<tr>${rank(i)}<td class="l">${esc(r.name)}</td><td>${fmt(r.installs)}</td>`+
+    `<td>${esc(r.per_install_rate)}</td><td class="tot">${inr(r.install_money)}</td></tr>`
+  ).join('');
 }
 
 function filterPayout(){
