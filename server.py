@@ -115,6 +115,17 @@ SEHAT_SHEET_ID = "1XHqjybQYKyfCpgdraPiL32GBm2R2wf-CguxlHalmu8M"
 SEHAT_SHEET_GID = "1116493306"
 SEHAT_SHEET_URL = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
                    f"/edit?gid={SEHAT_SHEET_GID}#gid={SEHAT_SHEET_GID}")
+
+# Install-MG L0 funnel — 'MG Campaign — per-CSP funnel' tab of the same workbook,
+# read LIVE via gviz. One row per enrolled/candidate CSP; columns (2 new cols were
+# inserted at D=Cohort, E=Has app, so everything from Flow onward shifted right):
+#   A Partner ID · B CSP ID · C Name · D Cohort · E Has app · F Flow ·
+#   G Furthest screen · H Viewed · I Quiz started · J Opted in ·
+#   K Audit started · L Audit done / Enrolled · M Enrolment date
+# Enrolled (the L1 base) = col L == 'ENROLLED'. Funnels are split by cohort.
+MG_FUNNEL_GID = "1958482217"
+MG_FUNNEL_URL = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
+                 f"/edit?gid={MG_FUNNEL_GID}#gid={MG_FUNNEL_GID}")
 SEHAT_OBS_START = "2026-07-01"        # a pre-launch baseline, then across the cycle
 SEHAT_GATE = 80                        # the payout gate on both tracks (≥80%)
 # metric spec per cohort: which quality table + columns + rolling window feed the trend
@@ -263,6 +274,82 @@ F2_SCREENS = [("0", "Viewed (hero)")]
 
 
 def compute_l0():
+    """Install-MG L0 funnel, sourced LIVE from the 'MG Campaign — per-CSP funnel'
+    sheet (gid 1958482217) via gviz CSV. Enrolled (the downstream L1 base) = col L
+    'Audit done / Enrolled' == ENROLLED. Funnels are split by cohort (Launch, New
+    KK, …). Falls back to the legacy Supabase/CleverTap funnel if the sheet is
+    unreachable, so a sheet outage never blanks the portal."""
+    import csv, io
+    url = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
+           f"/gviz/tq?tqx=out:csv&gid={MG_FUNNEL_GID}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            text = r.read().decode("utf-8", "replace")
+        if "<html" in text[:200].lower():
+            raise RuntimeError("gviz returned HTML (sheet not accessible)")
+        allrows = list(csv.reader(io.StringIO(text)))
+        hi = next(i for i, r in enumerate(allrows) if r and r[0].strip() == "Partner ID")
+        data = [r for r in allrows[hi + 1:] if len(r) > 11 and any(c.strip() for c in r)]
+        if not data:
+            raise RuntimeError("sheet parsed empty")
+    except Exception as e:
+        leg = compute_l0_legacy()
+        leg.setdefault("l0_errors", []).append(
+            f"L0 funnel sheet unreachable ({type(e).__name__}); served legacy source")
+        return leg
+
+    # column indices (0-based) after the D/E insertion
+    C_PID, C_COHORT, C_APP, C_FLOW, C_VIEW, C_OPT, C_AUDIT, C_ENR = 0, 3, 4, 5, 7, 9, 10, 11
+    tick = lambda r, i: len(r) > i and r[i].strip() == "✓"          # ✓
+    is_enrolled = lambda r: len(r) > C_ENR and r[C_ENR].strip().upper() == "ENROLLED"
+
+    # cohort order: any "Launch …" first, then others in first-seen order
+    seen = []
+    for r in data:
+        c = r[C_COHORT].strip()
+        if c and c not in seen:
+            seen.append(c)
+    cohorts = sorted(seen, key=lambda c: (0 if c.lower().startswith("launch") else 1, seen.index(c)))
+
+    funnels = []
+    for coh in cohorts:
+        d = [r for r in data if r[C_COHORT].strip() == coh]
+        funnels.append({"title": coh, "rows": [
+            {"stage": "Cohort", "csps": len(d)},
+            {"stage": "App opened", "csps": sum(tick(r, C_APP) for r in d)},
+            {"stage": "Opted in", "csps": sum(tick(r, C_OPT) for r in d)},
+            {"stage": "Enrolled", "csps": sum(is_enrolled(r) for r in d)},
+        ]})
+
+    # Audit graduation (Flow 2 = audit-pending) → enrolled, across all cohorts
+    f2 = [r for r in data if r[C_FLOW].strip() == "Flow 2"]
+    grad = sum(is_enrolled(r) for r in f2)
+    migration = {"start": len(f2), "graduated": grad,
+                 "drained_pct": round(100 * grad / len(f2), 1) if f2 else 0,
+                 "remaining": len(f2) - grad}
+
+    enrolled_ids = sorted({r[C_PID].strip() for r in data if is_enrolled(r) and r[C_PID].strip()})
+    # Launch-cohort enrolled only — the base for JULY-scoped calculations. The New KK
+    # (Aug) cohort joined in August, so it must not dilute July counts; August/current
+    # metrics use the full enrolled_partner_ids set.
+    launch_ids = sorted({r[C_PID].strip() for r in data if is_enrolled(r) and r[C_PID].strip()
+                         and r[C_COHORT].strip().lower().startswith("launch")})
+    return {
+        "migration": migration,
+        "funnels": funnels,
+        "engagement": ENGAGEMENT,
+        "totals": {"joined": sum(tick(r, C_OPT) for r in data),
+                   "enrolled_strict": len(enrolled_ids)},
+        "enrolled_partner_ids": enrolled_ids,        # 497 — August / current base
+        "enrolled_july_ids": launch_ids,             # Launch only — July base
+        "source": "mg_funnel_sheet",
+        "sheet_url": MG_FUNNEL_URL,
+        "l0_errors": [],
+    }
+
+
+def compute_l0_legacy():
     optins = supabase_rows(
         SUPABASE_AUDIT_URL, "SUPABASE_AUDIT_SERVICE_KEY",
         "mg_optins?select=partner_id&program=eq.MG&first_opted_at=not.is.null")
@@ -1200,10 +1287,14 @@ def compute_cohort(enrolled_ids, latest):
     return cohort
 
 
-def compute_nsm(enrolled_ids):
-    """Installs/day by enrolled CSPs: today (partial) + last 15 complete days."""
+def compute_nsm(enrolled_ids, july_ids=None):
+    """Installs/day by enrolled CSPs: today (partial) + last 15 complete days.
+    The live trend, today and month-to-date use the full enrolled set (August /
+    current — includes the New KK cohort's August installs); the July toggle block
+    uses july_ids (Launch cohort only) so July stays the launch-cohort figure."""
     if not enrolled_ids:
         raise RuntimeError("no enrolled partners — NSM skipped")
+    july_ids = july_ids or enrolled_ids
     sql = open(os.path.join(BASE_DIR, "sql", "nsm_installs.sql"), encoding="utf-8").read()
     sql = sql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
     by_day = {str(r["day_ist"])[:10]: r for r in metabase_sql(sql)}
@@ -1235,10 +1326,12 @@ def compute_nsm(enrolled_ids):
     # July view (fixed historical month) — feeds the NSM strip's Live/July toggle,
     # so leadership can look back at July install performance. July is complete and
     # sits well before the source's current-day ETL, so these numbers are final.
+    # Launch cohort only (july_ids) — the New KK cohort didn't exist in July.
+    jinlist = ",".join(f"'{p}'" for p in july_ids)
     jsql = f"""
     WITH mg_csp AS (SELECT DISTINCT CSP_ID
         FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
-        WHERE _fivetran_active = TRUE AND PARTNER_ID IN ({inlist}))
+        WHERE _fivetran_active = TRUE AND PARTNER_ID IN ({jinlist}))
     SELECT TO_DATE(DATEADD(minute, 330, INSTALLATION_COMPLETED_AT))::STRING AS day_ist,
            COUNT(DISTINCT IFF(CSP_ID IN (SELECT CSP_ID FROM mg_csp), CONNECTION_ID, NULL)) AS installs,
            COUNT(DISTINCT CONNECTION_ID) AS total_installs
@@ -1685,10 +1778,16 @@ def refresh(force=False):
             payload["meta"]["errors"].append(f"L0: {type(e).__name__}: {e}")
             payload["l0"] = prev.get("l0")
 
+        # enrolled = full set (August / current); enrolled_july = Launch cohort only.
+        # July-program cards (install-ratio, ignition/activation, payout gate) run on
+        # the Launch set so the New KK (Aug) cohort doesn't dilute July figures; the
+        # NSM install strip's live/current numbers use the full set (August installs
+        # by New KK count), with its July toggle held to Launch.
         enrolled = (payload["l0"] or {}).get("enrolled_partner_ids") or []
+        enrolled_july = (payload["l0"] or {}).get("enrolled_july_ids") or enrolled
         payload["payout"] = PAYOUT      # static July settlement, loaded at startup
         try:
-            payload["nsm"] = compute_nsm(enrolled)
+            payload["nsm"] = compute_nsm(enrolled, enrolled_july)
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"NSM: {type(e).__name__}: {e}")
@@ -1728,7 +1827,7 @@ def refresh(force=False):
             # analysis is task-activity based and needs no belief data. Only the
             # by-belief split degrades to 'no_response' when the belief-check
             # source (mbg_screen_log) is empty; don't blank the whole card for it.
-            coh = compute_cohort(enrolled, latest or {})
+            coh = compute_cohort(enrolled_july, latest or {})   # July program → Launch cohort
             payload["ignition"] = coh.pop("_ignition", None)
             payload["gate"] = coh.pop("_gate", None)
             payload["cohort"] = coh
@@ -1740,7 +1839,7 @@ def refresh(force=False):
             payload["gate"] = prev.get("gate")
 
         try:
-            payload["l1"] = compute_l1(enrolled)
+            payload["l1"] = compute_l1(enrolled_july)   # install-ratio is the July program → Launch
         except Exception as e:
             traceback.print_exc()
             payload["meta"]["errors"].append(f"L1: {type(e).__name__}: {e}")
@@ -1755,6 +1854,7 @@ def refresh(force=False):
 
         if payload.get("l0") is not None:
             payload["l0"].pop("enrolled_partner_ids", None)
+            payload["l0"].pop("enrolled_july_ids", None)
         _cache["payload"] = payload
         _cache["at"] = time.time()
         return payload

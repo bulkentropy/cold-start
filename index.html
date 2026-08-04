@@ -618,7 +618,7 @@ svg text{font-family:inherit}
 
 <div id="pane-l0" style="display:none">
   <div class="section card">
-    <div class="label">Cohort 2 → Cohort 1 graduations</div>
+    <div class="label">Audit graduation — Flow 2 (audit-pending → enrolled)</div>
     <div class="strip" id="mig-strip"></div>
   </div>
   <div class="section two" id="funnels"></div>
@@ -2185,10 +2185,10 @@ function filterPayout(){
 
 function renderMigration(m){
   $('mig-strip').innerHTML=
-    tile(m.start,'Cohort-2 at launch','audit pending on 1 Jul')+
-    tile(m.graduated,'Graduated','audit completed → now Cohort-1 rules','color:var(--green)')+
-    tile(m.drained_pct+'%','Drained','share of Cohort-2 cleared','color:var(--green)')+
-    tile(m.remaining,'Remaining','still to finish audit')+
+    tile(m.start,'Flow 2 CSPs','on the audit-pending path')+
+    tile(m.graduated,'Graduated','audit done → enrolled','color:var(--green)')+
+    tile(m.drained_pct+'%','Graduated','share of Flow 2 enrolled','color:var(--green)')+
+    tile(m.remaining,'Remaining','not yet enrolled')+
     `<div class="meter"><div style="width:${m.drained_pct}%"></div></div>`;
 }
 function tile(v,l,d,style){return `<div class="tile"><div class="v" style="${style||''}">${fmt(v)}</div>
@@ -2256,8 +2256,13 @@ function renderEngagement(e){
 
 function renderFunnels(l0){
   const wrap=$('funnels'); wrap.innerHTML='';
-  wrap.appendChild(funnelCard('Cohort 1 — audit already done',l0.funnel1,PINK));
-  wrap.appendChild(funnelCard('Cohort 2 — audit pending',l0.funnel2,PURPLE));
+  const colors=[PINK,PURPLE,'var(--blue)','var(--green)'];
+  if(l0.funnels&&l0.funnels.length){                       // sheet source: one card per cohort
+    l0.funnels.forEach((f,i)=>wrap.appendChild(funnelCard(f.title,f.rows,colors[i%colors.length])));
+  }else{                                                    // legacy Supabase shape (fallback)
+    wrap.appendChild(funnelCard('Cohort 1 — audit already done',l0.funnel1,PINK));
+    wrap.appendChild(funnelCard('Cohort 2 — audit pending',l0.funnel2,PURPLE));
+  }
 }
 function funnelCard(title,rows,color){
   const max=rows[0].csps||1;
