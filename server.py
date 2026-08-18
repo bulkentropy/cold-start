@@ -427,9 +427,15 @@ def compute_l0_legacy():
 L1_KEYS = ("bookings", "slot_selected", "slot_pct", "cust_confirmed",
            "confirm_pct", "med_hrs_to_accept", "p90_hrs_to_accept",
            "installs", "install_ratio",
+           # technician assigned (depth >= 5) and re-farm (booking passed through >1 CSP).
+           # These replace the slot-proposed / slot-confirmed cards on L1: the customer
+           # journey now starts AT customer-slot-confirmed, so those two rungs no longer
+           # discriminate. slot_* keys are retained for the funnel views below the fold.
+           "tech_assigned", "tech_pct", "refarm", "refarm_pct",
            # non-enrolled shadow series (compare overlay)
            "sh_bookings", "sh_slot_selected", "sh_cust_confirmed",
            "sh_slot_pct", "sh_confirm_pct", "sh_med_hrs_to_accept",
+           "sh_tech_pct", "sh_refarm_pct",
            "total_bookings")
 
 
@@ -513,14 +519,22 @@ def compute_l1(enrolled_ids):
             s = src.get((d, 0), {})
             bks, acc, cnf, ins = (e.get("bookings", 0), e.get("accepted", 0),
                                   e.get("confirmed", 0), e.get("installed", 0))
+            tch, rfm = e.get("tech", 0) or 0, e.get("refarm", 0) or 0
             out.append({"day_ist": d, "bookings": bks, "slot_selected": acc,
                         "slot_pct": pct(acc, bks), "cust_confirmed": cnf,
                         "confirm_pct": pct(cnf, acc), "installs": ins,
                         "install_ratio": pct(ins, cnf),
+                        # technician assigned is read as a share of confirmed bookings —
+                        # the rung immediately above it, now that confirmed is the entry point
+                        "tech_assigned": tch, "tech_pct": pct(tch, cnf),
+                        # re-farm is a share of ALL bookings received
+                        "refarm": rfm, "refarm_pct": pct(rfm, bks),
                         "med_hrs_to_accept": e.get("med_hrs"), "p90_hrs_to_accept": e.get("p90_hrs"),
                         "sh_bookings": s.get("bookings"),
                         "sh_slot_pct": pct(s.get("accepted", 0), s.get("bookings", 0)),
                         "sh_confirm_pct": pct(s.get("confirmed", 0), s.get("accepted", 0)),
+                        "sh_tech_pct": pct(s.get("tech", 0) or 0, s.get("confirmed", 0)),
+                        "sh_refarm_pct": pct(s.get("refarm", 0) or 0, s.get("bookings", 0)),
                         "sh_med_hrs_to_accept": s.get("med_hrs"),
                         "total_bookings": total.get(d)})
         return out
@@ -538,13 +552,21 @@ def compute_l1(enrolled_ids):
             ea, sa = eacc.get((d, 1), {}), eacc.get((d, 0), {})
             ec, scf = econf.get((d, 1), {}), econf.get((d, 0), {})
             bks, acc, cnf = e.get("bookings", 0), ea.get("n", 0), ec.get("n", 0)
+            # tech / re-farm have no event-day grain of their own (no per-event timestamp
+            # for either), so both carry the booking-day figure from the cohort row.
+            tch, rfm = e.get("tech", 0) or 0, e.get("refarm", 0) or 0
+            ecnf = e.get("confirmed", 0)
             out.append({"day_ist": d, "bookings": bks, "slot_selected": acc,
                         "slot_pct": pct(acc, bks), "cust_confirmed": cnf,
                         "confirm_pct": pct(cnf, acc),
+                        "tech_assigned": tch, "tech_pct": pct(tch, ecnf),
+                        "refarm": rfm, "refarm_pct": pct(rfm, bks),
                         "med_hrs_to_accept": ea.get("med_hrs"), "p90_hrs_to_accept": ea.get("p90_hrs"),
                         "sh_bookings": s.get("bookings"),
                         "sh_slot_selected": sa.get("n"),
                         "sh_cust_confirmed": scf.get("n"),
+                        "sh_tech_pct": pct(s.get("tech", 0) or 0, s.get("confirmed", 0)),
+                        "sh_refarm_pct": pct(s.get("refarm", 0) or 0, s.get("bookings", 0)),
                         "sh_med_hrs_to_accept": sa.get("med_hrs"),
                         "total_bookings": total.get(d)})
         return out

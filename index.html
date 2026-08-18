@@ -699,9 +699,12 @@ svg text{font-family:inherit}
   </div>
   <div class="l1grid" id="l1grid"></div>
 
-  <div class="card section" id="l1-views" style="margin-top:20px">
-    <div class="label">Same funnel, two grains — Wiom view vs CSP view</div>
-    <div class="sub" id="l1v-sub"></div>
+  <details class="card section" id="l1-views" style="margin-top:20px">
+    <summary style="cursor:pointer;list-style:revert">
+      <span class="label">Same funnel, two grains — Wiom view vs CSP view</span>
+      <span class="sub" style="display:inline">· folded — served its purpose; re-farm now has its own card above</span>
+    </summary>
+    <div class="sub" id="l1v-sub" style="margin-top:10px"></div>
     <div class="l1grid" style="margin-top:14px">
       <div>
         <div class="label" style="margin-bottom:8px">Wiom view — connection level (one row per booking)</div>
@@ -713,11 +716,15 @@ svg text{font-family:inherit}
       </div>
     </div>
     <div class="foot" id="l1v-foot" style="margin-top:12px"></div>
-  </div>
+  </details>
 
-  <div class="card section" id="l1-cohort" style="margin-top:20px" hidden>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <div><div class="label">L1 performance by belief cohort</div><div class="sub" id="coh-sub"></div></div>
+  <details class="card section" id="l1-cohort" style="margin-top:20px" hidden>
+    <summary style="cursor:pointer;list-style:revert">
+      <span class="label">L1 performance by belief cohort</span>
+      <span class="sub" style="display:inline">· folded — served its purpose; belief split no longer steers action</span>
+    </summary>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:10px">
+      <div><div class="sub" id="coh-sub"></div></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <select id="coh-before" onchange="setCohBefore(this.value)" title="which before-baseline to compare against"
           style="display:none;padding:5px 8px;border-radius:6px;border:1px solid var(--n300);background:var(--card);font-size:12px;color:var(--ink)"></select>
@@ -738,20 +745,29 @@ svg text{font-family:inherit}
       than now (see bookings/CSP/day), so June rates sit on thinner bases — read the small cohorts
       and the confirmed-% column with caution. Cohorts under 30 CSPs are dimmed.
     </div>
-  </div>
+  </details>
 
   <div class="foot card">
     <b>Definitions — sacrosanct to Metabase Q11528 (B2I funnel with attributed drops).</b>
     Anchor = <b>booking confirmed</b> (canonical booking window, test-LCO excluded); booking →
     connection (days=14 window) → <b>current</b> TAS task. A booking counts iff that task belongs
-    to an enrolled CSP (opted-in + audit complete) = “CSP received booking”. “CSP slot proposed”
-    = current depth ≥ 3 (slot proposed or awaiting customer slot confirmation, or further) — read
-    as a share <i>of bookings received</i>, not of accepts. “Slot confirmed by customer” = depth ≥ 4
-    (confirmed slot or awaiting technician, or further). Speed = task creation → ALLOCATION_ACCEPTED event (timing only). <b>By booking
+    to an enrolled CSP (opted-in + audit complete) = “CSP received booking”.
+    <b>“Technician assigned”</b> = current depth ≥ 5 (executor attached, or state technician-assigned
+    / arrived / in-progress / awaiting-OTP / fee-pending) — read as a share <i>of confirmed bookings</i>,
+    the rung directly above it. <b>“Bookings re-farmed”</b> = the booking generated tasks for more than
+    one CSP, i.e. it was passed down the allotment order at least once after a decline, a no-response
+    timeout, or a customer cancellation — read as a share <i>of all bookings received</i>; lower is better.
+    Slot-proposed (depth ≥ 3) and slot-confirmed (depth ≥ 4) are no longer shown as headline cards:
+    a CSP task is now created <i>at</i> customer-slot-confirmed, so both rungs sit at or near 100%
+    and carry no signal. They remain in the folded two-grain view below.
+    Speed = task creation → ALLOCATION_ACCEPTED event (timing only). <b>By booking
     day</b>: all outcomes attach to the booking's confirm day — recent days mature upward.
     <b>By event day</b>: each event counts on the day it happened, shown as absolute counts/day
     (accepts and confirmations there can belong to bookings from earlier days). Only complete IST
-    calendar days are shown. Pre = 24–30 Jun daily average (dashed); Post = from 1 Jul.
+    calendar days are shown. The four cards above plot a <b>30-day rolling window</b>; the pre/post
+    averages and the dashed pre line in each are still computed over the full series, so the delta
+    chip is unchanged — only the plotted range is clipped.
+    Pre = 24–30 Jun daily average (dashed); Post = from 1 Jul.
     <br><b>Live pipeline vs Ever reached</b> (booking-day toggle): <b>Live pipeline</b> uses the
     <i>current</i> TAS state (where each booking sits now) — a rung that later fell back isn't counted,
     so proposal/confirm rates read where the queue is today. <b>Ever reached</b> uses the deepest rung
@@ -824,6 +840,9 @@ svg text{font-family:inherit}
 const $=id=>document.getElementById(id);
 const fmt=n=>n==null?'–':(typeof n==='string'?n:Number(n).toLocaleString('en-IN'));
 const PINK='#D9008D', PURPLE='#6D17CE', MUTED='#665E75';
+// L1 headline cards show a 30-day rolling window. Pre/post averages and the dashed
+// pre reference line are still computed over the FULL series — only the plot is clipped.
+const L1_WIN=30;
 let DATA=null, MODE='cohort', BASIS='current';
 let FLOWSEL=null, FLOWMODE='all';        // flow toggle: null/'all' | 'paid' (ex-G,H) | 'nofee' (G,H). Declared here (not by the flow fns below) so the top-level showTab() at load can't hit a TDZ.
 const _isNoFee=f=>f==='G'||f==='H';
@@ -2402,21 +2421,21 @@ function renderL1(l1,meta){
     {title:'Task created → slot accepted (median hrs)',kind:'line',key:'med_hrs_to_accept',
      color:PINK,goodUp:false,shKey:'sh_med_hrs_to_accept',
      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.med_hrs_to_accept??'–'} h</b> median<br>${N}non-enrolled: <b>${r.sh_med_hrs_to_accept??'–'} h</b>`},
+    // Slot-proposed and slot-confirmed retired as headline cards: the customer journey
+    // now starts AT customer-slot-confirmed (that is when the task is created for a CSP),
+    // so both rungs sit at ~100% and no longer discriminate. Replaced by the two rungs
+    // that still move — technician assigned, and how much of the book gets re-farmed.
     MODE==='cohort'
-    ?{title:'CSP slot proposed (%)'+bsuf,kind:'line',key:'slot_pct',color:PINK,goodUp:true,pct:true,
-      shKey:'sh_slot_pct',
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.slot_pct??'–'}%</b> (${fmt(r.slot_selected)} of ${fmt(r.bookings)} bookings)<br>${N}non-enrolled: <b>${r.sh_slot_pct??'–'}%</b>`}
-    :{title:'CSP slot proposed (count / day)',kind:'bar',key:'slot_selected',color:PINK,goodUp:true,
-      shKey:'sh_slot_selected',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.slot_selected)}</b> slot proposed (${fmt(r.bookings)} bookings that day)<br>${N}non-enrolled: <b>${fmt(r.sh_slot_selected)}</b>`},
-    MODE==='cohort'
-    ?{title:'Slot confirmed by customer (%)'+bsuf,kind:'line',key:'confirm_pct',color:PINK,goodUp:true,pct:true,
-      shKey:'sh_confirm_pct',
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.confirm_pct??'–'}%</b> (${fmt(r.cust_confirmed)} of ${fmt(r.slot_selected)} slot proposed)<br>${N}non-enrolled: <b>${r.sh_confirm_pct??'–'}%</b>`}
-    :{title:'Slot confirmed by customer (count / day)',kind:'bar',key:'cust_confirmed',color:PINK,goodUp:true,
-      shKey:'sh_cust_confirmed',shLabel:SH,
-      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.cust_confirmed)}</b> confirmed (${fmt(r.slot_selected)} slot proposed that day)<br>${N}non-enrolled: <b>${fmt(r.sh_cust_confirmed)}</b>`},
+    ?{title:'Technician assigned (%)'+bsuf,kind:'line',key:'tech_pct',color:PINK,goodUp:true,pct:true,
+      shKey:'sh_tech_pct',
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.tech_pct??'–'}%</b> (${fmt(r.tech_assigned)} of ${fmt(r.cust_confirmed)} confirmed bookings)<br>${N}non-enrolled: <b>${r.sh_tech_pct??'–'}%</b>`}
+    :{title:'Technician assigned (count / day)',kind:'bar',key:'tech_assigned',color:PINK,goodUp:true,
+      tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${fmt(r.tech_assigned)}</b> technician assigned (${fmt(r.cust_confirmed)} confirmed that day)`},
+    {title:'Bookings re-farmed (%)'+(MODE==='cohort'?bsuf:''),kind:'line',key:'refarm_pct',
+     color:PINK,goodUp:false,pct:true,shKey:'sh_refarm_pct',
+     tip:r=>`${r.day_ist}<br>${E}enrolled: <b>${r.refarm_pct??'–'}%</b> re-farmed (${fmt(r.refarm)} of ${fmt(r.bookings)} bookings passed through more than one CSP)<br>${N}non-enrolled: <b>${r.sh_refarm_pct??'–'}%</b>`},
   ];
+  specs.forEach(s=>s.win=L1_WIN);   // first four cards: 30-day rolling
   specs.forEach(s=>g.appendChild(chartCard(s,m,meta)));
   renderL1Views(M,ever);
 }
@@ -2470,9 +2489,10 @@ function deltaChip(pre,post,goodUp,unit){
 
 function chartCard(s,m,meta){
   const card=document.createElement('div'); card.className='card';
-  const rows=m.daily, pre=m.pre_avg[s.key], post=m.post_avg[s.key];
+  const rows=s.win?m.daily.slice(-s.win):m.daily, pre=m.pre_avg[s.key], post=m.post_avg[s.key];
   const u=s.pct?'%':'';
-  let sub=`pre avg ${pre??'–'}${u} → post avg ${post??'–'}${u}`;
+  let sub=s.win?`last ${rows.length} days · pre avg ${pre??'–'}${u} → post avg ${post??'–'}${u}`
+               :`pre avg ${pre??'–'}${u} → post avg ${post??'–'}${u}`;
   if(s.shKey){
     const sp=m.pre_avg[s.shKey], so=m.post_avg[s.shKey];
     sub+=` · <span style="color:#665E75">non-enrolled: ${sp??'–'}${u} → ${so??'–'}${u}</span>`;

@@ -129,7 +129,7 @@ full_j AS (
 -- comparable (Wiom = per booking, CSP = per task, re-farm carries its weight).
 -- enr is per task (each task's own CSP), which is the honest per-CSP basis.
 tasks_all AS (
-    SELECT cn.booking_date, t.CSP_ID,
+    SELECT cn.booking_date, cn.CONNECTION_ID, t.CSP_ID,
            IFF(t.CSP_ID IN (SELECT CSP_ID FROM mg_csp), 1, 0) AS enr,
            CASE
              WHEN t.OTP_VERIFIED = TRUE OR t.INSTALLATION_COMPLETED_AT IS NOT NULL
@@ -143,6 +143,14 @@ tasks_all AS (
     FROM conn cn
     JOIN PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES t
       ON t.CONNECTION_ID = cn.CONNECTION_ID AND t.ETL_CURRENT = TRUE
+),
+-- RE-FARM: how many distinct CSPs the booking passed through. A booking is allotted
+-- down an order one CSP at a time; decline / no-response / customer-cancel hands it to
+-- the next. n_csp > 1 means it was re-farmed at least once. Counted on the same
+-- Q11528 booking universe as every other rung here.
+nc AS (
+    SELECT CONNECTION_ID, COUNT(DISTINCT CSP_ID) AS n_csp
+    FROM tasks_all GROUP BY 1
 )
 SELECT 'cohort' AS mode, booking_date::STRING AS day_ist, enr,
        COUNT(*) AS bookings,
@@ -151,20 +159,23 @@ SELECT 'cohort' AS mode, booking_date::STRING AS day_ist, enr,
        SUM(IFF(depth >= 6, 1, 0)) AS installed,
        NULL AS n,
        ROUND(MEDIAN(mins_to_accept) / 60, 1) AS med_hrs,
-       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1) AS p90_hrs
-FROM full_j GROUP BY 2, 3
+       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1) AS p90_hrs,
+       SUM(IFF(depth >= 5, 1, 0)) AS tech,
+       SUM(IFF(nc.n_csp > 1, 1, 0)) AS refarm
+FROM full_j f LEFT JOIN nc ON nc.CONNECTION_ID = f.CONNECTION_ID GROUP BY 2, 3
 UNION ALL
 SELECT 'event_accept', TO_DATE(DATEADD(minute, 330, accepted_at))::STRING, enr,
        NULL, NULL, NULL, NULL, COUNT(*),
        ROUND(MEDIAN(mins_to_accept) / 60, 1),
-       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1)
+       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1),
+       NULL, NULL
 FROM full_j WHERE accepted_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 SELECT 'event_confirm', TO_DATE(DATEADD(minute, 330, confirmed_at))::STRING, enr,
-       NULL, NULL, NULL, NULL, COUNT(*), NULL, NULL
+       NULL, NULL, NULL, NULL, COUNT(*), NULL, NULL, NULL, NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
-SELECT 'csps', NULL, enr, NULL, NULL, NULL, NULL, COUNT(DISTINCT CSP_ID), NULL, NULL
+SELECT 'csps', NULL, enr, NULL, NULL, NULL, NULL, COUNT(DISTINCT CSP_ID), NULL, NULL, NULL, NULL
 FROM full_j GROUP BY 3
 UNION ALL
 -- install ratio anchored on the CUSTOMER-SLOT-CONFIRMED day (the ratio's own
@@ -176,7 +187,7 @@ UNION ALL
 SELECT 'confirm_cohort', TO_DATE(DATEADD(minute, 330, confirmed_at))::STRING, enr,
        NULL, NULL, COUNT(*),
        SUM(IFF(depth >= 6 AND installed_at <= DATEADD(hour, 96, confirmed_at), 1, 0)),
-       NULL, NULL, NULL
+       NULL, NULL, NULL, NULL, NULL
 FROM full_j WHERE confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- EVER-REACHED (Wiom view): install ratio anchored on the FIRST customer-slot-
@@ -188,7 +199,7 @@ UNION ALL
 SELECT 'confirm_cohort_ever', TO_DATE(DATEADD(minute, 330, ever_confirmed_at))::STRING, enr,
        NULL, NULL, COUNT(*),
        SUM(IFF(depth_ever >= 6 AND installed_at <= DATEADD(hour, 96, ever_confirmed_at), 1, 0)),
-       NULL, NULL, NULL
+       NULL, NULL, NULL, NULL, NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- EVER-REACHED leading funnel (booking day): each rung = deepest ever reached
@@ -201,8 +212,10 @@ SELECT 'cohort_ever', booking_date::STRING, enr,
        SUM(IFF(depth_ever >= 6, 1, 0)),
        NULL,
        ROUND(MEDIAN(mins_to_accept) / 60, 1),
-       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1)
-FROM full_j GROUP BY 2, 3
+       ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY mins_to_accept) / 60, 1),
+       SUM(IFF(depth_ever >= 5, 1, 0)),
+       SUM(IFF(nc.n_csp > 1, 1, 0))
+FROM full_j f LEFT JOIN nc ON nc.CONNECTION_ID = f.CONNECTION_ID GROUP BY 2, 3
 UNION ALL
 -- CSP view (task level): same rungs, one row per CSP task instead of per booking.
 -- "bookings" here carries the TASK count (re-farm counted) so the payload shape
@@ -213,11 +226,13 @@ SELECT 'cohort_task', booking_date::STRING, enr,
        SUM(IFF(depth >= 3, 1, 0)),
        SUM(IFF(depth >= 4, 1, 0)),
        SUM(IFF(depth >= 6, 1, 0)),
-       NULL, NULL, NULL
-FROM tasks_all GROUP BY 2, 3
+       NULL, NULL, NULL,
+       SUM(IFF(depth >= 5, 1, 0)),
+       SUM(IFF(nc.n_csp > 1, 1, 0))
+FROM tasks_all t LEFT JOIN nc ON nc.CONNECTION_ID = t.CONNECTION_ID GROUP BY 2, 3
 UNION ALL
 -- all qualified bookings created that day (Q11528 stage 1), whether or not
 -- they ever reached a connection or CSP task
-SELECT 'total', booking_date::STRING, NULL, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL
+SELECT 'total', booking_date::STRING, NULL, COUNT(*), NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 FROM acc_clean GROUP BY 2
 ORDER BY 1, 2;
