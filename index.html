@@ -777,12 +777,6 @@ svg text{font-family:inherit}
   </div>
 </div>
 <div id="pane-l2" style="display:none">
-  <div class="card" style="margin-bottom:20px">
-    <div class="label">L2 · Target metric — did the intervention do its job?</div>
-    <div class="sub"><b>Two views of install ratio.</b> <b>Wiom view</b> (headline below) = installs ÷ bookings the customer <b>ever</b> confirmed a slot for (booking/connection level, high-water) — so a booking that was confirmed but failed &amp; got re-farmed still counts, which current-state would drop. <b>Partner view</b> (second chart) = installs ÷ customer-confirmation <b>tasks</b> (re-farm counted). Both keep Q11528's ladder.</div>
-    <div class="strip" id="l2-hero" style="margin-top:14px"></div>
-    <div class="sub" id="l2-foot" style="margin-top:12px"></div>
-  </div>
   <div class="l1grid" id="l2grid"></div>
   <div class="card section" id="l2-fail" style="margin-top:20px" hidden>
     <div class="label">Install failures owned by Wiom — previous day</div>
@@ -1847,13 +1841,13 @@ async function saveCall(pid,name,answer){
 
 function taskCard(tc,meta){
   const card=document.createElement('div'); card.className='card';
-  const cutoff=tc.mature_cutoff, rows=tc.daily;
+  const cutoff=tc.mature_cutoff, allRows=tc.daily, rows=allRows.slice(-L1_WIN);
   const pool=rs=>{const t=rs.reduce((a,r)=>a+(r.confirmed_tasks||0),0), i=rs.reduce((a,r)=>a+(r.installs||0),0);return{t,i,ratio:t?Math.round(1000*i/t)/10:null};};
-  const pre=pool(rows.filter(r=>r.day_ist<=meta.pre[1]));
-  const post=pool(rows.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
-  const postAll=pool(rows.filter(r=>r.day_ist>=meta.post_start));
-  card.innerHTML=`<div class="chart-head"><h2>Partner view — task-level install ratio (re-farm counted)</h2>${deltaChip(pre.ratio,post.ratio,true,' pp')}</div>
-    <div class="sub">installs ÷ customer-slot-confirmed <b>tasks</b> (each confirmation task counts · re-farm weighted · the per-CSP-task basis MG is paid on) · pre <b>${pre.ratio??'–'}%</b> → post <b>${post.ratio??'–'}%</b> <span style="opacity:.55">· total incl. maturing ${postAll.ratio??'–'}%</span></div>`;
+  const pre=pool(allRows.filter(r=>r.day_ist<=meta.pre[1]));
+  const post=pool(allRows.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
+  const postAll=pool(allRows.filter(r=>r.day_ist>=meta.post_start));
+  card.innerHTML=`<div class="chart-head"><h2>Partner view — task-level install ratio, tech-assigned → installed</h2>${deltaChip(pre.ratio,post.ratio,true,' pp')}</div>
+    <div class="sub">installs ÷ <b>tech-assigned tasks</b> (one per CSP actually dispatched to · re-farm weighted · the per-CSP basis MG is paid on) · last ${rows.length} days · pre <b>${pre.ratio??'–'}%</b> → post <b>${post.ratio??'–'}%</b> <span style="opacity:.55">· total incl. maturing ${postAll.ratio??'–'}%</span></div>`;
   const W=760,H=280,L=42,R=32,T=16,B=30, LT='#F2B8DE';
   const ymax=Math.max(1,...rows.map(r=>r.confirmed_tasks||0))*1.12;
   const xb=i=>L+(W-L-R)*(i/rows.length), bw=(W-L-R)/rows.length-2, y=v=>T+(H-T-B)*(1-v/ymax);
@@ -1875,44 +1869,23 @@ function taskCard(tc,meta){
   for(let i=0;i<=4;i++){const p=25*i;svg+=`<text x="${W-R+4}" y="${y2(p)+3}" font-size="10" fill="var(--purple)">${p}%</text>`;}
   svg+='</svg>';
   const key=(c,l)=>`<span style="white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;background:${c};border-radius:2px;vertical-align:middle"></span> ${l}</span>`;
-  card.insertAdjacentHTML('beforeend', svg+`<div style="display:flex;gap:18px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${key(LT,'slot-confirmed tasks received')}${key(PINK,'installed')}<span style="white-space:nowrap"><span style="display:inline-block;width:14px;height:0;border-top:2.5px solid var(--purple);vertical-align:middle"></span> install ratio % (right axis)</span></div>`);
+  card.insertAdjacentHTML('beforeend', svg+`<div style="display:flex;gap:18px;margin-top:6px;font-size:12px;color:var(--ink2);flex-wrap:wrap">${key(LT,'tech-assigned tasks')}${key(PINK,'installed')}<span style="white-space:nowrap"><span style="display:inline-block;width:14px;height:0;border-top:2.5px solid var(--purple);vertical-align:middle"></span> install ratio % (right axis)</span></div>`);
   return card;
 }
 
 function renderL2(l1,meta){
   const M=l1modes();
-  const m=M.confirm_cohort_ever||M.confirm_cohort||M.cohort;
-  const daily=m.daily;
-  // Install ratio lags slot-confirmation by ~2-3 days (most installs land in
-  // that window). Days newer than the cutoff are still installing, so they are
-  // held out of BOTH the pre/post ratio and the movement — including them only
-  // understates the post number. Server sends the same cutoff it uses for the
-  // chart post-average, so the headline and the chart badge agree.
+  // L2 now measures technician-assigned -> installed. Slot-confirmation is the START
+  // of a confirmed booking's journey (a CSP task is created at that point), so the
+  // confirm->install rungs no longer discriminate; dispatch->install does.
+  const m=M.tech_cohort||M.confirm_cohort_ever||M.confirm_cohort||M.cohort;
+  // A 96h maturity cap runs from the ASSIGNMENT instant, so every assign-day is judged
+  // on an identical 4-day window. Days newer than the cutoff are still installing and
+  // stay on the chart shaded, but are held out of the post average.
   const cutoff=m.mature_cutoff||new Date(Date.now()-4*864e5).toISOString().slice(0,10);
-  const pool=rows=>{
-    const c=rows.reduce((a,r)=>a+(r.cust_confirmed||0),0), i=rows.reduce((a,r)=>a+(r.installs||0),0);
-    return {c,i,ratio:c?Math.round(1000*i/c)/10:null};
-  };
-  const pre=pool(daily.filter(r=>r.day_ist<=meta.pre[1]));
-  const post=pool(daily.filter(r=>r.day_ist>=meta.post_start&&r.day_ist<=cutoff));
-  const postAll=pool(daily.filter(r=>r.day_ist>=meta.post_start));  // incl. still-maturing days
-  const held=daily.filter(r=>r.day_ist>=meta.post_start&&r.day_ist>cutoff).length;
-  const d=(pre.ratio!=null&&post.ratio!=null)?Math.round(10*(post.ratio-pre.ratio))/10:null;
-  const col=d==null?'inherit':(d>=0?'var(--green)':'var(--red)');
-  const verdict=d==null?'':(d>0?'moving the right way':(d<0?'not yet':'flat'));
-  const _mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const _cp=cutoff.split('-'), cutLbl=(+_cp[2])+' '+_mn[+_cp[1]-1];
-  $('l2-hero').innerHTML=
-    tile((pre.ratio??'–')+'%','Pre install ratio (Wiom view)',`${fmt(pre.i)} installed ≤4d / ${fmt(pre.c)} ever-confirmed · confirmed 24–30 Jun`)+
-    tile((post.ratio??'–')+'%','Post install ratio (Wiom view)',`${fmt(post.i)} installed ≤4d / ${fmt(post.c)} ever-confirmed · confirmed 1 Jul–${cutLbl} (mature)<br><span style="opacity:.5;font-weight:600">Total incl. maturing: ${postAll.ratio??'–'}% · ${fmt(postAll.i)}/${fmt(postAll.c)}</span>`,'color:'+col)+
-    tile(d==null?'–':(d>0?'+':'')+d+' pp','Movement',verdict,'color:'+col);
-  $('l2-foot').innerHTML=`<b>Uniform 4-day maturity cap:</b> an install counts only if it completed <b>within 96h</b> of the
-    slot-confirm, so every day — PRE and POST — is measured on the same 4-day window and is directly comparable. Because a
-    confirm-day is only fully aged once its whole cohort has had 96h, days newer than ${cutLbl} are held out of the average.${held?` The last <b>${held}</b>
-    day${held>1?'s are':' is'} shaded on the chart and excluded.`:''}`;
   const g=$('l2grid'); g.innerHTML='';
-  g.appendChild(chartCard({title:'Wiom view — install ratio by first-confirmed day (ever-confirmed)',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,
-    tip:r=>`first confirmed ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed · ${fmt(r.cust_confirmed)} ever-confirmed${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
+  g.appendChild(chartCard({title:'Wiom view — install ratio by first tech-assigned day',kind:'line',key:'install_ratio',color:PINK,goodUp:true,pct:true,mature:cutoff,win:L1_WIN,
+    tip:r=>`first tech assigned ${r.day_ist}<br>install ratio: <b>${r.install_ratio??'–'}%</b><br>${fmt(r.installs)} installed ≤96h · ${fmt(r.cust_confirmed)} tech-assigned${r.day_ist>cutoff?'<br><i>still maturing</i>':''}`}, m, meta));
   if(l1.task_confirm) g.appendChild(taskCard(l1.task_confirm, meta));
   renderLeadtime(l1.leadtime);
 }

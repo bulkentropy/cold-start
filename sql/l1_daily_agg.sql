@@ -45,7 +45,7 @@ acc_clean AS (
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
 ),
 conn AS (
-    SELECT a.mobile, a.booking_date, c.CONNECTION_ID
+    SELECT a.mobile, a.booking_date, a.bt, a.nb, c.CONNECTION_ID
     FROM acc_clean a
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
       ON ceh.EVENT_TYPE = 'CONNECTION_REQUEST' AND ceh._FIVETRAN_DELETED = FALSE
@@ -83,6 +83,21 @@ hw AS (
     WHERE ETL_CURRENT = TRUE
     GROUP BY CONNECTION_ID
 ),
+-- First TECHNICIAN-ASSIGNED moment per booking. TAS_INSTALL_EXECUTION_CANDIDATES
+-- carries EXECUTOR_ID but NO assignment timestamp, so the date comes from the
+-- TASKVANILLA_AUDIT 'ASSIGNED' event — this codebase's verified S5 marker, which
+-- fires in both the old and new app. Scoped to each booking's own window (bt..nb)
+-- so a re-booking on the same mobile cannot borrow the previous journey's assignment.
+assign AS (
+    SELECT cn.CONNECTION_ID,
+           MIN(DATEADD(minute, 330, t.ADDED_TIME)) AS first_assigned_at
+    FROM conn cn
+    JOIN PROD_DB.PUBLIC.TASKVANILLA_AUDIT t
+      ON t.MOBILE = cn.mobile AND t.EVENT_NAME = 'ASSIGNED'
+     AND DATEADD(minute, 330, t.ADDED_TIME) >= cn.bt
+     AND (cn.nb IS NULL OR DATEADD(minute, 330, t.ADDED_TIME) < cn.nb)
+    GROUP BY 1
+),
 joined AS (
     SELECT cn.booking_date, cn.CONNECTION_ID, tl.CSP_ID,
            IFF(tl.CSP_ID IN (SELECT CSP_ID FROM mg_csp), 1, 0) AS enr,
@@ -103,10 +118,12 @@ joined AS (
              ELSE 2
            END AS depth_ever,
            hw.first_confirmed_at AS ever_confirmed_at,
-           hw.installed_at AS installed_at
+           hw.installed_at AS installed_at,
+           asg.first_assigned_at AS first_assigned_at
     FROM conn cn
     JOIN tl ON tl.CONNECTION_ID = cn.CONNECTION_ID
     LEFT JOIN hw ON hw.CONNECTION_ID = cn.CONNECTION_ID
+    LEFT JOIN assign asg ON asg.CONNECTION_ID = cn.CONNECTION_ID
 ),
 accepts AS (
     SELECT j.CONNECTION_ID, MIN(e.EVENT_TIMESTAMP) AS accepted_at
@@ -201,6 +218,17 @@ SELECT 'confirm_cohort_ever', TO_DATE(DATEADD(minute, 330, ever_confirmed_at))::
        SUM(IFF(depth_ever >= 6 AND installed_at <= DATEADD(hour, 96, ever_confirmed_at), 1, 0)),
        NULL, NULL, NULL, NULL, NULL
 FROM full_j WHERE ever_confirmed_at IS NOT NULL GROUP BY 2, 3
+UNION ALL
+-- TECH-ASSIGNED COHORT: install ratio anchored on the day a technician was first
+-- assigned. Denominator = bookings that reached technician-assigned; numerator = of
+-- those, installed. Same 96h maturity cap as the confirm cohorts, measured from the
+-- ASSIGNMENT instant, so every assign-day is judged on an identical 4-day window.
+-- 'confirmed' column carries the tech-assigned count to keep the payload shape.
+SELECT 'tech_cohort', TO_DATE(first_assigned_at)::STRING, enr,
+       NULL, NULL, COUNT(*),
+       SUM(IFF(depth_ever >= 6 AND installed_at <= DATEADD(hour, 96, first_assigned_at), 1, 0)),
+       NULL, NULL, NULL, NULL, NULL
+FROM full_j WHERE first_assigned_at IS NOT NULL GROUP BY 2, 3
 UNION ALL
 -- EVER-REACHED leading funnel (booking day): each rung = deepest ever reached
 -- (>=3 ever slot-proposed, >=4 ever customer-confirmed, 6 ever installed), so a

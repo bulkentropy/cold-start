@@ -508,6 +508,7 @@ def compute_l1(enrolled_ids):
     coh_task = bucket("cohort_task")   # CSP view (task level, re-farm counted)
     ccoh = bucket("confirm_cohort")
     ccoh_ever = bucket("confirm_cohort_ever")
+    tcoh = bucket("tech_cohort")       # day = first technician-assigned day
     csps = {r["enr"]: r["n"] for r in raw if r["mode"] == "csps"}
     total = {str(r["day_ist"])[:10]: r["bookings"] for r in raw
              if r["mode"] == "total" and r["day_ist"]}
@@ -587,7 +588,10 @@ def compute_l1(enrolled_ids):
         return out
 
     def agg_confirm():        return _agg_confirm(ccoh)        # current-state
-    def agg_confirm_ever():   return _agg_confirm(ccoh_ever)   # ever-reached (Wiom view)
+    def agg_confirm_ever():   return _agg_confirm(ccoh_ever)   # ever-reached
+    # L2 Wiom view: install ratio anchored on the day a technician was FIRST assigned.
+    # Same payload shape — `cust_confirmed` carries the tech-assigned count.
+    def agg_tech_cohort():    return _agg_confirm(tcoh)
 
     def block(rows):
         def avg(k):
@@ -609,14 +613,15 @@ def compute_l1(enrolled_ids):
                        ("cohort_task", agg_cohort_task()),
                        ("event", agg_event()),
                        ("confirm_cohort", agg_confirm()),
-                       ("confirm_cohort_ever", agg_confirm_ever())):
+                       ("confirm_cohort_ever", agg_confirm_ever()),
+                       ("tech_cohort", agg_tech_cohort())):
         pre = [r for r in rows if L1_START <= r["day_ist"] <= PRE_END]
         post = [r for r in rows if r["day_ist"] >= POST_START]
-        if mode in ("confirm_cohort", "confirm_cohort_ever"):
+        if mode in ("confirm_cohort", "confirm_cohort_ever", "tech_cohort"):
             post = [r for r in post if r["day_ist"] <= mature_cutoff]
         modes[mode] = {"daily": rows, "pre_avg": block(pre), "post_avg": block(post)}
-    modes["confirm_cohort"]["mature_cutoff"] = mature_cutoff
-    modes["confirm_cohort_ever"]["mature_cutoff"] = mature_cutoff
+    for _m in ("confirm_cohort", "confirm_cohort_ever", "tech_cohort"):
+        modes[_m]["mature_cutoff"] = mature_cutoff
 
     try:
         leadtime = _leadtime_stats(enrolled_ids)
@@ -631,18 +636,35 @@ def compute_l1(enrolled_ids):
     task_confirm = None
     try:
         inlist = ",".join(f"'{p}'" for p in enrolled_ids)
+        # Task grain, anchored on TECHNICIAN ASSIGNMENT. TAS carries EXECUTOR_ID per
+        # CSP but no assignment timestamp, so the day comes from TASKVANILLA_AUDIT
+        # 'ASSIGNED' (verified S5 marker, fires in both apps) and the CSP from that
+        # event's own account_id — so a re-farmed booking counts once per CSP that
+        # was actually assigned to it. Install = OTP_VERIFIED within 96h of assignment,
+        # the same maturity cap the Wiom view uses.
         tsql = f"""
-        WITH mg AS (SELECT CSP_ID FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
-          WHERE _fivetran_active=TRUE AND PARTNER_ID IN ({inlist})
-          QUALIFY ROW_NUMBER() OVER (PARTITION BY CSP_ID ORDER BY 1)=1)
-        SELECT TO_DATE(DATEADD(minute,330,c.CONFIRMED_SLOT_AT))::STRING day,
-          COUNT(*) confirmed_tasks,
-          SUM(IFF(c.INSTALLATION_COMPLETED_AT IS NOT NULL
-                  AND c.INSTALLATION_COMPLETED_AT <= DATEADD(hour,96,c.CONFIRMED_SLOT_AT),1,0)) installs
-        FROM PROD_DB.DBT_CSP.TAS_INSTALL_EXECUTION_CANDIDATES c
-        JOIN mg ON mg.CSP_ID = c.CSP_ID
-        WHERE c.ETL_CURRENT=TRUE AND c.CONFIRMED_SLOT_AT IS NOT NULL
-          AND c.CONFIRMED_SLOT_AT >= DATEADD(minute,-330,'{L1_START} 00:00:00'::TIMESTAMP_NTZ)
+        WITH mgp AS (SELECT DISTINCT TO_VARCHAR(PARTNER_ID) pid
+          FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
+          WHERE _fivetran_active=TRUE AND PARTNER_ID IN ({inlist})),
+        ev AS (
+          SELECT t.MOBILE mob,
+                 REGEXP_REPLACE(TO_VARCHAR(t.ACCOUNT_ID),'[.]0+$','') acct,
+                 t.EVENT_NAME en,
+                 DATEADD(minute,330,t.ADDED_TIME) ts
+          FROM PROD_DB.PUBLIC.TASKVANILLA_AUDIT t
+          WHERE t.ADDED_TIME >= DATEADD(minute,-330,'{L1_START} 00:00:00'::TIMESTAMP_NTZ)
+            AND t.EVENT_NAME IN ('ASSIGNED','OTP_VERIFIED')),
+        asg AS (
+          SELECT mob, acct, MIN(ts) assigned_at FROM ev
+          WHERE en='ASSIGNED' AND acct IS NOT NULL AND acct NOT IN ('0','')
+          GROUP BY 1,2),
+        ins AS (SELECT mob, MIN(ts) installed_at FROM ev WHERE en='OTP_VERIFIED' GROUP BY 1)
+        SELECT TO_DATE(a.assigned_at)::STRING day,
+               COUNT(*) confirmed_tasks,
+               SUM(IFF(i.installed_at IS NOT NULL
+                       AND i.installed_at <= DATEADD(hour,96,a.assigned_at),1,0)) installs
+        FROM asg a JOIN mgp ON mgp.pid = a.acct
+        LEFT JOIN ins i ON i.mob = a.mob
         GROUP BY 1"""
         tmap = {str(r["day"])[:10]: r for r in metabase_sql(tsql)}
         tdaily = []
