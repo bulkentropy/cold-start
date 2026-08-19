@@ -152,7 +152,10 @@ IGN_WEEKS = [("2026-06-24", "2026-06-30", "24–30 Jun", "tb", "ib"),
              ("2026-07-01", "2026-07-07", "1–7 Jul", "ta", "ia"),
              ("2026-07-08", "2026-07-14", "8–14 Jul", "tc", "ic"),
              ("2026-07-15", "2026-07-21", "15–21 Jul", "t4", "i4"),
-             ("2026-07-22", "2026-07-28", "22–28 Jul", "t5", "i5")]
+             ("2026-07-22", "2026-07-28", "22–28 Jul", "t5", "i5"),
+             ("2026-07-29", "2026-08-04", "29 Jul–4 Aug", "t6", "i6"),
+             ("2026-08-05", "2026-08-11", "5–11 Aug", "t7", "i7"),
+             ("2026-08-12", "2026-08-18", "12–18 Aug", "t8", "i8")]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1251,8 +1254,16 @@ def compute_cohort(enrolled_ids, latest):
     weeks = []
     for w0, w1, lbl, tk, ik in IGN_WEEKS:
         out_w = {p: classify(p, tk, ik) for p in enrolled_ids}
+        # A week whose end date has not passed yet is still filling: its task counts
+        # cover fewer than 7 days, so its moved count is mechanically low and its
+        # demand-failure count mechanically high. That is a SHORT-WINDOW effect and is
+        # distinct from install maturity, which the banner already covers.
+        wend = datetime.fromisoformat(w1).date()
+        # complete days only — `today` is itself still running, so it does not count
+        elapsed = min(7, max(0, (today - datetime.fromisoformat(w0).date()).days))
         weeks.append({"window": [w0, w1], "label": lbl,
-                      "split": split(out_w, allk), "maturity": _week_mat(w0, w1)["pct"]})
+                      "split": split(out_w, allk), "maturity": _week_mat(w0, w1)["pct"],
+                      "partial": wend >= today, "days_elapsed": elapsed})
     maturity = _week_mat(*IGN_WEEKS[-1][:2])   # maturity band references the latest week
 
     ignition = {"before_window": list(IGN_BEFORE), "after_window": ["2026-07-01", today.isoformat()],
@@ -1267,17 +1278,27 @@ def compute_cohort(enrolled_ids, latest):
     # sit in `pending`, not the denominator; true system cancels excluded). Rate
     # = inst / recv. A CSP with recv=0 but pending>0 has leads not yet matured
     # (not "below"); recv=0 and pending=0 = no confirmed leads at all.
+    # AUGUST 2026 RULE: denominator = leads that reached TECH ASSIGNED, numerator =
+    # of those, installed (any install). One row per (connection, CSP). A confirmed
+    # lead that never got a technician is NOT in the denominator — it leaves the metric
+    # entirely rather than counting as a miss, so it is surfaced as `not_dispatched`
+    # instead of silently vanishing. `pend_tasks` are dispatched-but-unfinished jobs;
+    # unlike the old rule these DO sit in the denominator and drag the rate until they
+    # land, so a mid-month reading is pessimistic.
     GATE = 0.60
-    g = {"above": 0, "below": 0, "pending_only": 0, "no_leads": 0,
-         "below_zero_install": 0, "one_more": 0, "pending_tasks": 0}
+    g = {"above": 0, "below": 0, "not_dispatched": 0, "no_leads": 0,
+         "below_zero_install": 0, "one_more": 0, "pending_tasks": 0,
+         "nodispatch_leads": 0}
     for p in enrolled_ids:
         r = sraw.get(p)
         recv = (r.get("recv_m") or 0) if r else 0
         inst = (r.get("inst_m") or 0) if r else 0
         pend = (r.get("pend_m") or 0) if r else 0
+        nod = (r.get("nodisp_m") or 0) if r else 0
         g["pending_tasks"] += pend
+        g["nodispatch_leads"] += nod
         if recv == 0:
-            g["pending_only" if pend > 0 else "no_leads"] += 1
+            g["not_dispatched" if nod > 0 else "no_leads"] += 1
         elif inst / recv >= GATE:
             g["above"] += 1
         else:
@@ -1298,7 +1319,8 @@ def compute_cohort(enrolled_ids, latest):
                     .replace("{TODAY}", today.isoformat())
                     .replace("{ENROLLED_N}", str(len(enrolled_ids))))
         gate["daily"] = [{"day": str(r["day"])[:10], "above": r.get("above") or 0,
-                          "below": r.get("below") or 0, "pending": r.get("pending") or 0,
+                          "below": r.get("below") or 0,
+                          "not_dispatched": r.get("not_dispatched") or 0,
                           "no_leads": r.get("no_leads") or 0} for r in metabase_sql(dsql)]
     except Exception:
         traceback.print_exc()

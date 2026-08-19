@@ -1478,7 +1478,7 @@ function renderGate(g){
       to date. Each CSP is placed by its state <b>as of that day</b> — installs ÷ <b>matured</b> customer-confirmed leads vs the
       <b>${g.gate_pct}%</b> gate. Total is constant (${fmt(g.enrolled)}); the composition shift is the story.`;
     const STK=[['above','#008043','Above '+g.gate_pct+'% gate'],['below','#C77700','Below the gate'],
-               ['pending','#6D17CE','Pending · none matured'],['no_leads','#9A93AD','No confirmed leads']];
+               ['not_dispatched','#6D17CE','Never dispatched'],['no_leads','#9A93AD','No leads']];
     const TOT=n, W=720,H=300,L=30,R=10,T=22,B=22,m=s.length;
     const x=i=>L+(W-L-R)*(m===1?.5:i/(m-1)), yOf=v=>T+(H-T-B)*(1-v/TOT);
     const cum=s.map(r=>{let c=0;const o={};STK.forEach(([k])=>{o[k]=[c,c+(r[k]||0)];c+=(r[k]||0);});return o;});
@@ -1497,7 +1497,7 @@ function renderGate(g){
       const anc=i===0?'start':(i===m-1?'end':'middle'), xx=i===0?L:(i===m-1?W-R:x(i));
       svg+=`<text x="${xx}" y="${H-6}" font-size="10" fill="${MUTED}" text-anchor="${anc}">${r.day.slice(5)}</text>`;});
     const cw=(W-L-R)/Math.max(m-1,1);
-    s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.day.slice(5)} · Above ${r.above} · Below ${r.below} · Pending ${r.pending} · No-leads ${r.no_leads}</title></rect>`);
+    s.forEach((r,i)=>svg+=`<rect x="${x(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" fill="transparent"><title>${r.day.slice(5)} · Above ${r.above} · Below ${r.below} · Never dispatched ${r.not_dispatched} · No-leads ${r.no_leads}</title></rect>`);
     svg+='</svg>';
     const rowr=([k,c,l])=>{const v=last[k]||0,d=v-(first[k]||0),gd={above:1,below:-1,pending:0,no_leads:-1}[k];
       const dc=(gd===0||!d)?'var(--muted)':(Math.sign(d)===gd?'#1E9E6A':'#E01E00');
@@ -1516,13 +1516,13 @@ function renderGate(g){
       <div style="flex:1 1 280px;min-width:250px">${snap}</div></div>`;
   } else {
     $('gate-meter').style.display=''; $('gate-tiles').style.display='';
-    $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs, at <b>task level</b>: installs ÷
-      <b>matured</b> customer-confirmed leads (reached a final state), over <b>${g.month}</b> to date
+    $('gate-sub').innerHTML=`Of all <b>${fmt(g.enrolled)}</b> enrolled CSPs: installs ÷
+      leads that reached <b>technician assigned</b>, one row per booking &times; CSP, over <b>${g.month}</b> to date
       (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
-    const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ matured ≥ '+g.gate_pct+'%'],
+    const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ tech-assigned ≥ '+g.gate_pct+'%'],
                ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
-               ['pending_only','var(--purple)','Only pending leads','confirmed but none matured yet'],
-               ['no_leads','#9A93AD','No confirmed leads','nothing confirmed yet']];
+               ['not_dispatched','var(--purple)','Never dispatched','confirmed leads, no technician ever assigned'],
+               ['no_leads','#9A93AD','No leads','nothing confirmed or dispatched']];
     $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*(g[k]||0)/n}%;background:${c};border-radius:0"></div>`).join('');
     $('gate-tiles').innerHTML=SEG.map(([k,c,label,sub])=>
       tile(`${fmt(g[k]||0)}<span style="font-size:1rem;color:var(--muted)"> · ${Math.round(100*(g[k]||0)/n)}%</span>`,
@@ -1533,14 +1533,24 @@ function renderGate(g){
     <span style="font-size:1.5rem;font-weight:800;color:var(--green)">🎯 ${fmt(om)}</span>
     <span style="font-weight:600">of the ${fmt(g.below)} below-gate CSPs are <b>one install away</b> from clearing the ${g.gate_pct}% gate</span>
     <div class="sub" style="margin-top:4px">Installing one more lead (matured +1, install +1) pushes each of these over:
-    (installs + 1) ÷ (matured + 1) ≥ ${g.gate_pct}%. ${fmt(g.pending_tasks)} confirmed leads are still pending across all CSPs.</div></div>`;
-  $('gate-foot').innerHTML=`<b>Aligned to the MG payout logic.</b> Denominator = customer-confirmed leads that reached a
-    <b>final state this month</b> — installed, customer-cancel-after-slot, CSP no-show / decline / timeout, install-failed —
-    anchored on the final-state date (so a June-confirmed lead resolved in July counts). <b>Excluded:</b> still-open leads
-    (→ <b>Only pending leads</b>, they don't hurt the rate yet) and true system/upstream cancels (not the CSP's fault).
-    <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)} below-gate CSPs have matured leads but <b>zero</b> installs
-    (the ignition worklist). Task level: a reassigned task counts for each CSP that received it. Still moving month-to-date;
-    ratios firm up as pending leads mature.`;
+    (installs + 1) ÷ (tech-assigned + 1) ≥ ${g.gate_pct}%. ${fmt(g.pending_tasks)} dispatched jobs are still in flight across all CSPs —
+    unlike the old rule these already sit in the denominator, so the rate rises as they land.</div></div>`;
+  $('gate-foot').innerHTML=`<b>Aligned to the MG payout logic — revised for August 2026.</b>
+    Denominator = leads that reached <b>technician assigned</b> (an executor was attached). Numerator = of those,
+    <b>installed</b> — any install counts; being late against the customer's chosen slot is not tested.
+    Grain is one row per <b>booking &times; CSP</b>, so a booking re-allotted to the same CSP counts once.
+    <b>What changed:</b> the denominator used to be every customer-confirmed lead that reached a final state; narrowing it
+    to dispatched-only removes the leads that died before a technician was sent. Still-open jobs are no longer held out —
+    <b>${fmt(g.pending_tasks)}</b> dispatched jobs are in flight and currently count against the rate, so this reading is
+    pessimistic and firms up as the month closes. True system/upstream cancels are no longer excluded (immaterial in practice).
+    <b>${fmt(g.nodispatch_leads)}</b> customer-confirmed leads across <b>${fmt(g.not_dispatched)}</b> CSPs were never
+    dispatched at all: under this rule they leave the metric rather than counting as a miss, which is why they are shown
+    as their own band instead of being folded into "below".
+    <b>${fmt(g.below_zero_install)}</b> of the ${fmt(g.below)} below-gate CSPs have dispatched jobs but <b>zero</b> installs
+    (the ignition worklist).
+    <br><b>Caveat:</b> a lead's month is set by the last write to its row (<code>MAX(UPDATED_AT)</code>), not by a business
+    event — so an install completed in July whose row is touched in August moves into August, and a closed month can still
+    shift if rows are updated later. This mirrors the payout engine deliberately; the dashboard is not "corrected" against it.`;
 }
 
 const IGN=[['moved','var(--green)','Moved','≥1 install'],
@@ -1586,14 +1596,20 @@ function renderIgnition(g){
   const WK=g.weeks||[{label:'Before',window:g.before_window,split:b},{label:'After',window:g.after_window,split:a}];
   $('ign-tiles').innerHTML=IGN.map(([k,c,label,sub])=>{
     const series=WK.map(w=>w.split[k]);
-    const d=series[series.length-1]-series[0], good=k==='moved'?d>=0:d<=0;
+    // The delta anchors on the last COMPLETE week. A still-running final week has
+    // fewer than 7 days of tasks in it, so including it would show a fall that is
+    // just the calendar, not behaviour.
+    let lastFull=series.length-1;
+    for(let i=WK.length-1;i>=0;i--){ if(!WK[i].partial){ lastFull=i; break; } }
+    const d=series[lastFull]-series[0], good=k==='moved'?d>=0:d<=0;
     const col=Math.abs(d)===0?'var(--muted)':(good?'var(--green)':'var(--red)');
-    const trend=series.map((v,i)=>i===series.length-1?`${v}`:`<span style="color:var(--muted);font-size:1.35rem">${v}</span>`)
+    const trend=series.map((v,i)=>i===lastFull?`${v}`
+      :`<span style="color:var(--muted);font-size:1.35rem${WK[i].partial?';font-style:italic':''}">${v}</span>`)
       .join(`<span style="color:var(--muted);font-size:1rem"> → </span>`);
     return tile(`${trend} <span style="font-size:.85rem;color:${col};font-weight:700;white-space:nowrap">${d>0?'▲+'+d:d<0?'▼'+Math.abs(d):'0'}</span>`,
       label,sub+' · week-on-week','color:'+c);}).join('');
   $('ign-meters').innerHTML=WK.map((w,i)=>
-    `<div class="sub" style="margin:${i?'12px':'0'} 0 4px">${w.label} — ${w.window[0]} → ${w.window[1]}${(w.maturity!=null&&w.maturity<95)?` <span style="color:var(--amber);font-weight:600">· ~${w.maturity}% matured</span>`:''}</div>
+    `<div class="sub" style="margin:${i?'12px':'0'} 0 4px">${w.label} — ${w.window[0]} → ${w.window[1]}${(w.maturity!=null&&w.maturity<95)?` <span style="color:var(--amber);font-weight:600">· ~${w.maturity}% matured</span>`:''}${w.partial?` <span style="color:var(--red);font-weight:600">· running week, only ${w.days_elapsed} of 7 days — counts are incomplete</span>`:''}</div>
      <div class="meter">${ignMeter(w.split,n)}</div>`).join('')
     +`<div class="legend" style="margin-top:8px">`+IGN.map(([k,c,l])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')+`</div>`;
 
