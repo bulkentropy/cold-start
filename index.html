@@ -307,6 +307,8 @@ svg text{font-family:inherit}
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
   <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
   <button class="tab" id="tab-payout" onclick="showTab('payout')">Payout</button>
+  <button class="tab" id="tab-aug" onclick="showTab('aug')">August</button>
+  <button class="tab" id="tab-rem" onclick="showTab('rem')">Removed from MG</button>
   <button class="tab" id="tab-docs" onclick="showTab('docs')">Knowledge repository</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
   <button class="tab" id="tab-dec" onclick="showTab('dec')">Decisions</button>
@@ -459,6 +461,19 @@ svg text{font-family:inherit}
 </div>
 
 <!-- ===================== PAYOUT (July settlement) ===================== -->
+<div id="pane-rem" style="display:none">
+  <div class="card section">
+    <div class="label">Install MG &middot; Enforcement OS</div>
+    <h2 style="margin-top:4px">Removed from the MG programme</h2>
+    <div class="sub" id="rem-caption" style="margin-top:6px">loading&hellip;</div>
+  </div>
+  <div class="card section">
+    <div id="rem-tiles" class="strip"></div>
+    <div id="rem-table" style="overflow-x:auto; margin-top:14px"></div>
+    <div class="sub" id="rem-foot" style="margin-top:12px"></div>
+  </div>
+</div>
+
 <div id="pane-payout" style="display:none">
   <div class="card section">
     <div class="label">Install MG · July 2026 settlement</div>
@@ -515,6 +530,73 @@ svg text{font-family:inherit}
       <table class="payout-table" id="payout-table"><thead id="payout-thead"></thead><tbody id="payout-tbody"></tbody></table>
     </div>
     <div class="sub" id="payout-shown" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ===================== AUGUST (settlement as processed) ===================== -->
+<div id="pane-aug" style="display:none">
+  <div class="card section">
+    <div class="label">Install MG · August 2026 settlement</div>
+    <h2 style="margin-top:4px">Guarantee payout — August</h2>
+    <div class="sub" id="aug-caption" style="margin-top:6px">loading…</div>
+  </div>
+
+  <div class="card section">
+    <div class="label">What changed from July</div>
+    <div class="sub" style="margin-top:8px;line-height:1.6">
+      August is scored on a <b>frozen 31-Aug 23:59 IST close</b> — every booking is read at the state it
+      stood in when the month ended, so the figures reproduce on any future run. July was read live and
+      keeps shrinking, which is why the two months are not directly comparable on denominator.
+      <br><br>
+      The denominator is <b>leads where a technician was assigned</b>, minus leads CX marked
+      customer-caused (customer cancelled / price confusion / schedule conflict / address unclear) and
+      21 manually listed connections. A removal never applies to a completed install, so it can only
+      shrink a denominator — no CSP loses the guarantee because of one.
+      <br><br>
+      <b>Secured</b> at <b>≥60%</b> installs ÷ denominator → topped up to ₹10,000. A denominator of
+      <b>2 or less</b>, or zero, also pays the full ₹10,000 — too thin to score a rate against.
+      Everyone else is <b>piece-rate only</b> at ₹300/install, no top-up.
+      <br><br>
+      <span style="opacity:.7">Two groups are shown but not paid: <b>33 excluded</b> from MG on confirmed FPV,
+      non-performance or a hold decision, and <b>17 held</b> pending PSF→SD conversion sign-off. The held
+      CSPs qualified on performance — their money is pending an approval, not forfeited.</span>
+    </div>
+  </div>
+
+  <div class="strip" id="aug-tiles" style="margin-top:4px"></div>
+  <div class="strip" id="aug-buckets" style="margin-top:4px"></div>
+
+  <div class="grid2" style="margin-top:4px">
+    <div class="card section">
+      <div class="label">Held pending PSF → SD sign-off</div>
+      <div class="sub" style="margin:2px 0 4px">Performance qualified them. Payment is waiting on approval.</div>
+      <div style="max-height:300px;overflow:auto">
+        <table class="payout-table">
+          <thead><tr><th class="l">CSP</th><th>Installs</th><th>Denominator</th><th>Would have drawn</th></tr></thead>
+          <tbody id="aug-held"></tbody></table>
+      </div>
+    </div>
+    <div class="card section">
+      <div class="label">Excluded from MG</div>
+      <div class="sub" style="margin:2px 0 4px">Removed on confirmed FPV, non-performance, or held with no August payment</div>
+      <div style="max-height:300px;overflow:auto">
+        <table class="payout-table">
+          <thead><tr><th class="l">CSP</th><th class="l">Reason</th><th>Installs</th></tr></thead>
+          <tbody id="aug-excl"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div class="label">Per-CSP payout · <span id="aug-count">–</span> CSPs</div>
+      <input id="aug-search" class="payout-search" placeholder="Search name / CSP ID / partner ID…"
+             oninput="filterAugust()" autocomplete="off">
+    </div>
+    <div class="payout-tablewrap">
+      <table class="payout-table" id="aug-table"><thead id="aug-thead"></thead><tbody id="aug-tbody"></tbody></table>
+    </div>
+    <div class="sub" id="aug-shown" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -928,13 +1010,19 @@ function renderSehat(){
   $('sehat-p0').innerHTML=SEHAT_METRICS.filter(m=>m.tier==='p0').map(tile).join('');
   $('sehat-p1').innerHTML=SEHAT_METRICS.filter(m=>m.tier==='p1').map(tile).join('');
 
-  const days=Math.ceil((new Date('2026-08-15T00:00:00+05:30')-new Date())/864e5);
+  /* Cycles run 16th-to-15th. Track whichever one is live rather than pinning to
+     Cycle 1 — once 15-Aug passed, that tile just read "—" against a dead date. */
+  const CYCLES=[{n:1,end:'2026-08-15'},{n:2,end:'2026-09-15'}];
+  const nowD=new Date();
+  const cyc=CYCLES.find(c=>new Date(c.end+'T23:59:59+05:30')>=nowD);
+  const days=cyc?Math.ceil((new Date(cyc.end+'T23:59:59+05:30')-nowD)/864e5):null;
+  const cycEnd=cyc?new Date(cyc.end+'T00:00:00+05:30').toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—';
   $('sehat-hero').innerHTML=[
     ['96','CSPs · launch cohort'],
     ['61 / 35','Track A · Optical / Track B · SLA'],
     ['₹20,000','max per CSP · 2 binary cycles'],
     [(SQ&&SQ.enroll)?`${SQ.enroll.total_enrolled} / ${SQ.enroll.total_eligible}`:'—','enrolled (opted in)'],
-    [days>0?days:'—','days to the Cycle-1 grade (15 Aug)'],
+    [cyc?days:'—',cyc?`days to the Cycle-${cyc.n} grade (${cycEnd})`:'both cycles graded'],
   ].map(([v,d])=>`<div class="tile"><div class="v" style="color:var(--accent)">${v}</div><div class="d">${d}</div></div>`).join('');
   $('sehat-foot').innerHTML=`<b>Cycle 1</b> 16 Jul – 15 Aug &nbsp;·&nbsp; <b>Cycle 2</b> 16 Aug – 15 Sep —
     each a full 16th-to-15th month, each independently binary at <b>₹10,000</b>, no prorating and no half
@@ -1167,7 +1255,7 @@ function drawQualityChart(c, svgId, lgId){
       ${st.label}${last?` · <b style="color:${st.color==='var(--muted)'?'var(--text)':st.color}">${last.median}%</b> <small style="color:var(--muted);font-weight:600">(n=${last.n})</small>`:''}</span>`;}).join('');
 }
 
-const TABS=['ov','metrics','payout','edu','docs','tasks','dec','log'];
+const TABS=['ov','metrics','payout','aug','rem','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
 let TAB='ov';
@@ -1229,6 +1317,8 @@ function loadHub(t){
   else if(t==='dec')renderDecisions();
   else if(t==='log')renderLog();
   else if(t==='payout')renderPayout();
+  else if(t==='aug')renderAugust();
+  else if(t==='rem')renderRemoved();
 }
 
 async function renderOverview(){
@@ -1449,7 +1539,9 @@ function render(d){
   $('banner').style.display=errs.length?'block':'none';
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
-  if(d.payout){PAYOUT_DATA=d.payout; if(TAB==='payout')renderPayout();}   // store; (re)render if the tab is open
+  if(d.payout){PAYOUT_DATA=d.payout; if(TAB==='payout')renderPayout();}
+  if(d.august){AUGUST_DATA=d.august; if(TAB==='aug')renderAugust();}
+  if(d.removed){REMOVED_DATA=d.removed; if(TAB==='rem')renderRemoved();}   // store; (re)render if the tab is open
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
   if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
@@ -2114,6 +2206,50 @@ const ptile=(v,l,d,cls)=>`<div class="tile"><div class="v"${cls?` style="color:$
 const bucketPill=b=>{const c=/Secured/.test(b)?'sec':/leads/.test(b)?'min':'pr';
   return `<span class="pill ${c}">${esc(b)}</span>`;};
 
+let REMOVED_DATA=null;
+/* CSPs un-enrolled from MG on a confirmed FPV case. Source = the Enforcement Hub's
+   "Remove from MG" sheet (hourly sync). While that sheet is private the server serves
+   a committed snapshot — say so loudly rather than passing a stale list off as live. */
+function renderRemoved(){
+  const R=REMOVED_DATA;
+  if(!R){ $('rem-caption').textContent='loading…'; return; }
+  const rows=R.rows||[];
+  const stale=!R.live;
+  $('rem-caption').innerHTML=
+    'A CSP lands here once an FPV case is <b>confirmed and resolved with recovery</b> — uncontested, '
+    +'or contested and turned down — and the contesting window has passed. They stop being eligible '
+    +'for the ₹10,000 guarantee from that point. '
+    +'<a href="'+esc(R.sheet_url||'#')+'" target="_blank" rel="noopener">Enforcement Hub list</a>'
+    +(stale?' <span style="color:#B85C00">· '+esc(R.note||'snapshot')+'</span>'
+           :' <span style="color:#008043">· live</span>');
+  const tile=(v,d)=>'<div class="tile"><div class="v" style="color:var(--accent)">'+v+'</div>'
+    +'<div class="d">'+d+'</div></div>';
+  $('rem-tiles').innerHTML=
+    tile(rows.length, 'CSPs removed from MG')
+    +tile((R.install_mg??'—')+' / '+Math.max(rows.length-(R.install_mg||0),0), 'Install MG / Sehat MG')
+    +tile('₹'+Number(R.recovered||0).toLocaleString('en-IN'),
+          rows.reduce((a,r)=>a+(+r.cases||0),0)+' confirmed FPV cases · recovered')
+    +tile(rows.reduce((a,r)=>a+(+r.active_base||0),0).toLocaleString('en-IN'),
+          'customers served by the removed CSPs');
+  if(!rows.length){ $('rem-table').innerHTML='<div class="sub">No CSPs removed yet.</div>'; return; }
+  const th=['CSP','Zone','MG programme','Reason (FPV type)','Cases','Recovered','Contested','Removed on','Active base'];
+  let h='<table class="payout-table"><thead><tr>'+th.map((t,i)=>'<th'+(i>3?' style="text-align:right"':'')+'>'+t+'</th>').join('')+'</tr></thead><tbody>';
+  for(const r of rows){
+    h+='<tr><td><b>'+esc(r.name||r.partner_id)+'</b><div class="sub" style="font-size:11px">'+esc(r.partner_id||'')+'</div></td>'
+      +'<td>'+esc(r.zone||'')+'</td><td>'+esc(r.mg_type||'')+'</td>'
+      +'<td>'+esc(r.fpv_types||'')+'</td>'
+      +'<td style="text-align:right">'+esc(r.cases||'')+'</td>'
+      +'<td style="text-align:right">₹'+Number(r.amount||0).toLocaleString('en-IN')+'</td>'
+      +'<td style="text-align:right">'+esc(r.contested||'')+'</td>'
+      +'<td style="text-align:right">'+esc(r.listed_on||'')+'</td>'
+      +'<td style="text-align:right">'+Number(r.active_base||0).toLocaleString('en-IN')+'</td></tr>';
+  }
+  $('rem-table').innerHTML=h+'</tbody></table>';
+  $('rem-foot').innerHTML='Removed CSPs are dropped from the <b>current</b> enrolled base, so the gate, '
+    +'NSM strip and payout stop counting them. <b>July is not re-scored</b> — that settlement closed '
+    +'under the rules in force at the time.';
+}
+
 function renderPayout(){
   const p=PAYOUT_DATA;
   if(!p){ $('payout-caption').textContent='Payout data not loaded — the finance export is missing on the server.'; return; }
@@ -2189,6 +2325,92 @@ function filterPayout(){
   let shown=0; const rows=$('payout-tbody').querySelectorAll('tr');
   rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
   $('payout-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`:`Showing all ${fmt(rows.length)} CSPs · sorted by install rate.`;
+}
+
+let AUGUST_DATA=null, AUGUST_BUILT=false;
+/* August settlement, as finance processed it. Frozen 31-Aug close, so this is a
+   fixed record - built once, then filtered client-side. Held and excluded CSPs are
+   shown with zero paid, never silently dropped. */
+function renderAugust(){
+  const p=AUGUST_DATA;
+  if(!p){ $('aug-caption').textContent='August settlement not loaded — the export is missing on the server.'; return; }
+  if(AUGUST_BUILT) return;
+  const t=p.totals, b=p.buckets||{};
+  const ach=t.denominator?Math.round(1000*t.installs/t.denominator)/10:null;
+  $('aug-caption').innerHTML=`<b>${fmt(t.settled_csps)}</b> CSPs settled for August · total paid `+
+    `<b>${inr(t.total)}</b> (${lakh(t.total)}) to <b>${fmt(t.paid_csps)}</b> CSPs. `+
+    `A further <b>${fmt(t.held_csps)}</b> are held pending PSF→SD sign-off (${inr(t.held_amount)}) and `+
+    `<b>${fmt(t.excluded_csps)}</b> are excluded from MG. Frozen 31-Aug 23:59 IST close.`;
+
+  $('aug-tiles').innerHTML=
+    ptile(lakh(t.total),'Total paid','installation + top-up','var(--accent)')+
+    ptile(fmt(t.paid_csps),'CSPs paid',`of ${fmt(t.settled_csps)} settled`)+
+    ptile(fmt(t.installs),'Installs',`across ${fmt(t.denominator)} scored leads`)+
+    ptile((ach!=null?ach+'%':'–'),'Achievement','installs ÷ denominator')+
+    ptile(lakh(t.install_money),'Installation money','installs × ₹300')+
+    ptile(lakh(t.topup),'Guarantee top-up','the net-new MG money')+
+    ptile(inr(t.held_amount),'Held for sign-off',`${fmt(t.held_csps)} CSPs · PSF→SD pending`,'var(--amber)')+
+    ptile(fmt(t.excluded_csps),'Excluded from MG','FPV, non-performance, held','var(--muted)');
+
+  const pct=n=>t.settled_csps?Math.round(100*n/t.settled_csps):0;
+  const sec=b['Secured (>=60%)']||0, pr=b['Piece-rate only (<60%)']||0;
+  const fl=(b['Paid - floor (<=2 denominator)']||0)+(b['Paid - floor (0 denominator)']||0)+(b['Paid - floor (no leads)']||0);
+  $('aug-buckets').innerHTML=
+    ptile(fmt(sec),'Secured (≥60%)',`topped to ₹10,000 · ${pct(sec)}%`,'var(--green)')+
+    ptile(fmt(fl),'Floor payments',`≤2 or zero denominator · ${pct(fl)}%`,'var(--amber)')+
+    ptile(fmt(pr),'Piece-rate only',`below gate, no top-up · ${pct(pr)}%`,'var(--muted)');
+
+  const held=p.rows.filter(r=>r.group==='Held for audit')
+                   .sort((a,b2)=>(b2.would_have-a.would_have)||(b2.installs-a.installs));
+  $('aug-held').innerHTML=held.map(r=>
+    `<tr><td class="l">${esc(r.name)}</td><td>${fmt(r.installs)}</td>`+
+    `<td>${fmt(r.denominator)}</td><td class="tot">${inr(r.would_have)}</td></tr>`).join('')
+    ||'<tr><td class="l" colspan="4">None.</td></tr>';
+
+  const ex=p.rows.filter(r=>r.group==='Excluded from MG')
+                 .sort((a,b2)=>(b2.installs-a.installs));
+  $('aug-excl').innerHTML=ex.map(r=>
+    `<tr><td class="l">${esc(r.name)}</td><td class="l">${esc(r.state)}`+
+    (r.reason?`<div class="sub" style="font-size:11px">${esc(r.reason)}</div>`:'')+
+    `</td><td>${fmt(r.installs)}</td></tr>`).join('')
+    ||'<tr><td class="l" colspan="3">None.</td></tr>';
+
+  const cols=[['CSP','l'],['CSP ID','l'],['Status','l'],['Removed','' ],['Denominator',''],['Installs',''],
+    ['Achievement',''],['MG state','l'],['Install ₹',''],['Top-up ₹',''],['Total ₹','']];
+  $('aug-thead').innerHTML='<tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr>';
+
+  const GP={'Paid':['sec','Paid'],'Held for audit':['min','Held'],'Excluded from MG':['pr','Excluded']};
+  const order={'Paid':0,'Held for audit':1,'Excluded from MG':2};
+  const rows=[...p.rows].sort((a,b2)=>(order[a.group]-order[b2.group])||(b2.total-a.total)||(b2.installs-a.installs));
+  $('aug-tbody').innerHTML=rows.map(r=>{
+    const s2=`${r.name} ${r.csp_id} ${r.partner_id}`.toLowerCase();
+    const g=GP[r.group]||['pr',r.group];
+    const acv=(r.achievement===null||r.achievement===undefined||r.denominator===0)?'–':(Math.round(r.achievement*10)/10)+'%';
+    return `<tr data-s="${esc(s2)}">`+
+      `<td class="l">${esc(r.name)}</td>`+
+      `<td class="l">${esc(r.csp_id)}</td>`+
+      `<td class="l"><span class="pill ${g[0]}">${esc(g[1])}</span></td>`+
+      `<td>${fmt(r.removed_cx)}</td>`+
+      `<td>${fmt(r.denominator)}</td>`+
+      `<td>${fmt(r.installs)}</td>`+
+      `<td>${acv}</td>`+
+      `<td class="l">${esc(r.state)}</td>`+
+      `<td>${inr(r.install_money)}</td>`+
+      `<td>${inr(r.topup)}</td>`+
+      `<td class="tot">${r.total>0?inr(r.total):'—'}</td>`+
+    `</tr>`;
+  }).join('');
+  $('aug-count').textContent=fmt(p.rows.length);
+  AUGUST_BUILT=true;
+  filterAugust();
+}
+
+function filterAugust(){
+  const q=($('aug-search').value||'').trim().toLowerCase();
+  let shown=0; const rows=$('aug-tbody').querySelectorAll('tr');
+  rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
+  $('aug-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`
+    :`Showing all ${fmt(rows.length)} CSPs · paid first, then held, then excluded.`;
 }
 
 function renderMigration(m){

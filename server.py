@@ -22,6 +22,7 @@ PROD_SUPABASE_SERVICE_ROLE_KEY (audit db). Portal read uses its public
 publishable key unless SUPABASE_PORTAL_SERVICE_KEY is set.
 """
 import base64
+import gzip
 import hashlib
 import hmac
 import json
@@ -35,6 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -126,6 +128,21 @@ SEHAT_SHEET_URL = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
 MG_FUNNEL_GID = "1958482217"
 MG_FUNNEL_URL = (f"https://docs.google.com/spreadsheets/d/{SEHAT_SHEET_ID}"
                  f"/edit?gid={MG_FUNNEL_GID}#gid={MG_FUNNEL_GID}")
+# ---- MG un-enrolment (FPV / Enforcement Hub) -------------------------------
+# CSPs removed from the MG programme after a confirmed FPV case resolved with
+# recovery (uncontested, or contested and turned down) — see the Enforcement Hub's
+# "Remove from MG" list. The pilot sheet carries a tab of the same name; it is read
+# LIVE by TAB NAME (not gid) so a newly created tab needs no code change here.
+# Expected headers (matched case-insensitively, order-independent):
+#   Partner ID · CSP name · Removed on · Reason · Violation · Amount recovered
+# A removed CSP drops out of the CURRENT (August//onward) enrolled base, so the gate,
+# NSM and payout stop counting them. July stays as-disbursed and is NOT re-scored.
+MG_REMOVED_SHEET = "1nr3QGLaKnt_vY_VoMp5_wWyzkhNSRfEqWtjyIsyW4fo"   # Enforcement Hub, synced hourly
+MG_REMOVED_GID = "0"
+MG_REMOVED_URL = ("https://docs.google.com/spreadsheets/d/%s/edit?gid=%s"
+                  % (MG_REMOVED_SHEET, MG_REMOVED_GID))
+MG_REMOVED_FALLBACK = "mg_removed.json"       # committed snapshot, used while the sheet is private
+
 SEHAT_OBS_START = "2026-07-01"        # a pre-launch baseline, then across the cycle
 SEHAT_GATE = 80                        # the payout gate on both tracks (≥80%)
 # metric spec per cohort: which quality table + columns + rolling window feed the trend
@@ -148,14 +165,53 @@ COHORT_BEFORE = ("2026-06-01", "2026-06-15")
 IGN_BEFORE = ("2026-06-01", "2026-06-30")   # whole of June
 IGN_AFTER = ("2026-07-01", None)            # 1 July to date (end filled at runtime)
 # week-on-week ignition windows: (start, end, label, tasks-key, installs-key in l1_status)
-IGN_WEEKS = [("2026-06-24", "2026-06-30", "24–30 Jun", "tb", "ib"),
-             ("2026-07-01", "2026-07-07", "1–7 Jul", "ta", "ia"),
-             ("2026-07-08", "2026-07-14", "8–14 Jul", "tc", "ic"),
-             ("2026-07-15", "2026-07-21", "15–21 Jul", "t4", "i4"),
-             ("2026-07-22", "2026-07-28", "22–28 Jul", "t5", "i5"),
-             ("2026-07-29", "2026-08-04", "29 Jul–4 Aug", "t6", "i6"),
-             ("2026-08-05", "2026-08-11", "5–11 Aug", "t7", "i7"),
-             ("2026-08-12", "2026-08-18", "12–18 Aug", "t8", "i8")]
+NL = chr(10)
+WEEK_ANCHOR = "2026-07-01"      # programme go-live; every week window steps from here
+WEEK_BASELINE = ("2026-06-24", "2026-06-30")   # the pre-launch week, always kept as reference
+WEEK_SHOW = 7                  # recent weeks shown alongside the baseline
+
+
+def _build_ign_weeks(today=None):
+    """Rolling week windows: the pre-launch baseline plus the most recent WEEK_SHOW
+    weeks up to and including the one running now. Generated rather than listed so
+    the dashboard rolls into a new month on its own — the matching SQL columns are
+    generated from this same list (see _week_sql)."""
+    today = today or datetime.now(IST).date()
+    a0 = datetime.fromisoformat(WEEK_ANCHOR).date()
+    wks = []
+    d = a0
+    while d <= today:
+        wks.append((d, d + timedelta(days=6)))
+        d += timedelta(days=7)
+    wks = wks[-WEEK_SHOW:] if len(wks) > WEEK_SHOW else wks
+    out = [(WEEK_BASELINE[0], WEEK_BASELINE[1],
+            _wlabel(datetime.fromisoformat(WEEK_BASELINE[0]).date(),
+                    datetime.fromisoformat(WEEK_BASELINE[1]).date()), "tb", "ib")]
+    for n, (w0, w1) in enumerate(wks):
+        out.append((w0.isoformat(), w1.isoformat(), _wlabel(w0, w1), f"tw{n}", f"iw{n}"))
+    return out
+
+
+def _wlabel(w0, w1):
+    """'5–11 Aug', or '29 Jul–4 Aug' when the week straddles two months."""
+    return (f"{w0.day}–{w1.day} {w1:%b}" if w0.month == w1.month
+            else f"{w0.day} {w0:%b}–{w1.day} {w1:%b}")
+
+
+def _week_sql(weeks):
+    """The COUNT_IF block and SELECT list for l1_status.sql, from the same windows."""
+    agg, sel = [], []
+    for w0, w1, _lbl, tk, ik in weeks:
+        hi = (datetime.fromisoformat(w1).date() + timedelta(days=1)).isoformat()
+        rng = (f"created_at >= DATEADD(minute,-330,'{w0} 00:00:00'::TIMESTAMP_NTZ)"
+               f"{NL}       AND created_at <  DATEADD(minute,-330,'{hi} 00:00:00'::TIMESTAMP_NTZ)")
+        agg.append(f"  COUNT_IF({rng}) AS {tk},")
+        agg.append(f"  COUNT_IF({rng} AND is_installed) AS {ik},")
+        sel.append(f"i.{tk}, i.{ik}")
+    return NL.join(agg), "       " + ", ".join(sel) + ","
+
+
+IGN_WEEKS = _build_ign_weeks()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -180,6 +236,15 @@ try:
     PAYOUT = json.load(open(os.path.join(BASE_DIR, "data", "july_payout.json"), encoding="utf-8"))
 except Exception:
     PAYOUT = None
+
+# August MG settlement — the finance-processed file
+# (Install_MG_August_Payout_and_Bookings-fin.xlsx). Built on the frozen 31-Aug close,
+# so it reproduces on any re-run. 17 CSPs are HELD pending PSF→SD sign-off: they are
+# listed with what they would have drawn, but paid nothing this cycle.
+try:
+    AUGUST = json.load(open(os.path.join(BASE_DIR, "data", "august_payout.json"), encoding="utf-8"))
+except Exception:
+    AUGUST = None
 
 # PUBLIC publishable (anon) key for the mbg-portal project — not a secret, it
 # ships inside client apps. RLS permits the reads this dashboard needs. A
@@ -1213,6 +1278,8 @@ def compute_cohort(enrolled_ids, latest):
     ssql = open(os.path.join(BASE_DIR, "sql", "l1_status.sql"), encoding="utf-8").read()
     ssql = ssql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
     ssql = ssql.replace("{MONTH_START}", month_start)
+    _agg, _sel = _week_sql(IGN_WEEKS)
+    ssql = ssql.replace("{WEEK_AGG}", _agg).replace("{WEEK_SELECT}", _sel)
     sraw = {str(r["partner_id"]): r for r in metabase_sql(ssql)}
 
     def classify(p, tk, ik):
@@ -1338,6 +1405,8 @@ def compute_cohort(enrolled_ids, latest):
         dsql = open(os.path.join(BASE_DIR, "sql", "gate_daily.sql"), encoding="utf-8").read()
         dsql = (dsql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
                     .replace("{MONTH_START}", month_start)
+                    .replace("{WEEK_AGG}", _week_sql(IGN_WEEKS)[0])
+                    .replace("{WEEK_SELECT}", _week_sql(IGN_WEEKS)[1])
                     .replace("{TODAY}", today.isoformat())
                     .replace("{ENROLLED_N}", str(len(enrolled_ids))))
         gate["daily"] = [{"day": str(r["day"])[:10], "above": r.get("above") or 0,
@@ -1351,6 +1420,87 @@ def compute_cohort(enrolled_ids, latest):
     cohort["_ignition"] = ignition
     cohort["_gate"] = gate
     return cohort
+
+
+def compute_removed():
+    """CSPs un-enrolled from MG after a confirmed FPV case (Enforcement Hub).
+
+    Source of truth = the Hub's "Remove from MG" sheet, which syncs hourly. Every CSP
+    with a confirmed FPV resolved WITH RECOVERY (uncontested, or contested and turned
+    down) and a live MG programme lands there automatically.
+
+    That sheet is currently NOT link-readable, so this tries it and falls back to the
+    committed snapshot in data/. `live` says which one you are looking at — a stale
+    snapshot must never be mistaken for the live list, because the whole point is that
+    removals land here as cases resolve.
+
+    A removed CSP drops out of the CURRENT enrolled base, so the gate, NSM and payout
+    stop counting them. July is NOT re-scored: those CSPs were paid under the rules
+    that applied then and that settlement is closed.
+    """
+    import csv, io
+    rows, live, note = [], False, ""
+    url = ("https://docs.google.com/spreadsheets/d/%s/gviz/tq?tqx=out:csv&gid=%s"
+           % (MG_REMOVED_SHEET, MG_REMOVED_GID))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            text = r.read().decode("utf-8", "replace")
+        if "<html" in text[:200].lower():
+            raise RuntimeError("sheet not link-readable")
+        raw = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+        if len(raw) < 2:
+            raise RuntimeError("sheet empty")
+        hdr = [h.strip().lower() for h in raw[0]]
+
+        def col(*names):
+            for n in names:
+                for i, h in enumerate(hdr):
+                    if n in h:
+                        return i
+            return None
+
+        ix = {k: col(*v) for k, v in {
+            "partner_id": ("partner_account_id", "partner id", "partner"),
+            "csp_id": ("csp_id",), "name": ("csp_name", "name"),
+            "mobile": ("mobile",), "zone": ("zone",),
+            "active_base": ("active_base",), "mg_type": ("mg_type",),
+            "fpv_types": ("fpv_types", "violation"), "cases": ("recovered_cases", "cases"),
+            "amount": ("amount_recovered", "amount"), "contested": ("contested",),
+            "listed_on": ("listed_on", "removed on", "date"),
+        }.items()}
+        get = lambda r, i: (r[i].strip() if i is not None and len(r) > i else "")
+        for r in raw[1:]:
+            if get(r, ix["partner_id"]):
+                rows.append({k: get(r, i) for k, i in ix.items()})
+        live = True
+    except Exception as e:
+        note = "live sheet unreachable (%s) — showing the committed snapshot" % type(e).__name__
+        try:
+            with open(os.path.join(BASE_DIR, "data", MG_REMOVED_FALLBACK), encoding="utf-8") as fh:
+                snap = json.load(fh)
+            rows = snap.get("rows") or []
+            note += "; captured %s" % snap.get("captured_on", "?")
+        except Exception as e2:
+            note = "no source available (%s / %s)" % (type(e).__name__, type(e2).__name__)
+            rows = []
+
+    for r in rows:
+        try:
+            r["amount"] = float(r.get("amount") or 0)
+        except (TypeError, ValueError):
+            r["amount"] = 0.0
+        try:
+            r["active_base"] = int(float(r.get("active_base") or 0))
+        except (TypeError, ValueError):
+            r["active_base"] = 0
+    rows.sort(key=lambda x: (str(x.get("listed_on") or ""), str(x.get("name") or "")), reverse=True)
+    return {"live": live, "note": note, "rows": rows,
+            "ids": [r["partner_id"] for r in rows if r.get("partner_id")],
+            "n": len(rows),
+            "recovered": round(sum(r["amount"] for r in rows), 2),
+            "install_mg": sum(1 for r in rows if "install" in str(r.get("mg_type", "")).lower()),
+            "sheet_url": MG_REMOVED_URL}
 
 
 def compute_nsm(enrolled_ids, july_ids=None):
@@ -1851,72 +2001,83 @@ def refresh(force=False):
         # by New KK count), with its July toggle held to Launch.
         enrolled = (payload["l0"] or {}).get("enrolled_partner_ids") or []
         enrolled_july = (payload["l0"] or {}).get("enrolled_july_ids") or enrolled
-        payload["payout"] = PAYOUT      # static July settlement, loaded at startup
+
+        # FPV un-enrolments: out of the programme, so out of the CURRENT base (gate,
+        # NSM, payout). July is left as-disbursed — those CSPs were paid under the
+        # rules that applied then and that settlement is not reopened here.
         try:
-            payload["nsm"] = compute_nsm(enrolled, enrolled_july)
+            payload["removed"] = compute_removed()
         except Exception as e:
             traceback.print_exc()
-            payload["meta"]["errors"].append(f"NSM: {type(e).__name__}: {e}")
-            payload["nsm"] = prev.get("nsm")
+            payload["meta"]["errors"].append(f"removed: {type(e).__name__}: {e}")
+            payload["removed"] = prev.get("removed") or {"live": False, "rows": [], "ids": []}
+        _rm = set(payload["removed"].get("ids") or [])
+        if _rm:
+            payload["removed"]["enrolled_before"] = len(enrolled)
+            enrolled = [p for p in enrolled if p not in _rm]
+            payload["removed"]["enrolled_after"] = len(enrolled)
+            payload["removed"]["matched"] = payload["removed"]["enrolled_before"] - len(enrolled)
+        payload["payout"] = PAYOUT      # static July settlement, loaded at startup
+        payload["august"] = AUGUST      # static August settlement, loaded at startup
 
-        try:
+        # These sections share no state and spend nearly all their time waiting on
+        # Metabase, so fan them out instead of running one after another (~12s ->
+        # ~4s). cohort is chained behind feedback because it needs feedback's
+        # `latest`. Each keeps its own fallback to the previous payload, so one
+        # failing section still can't blank the rest of the dashboard.
+        def _guard(label, fn, prev_key):
+            try:
+                return fn()
+            except Exception as e:
+                traceback.print_exc()
+                payload["meta"]["errors"].append(f"{label}: {type(e).__name__}: {e}")
+                return prev.get(prev_key)
+
+        def _feedback_then_cohort():
+            out = {}
+            try:
+                fb = compute_feedback(enrolled)
+                latest = fb.pop("latest", {})
+                out["feedback"] = fb
+            except Exception as e:
+                traceback.print_exc()
+                payload["meta"]["errors"].append(f"feedback: {type(e).__name__}: {e}")
+                out["feedback"], latest = prev.get("feedback"), {}
+            try:
+                # Always computed — the moved/ignition/demand + install-behaviour
+                # analysis is task-activity based and needs no belief data. Only the
+                # by-belief split degrades to 'no_response' when the belief-check
+                # source (mbg_screen_log) is empty; don't blank the card for it.
+                coh = compute_cohort(enrolled_july, latest or {})   # July program -> Launch cohort
+                out["ignition"] = coh.pop("_ignition", None)
+                out["gate"] = coh.pop("_gate", None)
+                out["cohort"] = coh
+            except Exception as e:
+                traceback.print_exc()
+                payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
+                out["cohort"] = prev.get("cohort")
+                out["ignition"] = prev.get("ignition")
+                out["gate"] = prev.get("gate")
+            return out
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            f_fc   = ex.submit(_feedback_then_cohort)
+            f_nsm  = ex.submit(_guard, "NSM", lambda: compute_nsm(enrolled, enrolled_july), "nsm")
             # No cohort argument by design — the board this reproduces has no CSP
             # segment, so this reads all users.
-            payload["banner"] = compute_banner()
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"banner: {type(e).__name__}: {e}")
-            payload["banner"] = prev.get("banner")
+            f_ban  = ex.submit(_guard, "banner", compute_banner, "banner")
+            # Observation layer — day-on-day OP/SLA trend per Sehat cohort on the
+            # ENROLLED set; also carries the enrollment summary feeding the P0 tile.
+            f_seh  = ex.submit(_guard, "sehat_quality", compute_sehat_quality, "sehat_quality")
+            f_l1   = ex.submit(_guard, "L1", lambda: compute_l1(enrolled_july), "l1")
+            f_fail = ex.submit(_guard, "failures", compute_failures, "failures")
 
-        try:
-            # Observation layer — day-on-day OP/SLA trend per Sehat cohort, on the
-            # ENROLLED set; also carries the enrollment summary (from the offer sheet)
-            # that feeds the P0 sign-up tile. (The old CleverTap sign-up funnel card
-            # was removed — its data was wrong; enrolment now comes from the sheet.)
-            payload["sehat_quality"] = compute_sehat_quality()
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"sehat_quality: {type(e).__name__}: {e}")
-            payload["sehat_quality"] = prev.get("sehat_quality")
-
-        try:
-            payload["feedback"] = compute_feedback(enrolled)
-            latest = payload["feedback"].pop("latest", {})
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"feedback: {type(e).__name__}: {e}")
-            payload["feedback"] = prev.get("feedback")
-            latest = {}
-
-        try:
-            # Always compute — the moved/ignition/demand + install-behaviour
-            # analysis is task-activity based and needs no belief data. Only the
-            # by-belief split degrades to 'no_response' when the belief-check
-            # source (mbg_screen_log) is empty; don't blank the whole card for it.
-            coh = compute_cohort(enrolled_july, latest or {})   # July program → Launch cohort
-            payload["ignition"] = coh.pop("_ignition", None)
-            payload["gate"] = coh.pop("_gate", None)
-            payload["cohort"] = coh
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"cohort: {type(e).__name__}: {e}")
-            payload["cohort"] = prev.get("cohort")
-            payload["ignition"] = prev.get("ignition")
-            payload["gate"] = prev.get("gate")
-
-        try:
-            payload["l1"] = compute_l1(enrolled_july)   # install-ratio is the July program → Launch
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"L1: {type(e).__name__}: {e}")
-            payload["l1"] = prev.get("l1")
-
-        try:
-            payload["failures"] = compute_failures()
-        except Exception as e:
-            traceback.print_exc()
-            payload["meta"]["errors"].append(f"failures: {type(e).__name__}: {e}")
-            payload["failures"] = prev.get("failures")
+        payload.update(f_fc.result())
+        payload["nsm"] = f_nsm.result()
+        payload["banner"] = f_ban.result()
+        payload["sehat_quality"] = f_seh.result()
+        payload["l1"] = f_l1.result()          # install-ratio is the July program -> Launch
+        payload["failures"] = f_fail.result()
 
         if payload.get("l0") is not None:
             payload["l0"].pop("enrolled_partner_ids", None)
@@ -1930,14 +2091,33 @@ def refresh(force=False):
 # HTTP
 # ----------------------------------------------------------------------------
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 + a real Content-Length lets the browser reuse the connection and
+    # know when the body ends, instead of waiting for a close.
+    protocol_version = "HTTP/1.1"
+
     def _send(self, code, body, ctype, extra=None):
+        # The /data payload is ~2 MB of JSON that gzips ~15x, and index.html ~5x.
+        # Transport, not query time, is what makes this dashboard feel slow.
+        enc = None
+        if len(body) > 1400 and "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+            try:
+                body, enc = gzip.compress(body, 6), "gzip"
+            except Exception:
+                enc = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        if enc:
+            self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(body)))
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                      # client navigated away mid-response
 
     def _email(self):
         """Signed-in email; None when unauthenticated; '' when gate is off (local dev)."""

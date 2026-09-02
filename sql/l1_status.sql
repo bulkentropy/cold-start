@@ -24,7 +24,12 @@
 --    ⚠ MAX(UPDATED_AT) is a row-write timestamp, not a business event: a July install
 --    whose row is touched in August moves into August, and a past month's number is not
 --    reproducible later. Kept deliberately so the dashboard matches what actually pays.
---    {PARTNER_IN_LIST}/{MONTH_START} subst.
+--    Placeholders substituted by server.py: PARTNER_IN_LIST, MONTH_START, and the
+--    week columns WEEK_AGG / WEEK_SELECT (names given without braces on purpose -
+--    writing them literally here would make the substitution inject SQL into this
+--    comment, and only the first injected line would stay commented out).
+--    The week windows are GENERATED from IGN_WEEKS in server.py so they roll
+--    forward on their own - do not hand-edit week columns back into this file.
 WITH mg AS (
     SELECT CSP_ID, PARTNER_ID
     FROM PROD_DB.CSP_GATEWAY_SERVICE_CSP_GATEWAY_SERVICE.CSP_ACCOUNT
@@ -81,40 +86,7 @@ gate AS (
 ),
 ign AS (
 SELECT partner_id,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-24 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)) AS tb,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-24 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ib,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)) AS ta,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ia,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)) AS tc,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-08 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS ic,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ)) AS t4,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-15 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i4,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-29 00:00:00'::TIMESTAMP_NTZ)) AS t5,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-22 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-07-29 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i5,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-29 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-05 00:00:00'::TIMESTAMP_NTZ)) AS t6,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-07-29 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-05 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i6,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-08-05 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-12 00:00:00'::TIMESTAMP_NTZ)) AS t7,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-08-05 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-12 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i7,
-  -- running week: upper bound is NOW, so this window is short until 19 Aug and its
-  -- task counts are mechanically lower than a full 7-day week. Flagged partial in the UI.
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-08-12 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-19 00:00:00'::TIMESTAMP_NTZ)) AS t8,
-  COUNT_IF(created_at >= DATEADD(minute,-330,'2026-08-12 00:00:00'::TIMESTAMP_NTZ)
-       AND created_at <  DATEADD(minute,-330,'2026-08-19 00:00:00'::TIMESTAMP_NTZ) AND is_installed) AS i8,
+{WEEK_AGG}
   -- Before/after matrix windows: BEFORE = whole of June, AFTER = 1 July to date (now).
   COUNT_IF(created_at >= DATEADD(minute,-330,'2026-06-01 00:00:00'::TIMESTAMP_NTZ)
        AND created_at <  DATEADD(minute,-330,'2026-07-01 00:00:00'::TIMESTAMP_NTZ)) AS jb,
@@ -128,8 +100,8 @@ SELECT partner_id,
 FROM tt GROUP BY 1
 )
 SELECT COALESCE(i.partner_id, g.partner_id) AS partner_id,
-       i.tb, i.ib, i.ta, i.ia, i.tc, i.ic, i.t4, i.i4, i.t5, i.i5,
-       i.t6, i.i6, i.t7, i.i7, i.t8, i.i8, i.jb, i.jbi, i.jd, i.jdi,
+{WEEK_SELECT}
+       i.jb, i.jbi, i.jd, i.jdi,
        COALESCE(g.recv_m, 0)   AS recv_m,
        COALESCE(g.inst_m, 0)   AS inst_m,
        COALESCE(g.pend_m, 0)   AS pend_m,
