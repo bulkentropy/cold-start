@@ -241,10 +241,26 @@ except Exception:
 # (Install_MG_August_Payout_and_Bookings-fin.xlsx). Built on the frozen 31-Aug close,
 # so it reproduces on any re-run. 17 CSPs are HELD pending PSF→SD sign-off: they are
 # listed with what they would have drawn, but paid nothing this cycle.
-try:
-    AUGUST = json.load(open(os.path.join(BASE_DIR, "data", "august_payout.json"), encoding="utf-8"))
-except Exception:
-    AUGUST = None
+AUGUST_OBJECT = "settlements/august_payout.json"
+AUGUST = None
+
+
+def _load_august():
+    """August carries CSP names against FPV enforcement reasons and this repo is
+    public, so the file is NOT committed. It lives in the private cs-docs bucket and
+    is pulled at startup; the local copy is only a developer fallback. Re-upload with
+    storage_upload(AUGUST_OBJECT, ...) and redeploy to publish a new settlement."""
+    try:
+        data, _ = storage_download(AUGUST_OBJECT)
+        return json.loads(data)
+    except Exception as e:
+        print(f"August settlement: storage read failed ({type(e).__name__}: {e}); "
+              f"falling back to the local file")
+    try:
+        return json.load(open(os.path.join(BASE_DIR, "data", "august_payout.json"),
+                              encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _pack(obj):
@@ -260,9 +276,10 @@ def _pack(obj):
 # Both settlements are closed one-off uploads: July was frozen on the 31-Jul close and
 # August on the 31-Aug close, and neither is recomputed here. They used to ride along
 # in /data, which meant ~330KB of unchanging JSON re-serialised on every 30-minute
-# rebuild and re-sent on every page load. They now live behind /settlement, packed at
-# startup and served with a day-long private cache.
-SETTLEMENTS = {"july": _pack(PAYOUT), "august": _pack(AUGUST)}
+# rebuild and re-sent on every page load. They now live behind /settlement, packed
+# once and served with a day-long private cache. Populated by _init_settlements(),
+# which runs at the bottom of the module — August needs storage_download().
+SETTLEMENTS = {}
 
 # PUBLIC publishable (anon) key for the mbg-portal project — not a secret, it
 # ships inside client apps. RLS permits the reads this dashboard needs. A
@@ -2314,6 +2331,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         print(f"[{datetime.now(IST):%H:%M:%S}] {fmt % args}")
+
+
+def _init_settlements():
+    """Pull August from private storage and pack both months for serving. Runs on
+    import so the bytes are ready before the first request."""
+    global AUGUST
+    AUGUST = _load_august()
+    SETTLEMENTS["july"] = _pack(PAYOUT)
+    SETTLEMENTS["august"] = _pack(AUGUST)
+    print("settlements ready — july: %s rows, august: %s rows"
+          % (len((PAYOUT or {}).get("rows") or []), len((AUGUST or {}).get("rows") or [])))
+
+
+_init_settlements()
 
 
 if __name__ == "__main__":

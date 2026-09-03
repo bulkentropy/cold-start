@@ -3,3 +3,7 @@ __pycache__/
 _q_*.sql
 .env
 .env.*
+
+# Carries CSP names against FPV enforcement reasons; this repo is public.
+# Served from the private cs-docs bucket at runtime — see _load_august().
+data/august_payout.json
