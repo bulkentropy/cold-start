@@ -307,7 +307,6 @@ svg text{font-family:inherit}
   <button class="tab on" id="tab-ov" onclick="showTab('ov')">Overview</button>
   <button class="tab" id="tab-metrics" onclick="showTab('metrics')">Metrics</button>
   <button class="tab" id="tab-payout" onclick="showTab('payout')">Payout</button>
-  <button class="tab" id="tab-aug" onclick="showTab('aug')">August</button>
   <button class="tab" id="tab-rem" onclick="showTab('rem')">Removed from MG</button>
   <button class="tab" id="tab-docs" onclick="showTab('docs')">Knowledge repository</button>
   <button class="tab" id="tab-tasks" onclick="showTab('tasks')">Tasks &amp; Actions</button>
@@ -475,6 +474,15 @@ svg text{font-family:inherit}
 </div>
 
 <div id="pane-payout" style="display:none">
+  <div class="card section" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div class="toggle" id="payout-month">
+      <button class="on" data-m="jul" onclick="setPayoutMonth('jul')">July 2026</button>
+      <button data-m="aug" onclick="setPayoutMonth('aug')">August 2026</button>
+    </div>
+    <span class="sub" style="margin:0">Closed settlements — both were uploaded once and are not recomputed, so this tab never waits on a refresh.</span>
+  </div>
+
+<div id="payout-jul">
   <div class="card section">
     <div class="label">Install MG · July 2026 settlement</div>
     <h2 style="margin-top:4px">Guarantee payout — July</h2>
@@ -531,10 +539,10 @@ svg text{font-family:inherit}
     </div>
     <div class="sub" id="payout-shown" style="margin-top:8px"></div>
   </div>
-</div>
+</div><!-- /payout-jul -->
 
 <!-- ===================== AUGUST (settlement as processed) ===================== -->
-<div id="pane-aug" style="display:none">
+<div id="payout-aug" style="display:none">
   <div class="card section">
     <div class="label">Install MG · August 2026 settlement</div>
     <h2 style="margin-top:4px">Guarantee payout — August</h2>
@@ -598,7 +606,8 @@ svg text{font-family:inherit}
     </div>
     <div class="sub" id="aug-shown" style="margin-top:8px"></div>
   </div>
-</div>
+</div><!-- /payout-aug -->
+</div><!-- /pane-payout -->
 
 <div id="pane-edu" style="display:none">
   <div class="card section"><div class="label">Dashboard dictionary</div>
@@ -1255,7 +1264,7 @@ function drawQualityChart(c, svgId, lgId){
       ${st.label}${last?` · <b style="color:${st.color==='var(--muted)'?'var(--text)':st.color}">${last.median}%</b> <small style="color:var(--muted);font-weight:600">(n=${last.n})</small>`:''}</span>`;}).join('');
 }
 
-const TABS=['ov','metrics','payout','aug','rem','edu','docs','tasks','dec','log'];
+const TABS=['ov','metrics','payout','rem','edu','docs','tasks','dec','log'];
 const METRICS=['l0','l1','l2','ign'];
 let MTAB='l0';
 let TAB='ov';
@@ -1316,9 +1325,43 @@ function loadHub(t){
   else if(t==='tasks')renderBoard();
   else if(t==='dec')renderDecisions();
   else if(t==='log')renderLog();
-  else if(t==='payout')renderPayout();
-  else if(t==='aug')renderAugust();
+  else if(t==='payout')renderPayoutTab();
   else if(t==='rem')renderRemoved();
+}
+
+/* Payout tab holds both closed settlements behind a month toggle. Each is fetched
+   the first time it is opened — they are static uploads, so once fetched they are
+   cached by the browser for a day and never re-requested. */
+/* Declared up here, not beside their render functions further down: the boot-time
+   showTab() below can reach these before the tail of the script has run, and a `let`
+   read before its declaration is a TDZ error that kills the whole page. */
+let PMONTH='jul';
+let PAYOUT_DATA=null, PAYOUT_BUILT=false;
+let AUGUST_DATA=null, AUGUST_BUILT=false;
+let REMOVED_DATA=null;
+function setPayoutMonth(m){
+  PMONTH=m;
+  document.querySelectorAll('#payout-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  $('payout-jul').style.display=m==='jul'?'':'none';
+  $('payout-aug').style.display=m==='aug'?'':'none';
+  if(TAB==='payout')location.hash=m==='aug'?'payout-aug':'payout';
+  renderPayoutTab();
+}
+async function settlement(m){
+  try{
+    const r=await fetch('/settlement?m='+m);
+    if(r.status===401){location.href='/login';return null;}
+    return r.ok?await r.json():null;
+  }catch(e){return null;}
+}
+async function renderPayoutTab(){
+  if(PMONTH==='aug'){
+    if(!AUGUST_DATA){ $('aug-caption').textContent='loading…'; AUGUST_DATA=await settlement('august'); }
+    renderAugust();
+  }else{
+    if(!PAYOUT_DATA){ $('payout-caption').textContent='loading…'; PAYOUT_DATA=await settlement('july'); }
+    renderPayout();
+  }
 }
 
 async function renderOverview(){
@@ -1508,6 +1551,10 @@ const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
 if(initHash.startsWith('sehat')){ showInit('sehat'); }
+else if(initHash==='aug'||initHash==='payout-aug'){
+  // '#aug' was its own tab before August moved under Payout — keep old links working
+  PMONTH='aug'; showTab('payout'); setPayoutMonth('aug');
+}
 else { showTab(METRICS.find(m=>initHash.startsWith(m))||TABS.find(t=>initHash.startsWith(t))||'ov'); }
 function setMode(m){
   MODE=m;
@@ -1525,10 +1572,27 @@ async function load(force){
   try{
     const r=await fetch(force?'/refresh':'/data');
     DATA=await r.json(); render(DATA);
+    loadHeavy();          // cohort + L1 are 1.6MB; let the page paint without them
   }catch(e){
     $('banner').style.display='block';
     $('banner').textContent='Could not reach the dashboard server — showing last rendered numbers. '+e;
   }finally{btn.disabled=false;}
+}
+/* The metrics sections arrive on a second request so the landing tab is not held
+   behind them. Failure here leaves the rest of the dashboard usable. */
+async function loadHeavy(){
+  try{
+    const r=await fetch('/data/heavy');
+    if(!r.ok) return;
+    Object.assign(DATA, await r.json());
+    renderHeavy(DATA);
+  }catch(e){}
+}
+function renderHeavy(d){
+  if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
+  if(d.cohort)renderCohort(d.cohort);
+  if(TAB==='ov')renderOverview();     // the L2 headline tile reads DATA.l1
+  renderFlowBar();
 }
 function refreshNow(){load(true);}
 
@@ -1539,17 +1603,14 @@ function render(d){
   $('banner').style.display=errs.length?'block':'none';
   $('banner').textContent=errs.length?('Some sources failed this cycle — holding last-good values. '+errs.join(' | ')):'';
   if(d.nsm)renderNsm(d.nsm);
-  if(d.payout){PAYOUT_DATA=d.payout; if(TAB==='payout')renderPayout();}
-  if(d.august){AUGUST_DATA=d.august; if(TAB==='aug')renderAugust();}
   if(d.removed){REMOVED_DATA=d.removed; if(TAB==='rem')renderRemoved();}   // store; (re)render if the tab is open
   if(d.l0){renderMigration(d.l0.migration); renderFunnels(d.l0); renderEngagement(d.l0.engagement);}
   if(d.banner)renderBanner(d.banner);
   if(d.sehat_quality)renderSehatQuality(d.sehat_quality);
   renderSehat();   // refresh P0/P1 tiles + hero on every data load (not only on tab-switch)
-  if(d.l1){renderL1(d.l1,d.meta); renderL2(d.l1,d.meta);}
+  // l1 and cohort arrive on the second request — see renderHeavy()
   if(d.failures)renderFailures(d.failures);
   if(d.feedback)renderFeedback(d.feedback);
-  if(d.cohort)renderCohort(d.cohort);
   if(d.ignition)renderIgnition(d.ignition);
   if(d.gate)renderGate(d.gate);
   renderFlowBar();
@@ -2193,7 +2254,6 @@ function drawNsm(){
 }
 
 /* ---------- Payout tab (static July settlement) ---------- */
-let PAYOUT_DATA=null, PAYOUT_BUILT=false;
 function inr(n){                                  // Indian digit grouping, e.g. 3284232 -> ₹32,84,232
   n=Math.round(Number(n)||0); const neg=n<0; const s=String(Math.abs(n));
   const last3=s.slice(-3); let rest=s.slice(0,-3);
@@ -2206,7 +2266,6 @@ const ptile=(v,l,d,cls)=>`<div class="tile"><div class="v"${cls?` style="color:$
 const bucketPill=b=>{const c=/Secured/.test(b)?'sec':/leads/.test(b)?'min':'pr';
   return `<span class="pill ${c}">${esc(b)}</span>`;};
 
-let REMOVED_DATA=null;
 /* CSPs un-enrolled from MG on a confirmed FPV case. Source = the Enforcement Hub's
    "Remove from MG" sheet (hourly sync). While that sheet is private the server serves
    a committed snapshot — say so loudly rather than passing a stale list off as live. */
@@ -2327,7 +2386,6 @@ function filterPayout(){
   $('payout-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`:`Showing all ${fmt(rows.length)} CSPs · sorted by install rate.`;
 }
 
-let AUGUST_DATA=null, AUGUST_BUILT=false;
 /* August settlement, as finance processed it. Frozen 31-Aug close, so this is a
    fixed record - built once, then filtered client-side. Held and excluded CSPs are
    shown with zero paid, never silently dropped. */

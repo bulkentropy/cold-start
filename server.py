@@ -246,6 +246,24 @@ try:
 except Exception:
     AUGUST = None
 
+
+def _pack(obj):
+    """Serialise once and keep the gzip alongside it. Bodies we hand out many times
+    should be built once, not re-encoded and re-compressed on every request."""
+    raw = json.dumps(obj).encode()
+    try:
+        return raw, gzip.compress(raw, 6)
+    except Exception:
+        return raw, None
+
+
+# Both settlements are closed one-off uploads: July was frozen on the 31-Jul close and
+# August on the 31-Aug close, and neither is recomputed here. They used to ride along
+# in /data, which meant ~330KB of unchanging JSON re-serialised on every 30-minute
+# rebuild and re-sent on every page load. They now live behind /settlement, packed at
+# startup and served with a day-long private cache.
+SETTLEMENTS = {"july": _pack(PAYOUT), "august": _pack(AUGUST)}
+
 # PUBLIC publishable (anon) key for the mbg-portal project — not a secret, it
 # ships inside client apps. RLS permits the reads this dashboard needs. A
 # service key in the env (SUPABASE_PORTAL_SERVICE_KEY) overrides it.
@@ -1900,8 +1918,14 @@ def cs_delete(kind, row_id, editor=None):
 # ----------------------------------------------------------------------------
 # Cache with last-good merge
 # ----------------------------------------------------------------------------
-_cache = {"payload": None, "at": 0.0}
+_cache = {"payload": None, "at": 0.0, "light": None, "heavy": None}
 _lock = threading.Lock()
+_building = threading.Event()
+
+# cohort and l1 are 1.6 MB of the ~2 MB payload and nothing on the landing tab needs
+# them, so they are served separately and fetched after first paint. Everything else
+# — NSM, L0, gate, ignition, banner, failures, feedback — is small and goes up front.
+HEAVY_KEYS = ("cohort", "l1")
 
 
 FAIL_STATES = "('DECLINED','CANCELLED_BY_UPSTREAM','CANCELLED_BY_CUSTOMER'," \
@@ -2017,8 +2041,9 @@ def refresh(force=False):
             enrolled = [p for p in enrolled if p not in _rm]
             payload["removed"]["enrolled_after"] = len(enrolled)
             payload["removed"]["matched"] = payload["removed"]["enrolled_before"] - len(enrolled)
-        payload["payout"] = PAYOUT      # static July settlement, loaded at startup
-        payload["august"] = AUGUST      # static August settlement, loaded at startup
+        # July and August settlements are NOT in this payload — they are closed
+        # one-off uploads served from /settlement, so a 30-minute rebuild never
+        # touches them and a page load never carries them. See SETTLEMENTS.
 
         # These sections share no state and spend nearly all their time waiting on
         # Metabase, so fan them out instead of running one after another (~12s ->
@@ -2084,7 +2109,53 @@ def refresh(force=False):
             payload["l0"].pop("enrolled_july_ids", None)
         _cache["payload"] = payload
         _cache["at"] = time.time()
+        heavy = {k: payload[k] for k in HEAVY_KEYS if k in payload}
+        _cache["light"] = _pack({k: v for k, v in payload.items() if k not in HEAVY_KEYS})
+        _cache["heavy"] = _pack(heavy)
         return payload
+
+
+def _stale():
+    return not _cache["payload"] or time.time() - _cache["at"] >= CACHE_TTL_S
+
+
+def _kick():
+    """Rebuild off the request path. A rebuild is ~10s and holds _lock the whole time;
+    letting a visitor trigger it inline is what made the dashboard hang for whoever
+    happened to arrive first after the TTL lapsed."""
+    if _building.is_set():
+        return
+    _building.set()
+
+    def run():
+        try:
+            refresh(force=True)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            _building.clear()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def serve(which):
+    """Last-good bytes, straight away. Only a cold start can block."""
+    if _cache["payload"] is None:
+        refresh()
+    elif _stale():
+        _kick()
+    return _cache.get(which) or _pack({})
+
+
+def _warmer():
+    """Re-warm before the TTL lapses so no request ever meets a stale cache."""
+    while True:
+        time.sleep(60)
+        try:
+            if _cache["payload"] and time.time() - _cache["at"] >= CACHE_TTL_S - 120:
+                refresh(force=True)
+        except Exception:
+            traceback.print_exc()
 
 
 # ----------------------------------------------------------------------------
@@ -2095,18 +2166,22 @@ class Handler(BaseHTTPRequestHandler):
     # know when the body ends, instead of waiting for a close.
     protocol_version = "HTTP/1.1"
 
-    def _send(self, code, body, ctype, extra=None):
-        # The /data payload is ~2 MB of JSON that gzips ~15x, and index.html ~5x.
-        # Transport, not query time, is what makes this dashboard feel slow.
+    def _send(self, code, body, ctype, extra=None, gz=None, cache="no-store"):
+        # The /data payload gzips ~15x and index.html ~5x. Transport, not query time,
+        # is what makes this dashboard feel slow. `gz` lets a caller hand over a body
+        # that was compressed once at build time instead of on every request.
+        wants_gzip = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
         enc = None
-        if len(body) > 1400 and "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+        if gz is not None and wants_gzip:
+            body, enc = gz, "gzip"
+        elif len(body) > 1400 and wants_gzip:
             try:
                 body, enc = gzip.compress(body, 6), "gzip"
             except Exception:
                 enc = None
         self.send_response(code)
         self.send_header("Content-Type", ctype)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         if enc:
             self.send_header("Content-Encoding", enc)
             self.send_header("Vary", "Accept-Encoding")
@@ -2140,16 +2215,33 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/login":
                 return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
             if not self._authed():
-                if path.startswith("/api") or path in ("/data", "/refresh"):
+                if (path.startswith("/api")
+                        or path in ("/data", "/data/heavy", "/refresh", "/settlement")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
                 return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
             if path == "/":
                 html = open(os.path.join(BASE_DIR, "index.html"), "rb").read()
                 self._send(200, html, "text/html; charset=utf-8")
             elif path == "/data":
-                self._send(200, json.dumps(refresh()).encode(), "application/json")
+                raw, gz = serve("light")
+                self._send(200, raw, "application/json", gz=gz)
+            elif path == "/data/heavy":
+                raw, gz = serve("heavy")
+                self._send(200, raw, "application/json", gz=gz)
+            elif path == "/settlement":
+                qs = urllib.parse.urlparse(self.path).query
+                month = urllib.parse.parse_qs(qs).get("m", ["july"])[0]
+                packed = SETTLEMENTS.get(month)
+                if not packed:
+                    return self._send(404, b'{"error":"unknown month"}', "application/json")
+                raw, gz = packed
+                # Closed settlement: the bytes cannot change without a redeploy.
+                self._send(200, raw, "application/json", gz=gz,
+                           cache="private, max-age=86400")
             elif path == "/refresh":
-                self._send(200, json.dumps(refresh(force=True)).encode(), "application/json")
+                refresh(force=True)
+                raw, gz = _cache["light"]
+                self._send(200, raw, "application/json", gz=gz)
             elif path.startswith("/files/"):
                 data, ctype = storage_download(path[len("/files/"):])
                 self._send(200, data, ctype)
@@ -2227,4 +2319,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     print(f"MG dashboard on http://localhost:{PORT}  (refresh every {CACHE_TTL_S // 60} min; GET /refresh to force)")
     threading.Thread(target=refresh, daemon=True).start()
+    threading.Thread(target=_warmer, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
