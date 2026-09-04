@@ -296,6 +296,10 @@ KEY_ALIASES = {
     "SUPABASE_AUDIT_SERVICE_KEY": ["SUPABASE_AUDIT_SERVICE_KEY", "PROD_SUPABASE_SERVICE_ROLE_KEY"],
     "SUPABASE_PORTAL_SERVICE_KEY": ["SUPABASE_PORTAL_SERVICE_KEY"],
     "METABASE_API_KEY": ["METABASE_API_KEY"],
+    # Service account the Enforcement Hub sheet is shared with. Locally this comes
+    # from the split google_client_email / google_private_key pair; on Railway set
+    # GOOGLE_SERVICE_ACCOUNT_JSON to the whole key file, since there is no file to read.
+    "GOOGLE_SERVICE_ACCOUNT_JSON": ["GOOGLE_SERVICE_ACCOUNT_JSON"],
 }
 DEFAULTS = {"SUPABASE_PORTAL_SERVICE_KEY": PORTAL_PUBLISHABLE_KEY}
 
@@ -316,6 +320,60 @@ def _require(name):
 def _http_json(req):
     with urllib.request.urlopen(req, timeout=300) as resp:
         return json.loads(resp.read())
+
+
+def _service_account_info():
+    """The reader identity, from whichever shape the environment supplies.
+
+    Railway has no filesystem to drop a key file on, so GOOGLE_SERVICE_ACCOUNT_JSON
+    (the whole key file as one value) is the deployed path. Locally the split
+    google_client_email / google_private_key pair in C:\\credentials\\.env is enough,
+    and GOOGLE_SERVICE_ACCOUNT_PATH points at the file for anything else."""
+    raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if raw:
+        return json.loads(raw)
+    path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_PATH") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if path and os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    email, key = os.environ.get("google_client_email"), os.environ.get("google_private_key")
+    if email and key:
+        return {"type": "service_account", "client_email": email,
+                # .env keeps the PEM on one line with escaped newlines
+                "private_key": key.replace("\\n", "\n"),
+                "token_uri": "https://oauth2.googleapis.com/token"}
+    raise RuntimeError("no Google service account configured")
+
+
+def sheet_rows(sheet_id, tab=None):
+    """Read a Google Sheet as the service account it is shared with.
+
+    The Enforcement Hub sheet is private and its ID is in this public file, so it must
+    stay private — this is the only way to read it live. Sheets are read by TAB NAME,
+    and with no tab given the first one is used, so adding a tab needs no code change.
+    """
+    from google.oauth2 import service_account
+    import google.auth.transport.requests as _gt
+    creds = service_account.Credentials.from_service_account_info(
+        _service_account_info(),
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    creds.refresh(_gt.Request())
+
+    def api(url):
+        return _http_json(urllib.request.Request(
+            url, headers={"Authorization": "Bearer " + creds.token}))
+
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}"
+    if not tab:
+        meta = api(base + "?fields=sheets.properties.title")
+        tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        if not tabs:
+            raise RuntimeError("spreadsheet has no tabs")
+        tab = tabs[0]
+    vals = api(f"{base}/values/{urllib.parse.quote(tab)}").get("values") or []
+    if len(vals) < 2:
+        raise RuntimeError("sheet empty")
+    return vals
 
 
 def supabase_rows(base_url, key_env, path):
@@ -1477,17 +1535,11 @@ def compute_removed():
     stop counting them. July is NOT re-scored: those CSPs were paid under the rules
     that applied then and that settlement is closed.
     """
-    import csv, io
     rows, live, note = [], False, ""
-    url = ("https://docs.google.com/spreadsheets/d/%s/gviz/tq?tqx=out:csv&gid=%s"
-           % (MG_REMOVED_SHEET, MG_REMOVED_GID))
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            text = r.read().decode("utf-8", "replace")
-        if "<html" in text[:200].lower():
-            raise RuntimeError("sheet not link-readable")
-        raw = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+        # The sheet is shared with MG_SHEET_READER, so read it as that account. It
+        # stays private, which it must: its ID is in this public file.
+        raw = [r for r in sheet_rows(MG_REMOVED_SHEET) if any(str(c).strip() for c in r)]
         if len(raw) < 2:
             raise RuntimeError("sheet empty")
         hdr = [h.strip().lower() for h in raw[0]]
@@ -1508,7 +1560,7 @@ def compute_removed():
             "amount": ("amount_recovered", "amount"), "contested": ("contested",),
             "listed_on": ("listed_on", "removed on", "date"),
         }.items()}
-        get = lambda r, i: (r[i].strip() if i is not None and len(r) > i else "")
+        get = lambda r, i: (str(r[i]).strip() if i is not None and len(r) > i else "")
         for r in raw[1:]:
             if get(r, ix["partner_id"]):
                 rows.append({k: get(r, i) for k, i in ix.items()})
