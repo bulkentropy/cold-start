@@ -479,7 +479,10 @@ svg text{font-family:inherit}
       <button class="on" data-m="jul" onclick="setPayoutMonth('jul')">July 2026</button>
       <button data-m="aug" onclick="setPayoutMonth('aug')">August 2026</button>
     </div>
-    <span class="sub" style="margin:0">Closed settlements — both were uploaded once and are not recomputed, so this tab never waits on a refresh.</span>
+    <input id="pay-search" class="payout-search" placeholder="Search any CSP — name, CSP ID or partner ID…"
+           oninput="paySearch()" autocomplete="off" style="min-width:300px;flex:1">
+    <span id="pay-xmonth" style="font-size:12.5px"></span>
+    <span class="sub" id="pay-hint" style="margin:0;flex-basis:100%">Closed settlements — both were uploaded once and are not recomputed, so this tab never waits on a refresh.</span>
   </div>
 
 <div id="payout-jul">
@@ -531,8 +534,7 @@ svg text{font-family:inherit}
   <div class="card section">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div class="label">Per-CSP payout · <span id="payout-count">–</span> CSPs</div>
-      <input id="payout-search" class="payout-search" placeholder="Search name / CSP ID / partner ID…"
-             oninput="filterPayout()" autocomplete="off">
+      <!-- search lives at the top of the tab, above the month toggle -->
     </div>
     <div class="payout-tablewrap">
       <table class="payout-table" id="payout-table"><thead id="payout-thead"></thead><tbody id="payout-tbody"></tbody></table>
@@ -598,8 +600,7 @@ svg text{font-family:inherit}
   <div class="card section">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div class="label">Per-CSP payout · <span id="aug-count">–</span> CSPs</div>
-      <input id="aug-search" class="payout-search" placeholder="Search name / CSP ID / partner ID…"
-             oninput="filterAugust()" autocomplete="off">
+      <!-- search lives at the top of the tab, above the month toggle -->
     </div>
     <div class="payout-tablewrap">
       <table class="payout-table" id="aug-table"><thead id="aug-thead"></thead><tbody id="aug-tbody"></tbody></table>
@@ -1339,13 +1340,14 @@ let PMONTH='jul';
 let PAYOUT_DATA=null, PAYOUT_BUILT=false;
 let AUGUST_DATA=null, AUGUST_BUILT=false;
 let REMOVED_DATA=null;
-function setPayoutMonth(m){
+async function setPayoutMonth(m){
   PMONTH=m;
   document.querySelectorAll('#payout-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
   $('payout-jul').style.display=m==='jul'?'':'none';
   $('payout-aug').style.display=m==='aug'?'':'none';
   if(TAB==='payout')location.hash=m==='aug'?'payout-aug':'payout';
-  renderPayoutTab();
+  await renderPayoutTab();
+  if(PAY_Q)paySearch();          // carry the query across the month switch
 }
 async function settlement(m){
   try{
@@ -1361,6 +1363,50 @@ async function renderPayoutTab(){
   }else{
     if(!PAYOUT_DATA){ $('payout-caption').textContent='loading…'; PAYOUT_DATA=await settlement('july'); }
     renderPayout();
+  }
+  prefetchOtherMonth();          // so a search can say what the other month holds
+}
+/* The month you are not looking at, pulled quietly in the background. 14KB gzipped
+   and browser-cached for a day, so this costs nothing after the first visit. */
+async function prefetchOtherMonth(){
+  const before=PAY_Q;
+  if(PMONTH==='aug'&&!PAYOUT_DATA) PAYOUT_DATA=await settlement('july');
+  else if(PMONTH!=='aug'&&!AUGUST_DATA) AUGUST_DATA=await settlement('august');
+  if(PAY_Q&&PAY_Q===before) paySearch();     // fill in the cross-month count
+}
+
+/* One search box for the whole tab. It filters the month on screen and tells you
+   whether the CSP also appears in the other one — a CSP paid in July and excluded in
+   August is exactly the case people come to this tab to check. */
+let PAY_Q='';
+const payKey=r=>`${r.name} ${r.csp_id} ${r.partner_id}`.toLowerCase();
+function payHits(m,q){
+  const d=(m==='aug'?AUGUST_DATA:PAYOUT_DATA);
+  return (d&&d.rows||[]).filter(r=>payKey(r).includes(q)).length;
+}
+function paySearch(){
+  const q=($('pay-search').value||'').trim().toLowerCase();
+  const opening=q&&!PAY_Q;
+  PAY_Q=q;
+  if(PMONTH==='aug')filterAugust(); else filterPayout();
+
+  const other=PMONTH==='aug'?'jul':'aug', oname=other==='aug'?'August':'July';
+  const el=$('pay-xmonth');
+  if(!q){ el.innerHTML=''; }
+  else{
+    const d=(other==='aug'?AUGUST_DATA:PAYOUT_DATA);
+    if(!d){ el.innerHTML=`<span style="color:var(--muted)">checking ${oname}…</span>`; }
+    else{
+      const n=payHits(other,q);
+      el.innerHTML=n
+        ? `<a href="#" onclick="setPayoutMonth('${other}');return false;" style="color:var(--accent);font-weight:700;text-decoration:none">${fmt(n)} also in ${oname} →</a>`
+        : `<span style="color:var(--muted)">none in ${oname}</span>`;
+    }
+  }
+  // The table sits well below the fold; bring it up the first time a query starts.
+  if(opening){
+    const w=document.querySelector((PMONTH==='aug'?'#payout-aug':'#payout-jul')+' .payout-tablewrap');
+    if(w)w.scrollIntoView({behavior:'smooth',block:'center'});
   }
 }
 
@@ -2380,7 +2426,7 @@ function renderPayoutLeaders(rows){
 }
 
 function filterPayout(){
-  const q=($('payout-search').value||'').trim().toLowerCase();
+  const q=PAY_Q;
   let shown=0; const rows=$('payout-tbody').querySelectorAll('tr');
   rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
   $('payout-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`:`Showing all ${fmt(rows.length)} CSPs · sorted by install rate.`;
@@ -2464,7 +2510,7 @@ function renderAugust(){
 }
 
 function filterAugust(){
-  const q=($('aug-search').value||'').trim().toLowerCase();
+  const q=PAY_Q;
   let shown=0; const rows=$('aug-tbody').querySelectorAll('tr');
   rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
   $('aug-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`
