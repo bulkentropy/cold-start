@@ -10,3 +10,7 @@ data/august_payout.json
 
 # 13 named CSPs with their Sehat cycle-1 payouts; served from cs-docs at runtime.
 data/sehat_payout.json
+
+# Enforcement Hub removal list: names, mobiles, emails, FPV reasons.
+# Served from cs-docs at runtime - see MG_REMOVED_OBJECT.
+data/mg_removed.json

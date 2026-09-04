@@ -141,7 +141,10 @@ MG_REMOVED_SHEET = "1nr3QGLaKnt_vY_VoMp5_wWyzkhNSRfEqWtjyIsyW4fo"   # Enforcemen
 MG_REMOVED_GID = "0"
 MG_REMOVED_URL = ("https://docs.google.com/spreadsheets/d/%s/edit?gid=%s"
                   % (MG_REMOVED_SHEET, MG_REMOVED_GID))
-MG_REMOVED_FALLBACK = "mg_removed.json"       # committed snapshot, used while the sheet is private
+MG_REMOVED_FALLBACK = "mg_removed.json"       # local dev copy; gitignored, see MG_REMOVED_OBJECT
+MG_REMOVED_OBJECT = "enforcement/mg_removed.json"   # snapshot in the private cs-docs bucket
+# Share the sheet with this service account (Viewer) to make the read genuinely live:
+MG_SHEET_READER = "sheet-device-collection@e-caldron-489406-t5.iam.gserviceaccount.com"
 
 SEHAT_OBS_START = "2026-07-01"        # a pre-launch baseline, then across the cycle
 SEHAT_GATE = 80                        # the payout gate on both tracks (≥80%)
@@ -1511,14 +1514,27 @@ def compute_removed():
                 rows.append({k: get(r, i) for k, i in ix.items()})
         live = True
     except Exception as e:
-        note = "live sheet unreachable (%s) — showing the committed snapshot" % type(e).__name__
+        # The Hub sheet is not link-readable, and its ID sits in this public repo, so
+        # making it public is not an option. Until it is shared with the service
+        # account, fall back to a snapshot held in the private cs-docs bucket — the
+        # committed file cannot carry this list (names, mobiles, emails, FPV reasons).
+        note = "live sheet unreachable (%s)" % type(e).__name__
+        snap = None
         try:
-            with open(os.path.join(BASE_DIR, "data", MG_REMOVED_FALLBACK), encoding="utf-8") as fh:
-                snap = json.load(fh)
+            data, _ = storage_download(MG_REMOVED_OBJECT)
+            snap = json.loads(data)
+            note += " — showing the stored snapshot"
+        except Exception:
+            try:
+                with open(os.path.join(BASE_DIR, "data", MG_REMOVED_FALLBACK), encoding="utf-8") as fh:
+                    snap = json.load(fh)
+                note += " — showing the local snapshot"
+            except Exception as e2:
+                note = "no source available (%s / %s)" % (type(e).__name__, type(e2).__name__)
+        if snap:
             rows = snap.get("rows") or []
             note += "; captured %s" % snap.get("captured_on", "?")
-        except Exception as e2:
-            note = "no source available (%s / %s)" % (type(e).__name__, type(e2).__name__)
+        else:
             rows = []
 
     for r in rows:
