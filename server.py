@@ -242,23 +242,24 @@ except Exception:
 # so it reproduces on any re-run. 17 CSPs are HELD pending PSF→SD sign-off: they are
 # listed with what they would have drawn, but paid nothing this cycle.
 AUGUST_OBJECT = "settlements/august_payout.json"
+SEHAT_OBJECT = "settlements/sehat_payout.json"
 AUGUST = None
+SEHAT_PAYOUT = None
 
 
-def _load_august():
-    """August carries CSP names against FPV enforcement reasons and this repo is
-    public, so the file is NOT committed. It lives in the private cs-docs bucket and
-    is pulled at startup; the local copy is only a developer fallback. Re-upload with
-    storage_upload(AUGUST_OBJECT, ...) and redeploy to publish a new settlement."""
+def _load_settlement(obj, local):
+    """Settlements name individual CSPs — August against FPV enforcement reasons — and
+    this repo is public, so these files are NOT committed. They live in the private
+    cs-docs bucket and are pulled at startup; the local copy is a developer fallback.
+    To publish a new one: storage_upload(<OBJECT>, bytes, "application/json"), redeploy."""
     try:
-        data, _ = storage_download(AUGUST_OBJECT)
+        data, _ = storage_download(obj)
         return json.loads(data)
     except Exception as e:
-        print(f"August settlement: storage read failed ({type(e).__name__}: {e}); "
+        print(f"{obj}: storage read failed ({type(e).__name__}: {e}); "
               f"falling back to the local file")
     try:
-        return json.load(open(os.path.join(BASE_DIR, "data", "august_payout.json"),
-                              encoding="utf-8"))
+        return json.load(open(os.path.join(BASE_DIR, "data", local), encoding="utf-8"))
     except Exception:
         return None
 
@@ -2334,14 +2335,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _init_settlements():
-    """Pull August from private storage and pack both months for serving. Runs on
-    import so the bytes are ready before the first request."""
-    global AUGUST
-    AUGUST = _load_august()
+    """Pull the private settlements and pack every one for serving. Runs on import so
+    the bytes are ready before the first request."""
+    global AUGUST, SEHAT_PAYOUT
+    AUGUST = _load_settlement(AUGUST_OBJECT, "august_payout.json")
+    SEHAT_PAYOUT = _load_settlement(SEHAT_OBJECT, "sehat_payout.json")
     SETTLEMENTS["july"] = _pack(PAYOUT)
     SETTLEMENTS["august"] = _pack(AUGUST)
-    print("settlements ready — july: %s rows, august: %s rows"
-          % (len((PAYOUT or {}).get("rows") or []), len((AUGUST or {}).get("rows") or [])))
+    SETTLEMENTS["sehat"] = _pack(SEHAT_PAYOUT)
+    n = lambda d: len((d or {}).get("rows") or [])
+    print("settlements ready — july: %s rows, august: %s rows, sehat: %s rows"
+          % (n(PAYOUT), n(AUGUST), n(SEHAT_PAYOUT)))
 
 
 _init_settlements()

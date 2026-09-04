@@ -7,3 +7,6 @@ _q_*.sql
 # Carries CSP names against FPV enforcement reasons; this repo is public.
 # Served from the private cs-docs bucket at runtime — see _load_august().
 data/august_payout.json
+
+# 13 named CSPs with their Sehat cycle-1 payouts; served from cs-docs at runtime.
+data/sehat_payout.json

@@ -379,6 +379,33 @@ svg text{font-family:inherit}
     </div>
   </div>
 
+  <!-- ===================== SEHAT MG · CYCLE 1 SETTLEMENT ===================== -->
+  <div class="card section">
+    <div class="label">Cycle 1 payout — settled</div>
+    <h2 style="margin-top:4px">What the first cycle paid</h2>
+    <div class="sub" id="sehat-pay-caption" style="margin-top:6px">loading…</div>
+    <div class="strip" id="sehat-pay-tiles" style="margin-top:14px"></div>
+    <div class="foot" style="margin-top:12px">
+      Pro-rata by days enrolled in the cycle: a CSP that opted in on 16 Jul earns the full
+      ₹10,000, one that opted in on 19 Jul earns 28/31 of it. The gate is binary — the CSP's
+      own reading on the last day of the cycle either clears 80% or it does not.
+    </div>
+  </div>
+
+  <div class="card section">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div class="label">Per-CSP payout · <span id="sehat-pay-count">–</span> CSPs</div>
+      <input id="sehat-pay-search" class="payout-search" placeholder="Search name or CSP ID…"
+             oninput="filterSehatPay()" autocomplete="off">
+    </div>
+    <div class="payout-tablewrap">
+      <table class="payout-table" id="sehat-pay-table">
+        <thead id="sehat-pay-thead"></thead><tbody id="sehat-pay-tbody"></tbody>
+      </table>
+    </div>
+    <div class="sub" id="sehat-pay-shown" style="margin-top:8px"></div>
+  </div>
+
   <div class="card section" style="border-left:3px solid var(--amber)">
     <div class="label">Data wiring — what this tab still needs</div>
     <div class="sub" style="margin-top:8px">
@@ -983,7 +1010,69 @@ const SEHAT_COHORT=[
   ['<b>Total</b>','','<b>96</b>','<b>15,354</b>','',''],
 ];
 
+/* Cycle 1 settlement. A closed one-off like the Install MG months: fetched the first
+   time the Sehat view is opened, then filtered client-side. */
+let SEHAT_PAY=null, SEHAT_PAY_BUILT=false, SEHAT_PAY_REQ=null;
+async function loadSehatPayout(){
+  if(SEHAT_PAY) return renderSehatPayout();
+  // renderSehat() runs both on tab-switch and on every data load, so hold the
+  // in-flight request rather than firing a second fetch for the same file.
+  SEHAT_PAY_REQ=SEHAT_PAY_REQ||settlement('sehat');
+  SEHAT_PAY=await SEHAT_PAY_REQ;
+  renderSehatPayout();
+}
+function renderSehatPayout(){
+  const p=SEHAT_PAY;
+  if(!p){ $('sehat-pay-caption').textContent='Cycle 1 payout not loaded — the settlement is missing on the server.'; return; }
+  if(SEHAT_PAY_BUILT) return;
+  const t=p.totals, b=p.buckets||{};
+  const cyc=`${dmy(p.cycle.start)} – ${dmy(p.cycle.end)}`;
+  $('sehat-pay-caption').innerHTML=
+    `<b>${fmt(t.csps)}</b> enrolled CSPs settled for cycle 1 (${cyc}) · total paid <b>${inr(t.total)}</b>. `+
+    `All <b>${fmt(t.gate_cleared)}</b> cleared the ${p.gate}% gate — <b>${fmt(t.full_amount)}</b> drew the full ₹10,000 and `+
+    `<b>${fmt(t.prorated)}</b> were pro-rated for opting in after the cycle opened.`;
+
+  $('sehat-pay-tiles').innerHTML=
+    ptile(inr(t.total),'Total paid','pro-rata of ₹10,000 each','var(--accent)')+
+    ptile(fmt(t.csps),'CSPs settled','every one cleared the gate')+
+    ptile(t.avg_reading+'%','Average reading','at cycle close · gate is '+p.gate+'%')+
+    ptile(fmt(t.full_amount),'Full ₹10,000','enrolled for the whole cycle')+
+    Object.keys(b).map(k=>ptile(inr(b[k].amount),k,`${fmt(b[k].csps)} CSPs · avg ${b[k].avg_reading}%`)).join('');
+
+  const cols=[['CSP','l'],['CSP ID','l'],['Track','l'],['Opted in','l'],['Reading %',''],
+              ['Gate',''],['Days',''],['Pro-rata',''],['Payout ₹','']];
+  $('sehat-pay-thead').innerHTML='<tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr>';
+  $('sehat-pay-tbody').innerHTML=p.rows.map(r=>{
+    const s=`${r.name} ${r.csp_id} ${r.category}`.toLowerCase();
+    const ok=String(r.gate).toLowerCase()==='yes';
+    return `<tr data-s="${esc(s)}">`+
+      `<td class="l">${esc(r.name)}</td>`+
+      `<td class="l">${esc(r.csp_id)}</td>`+
+      `<td class="l">${esc(r.category)}</td>`+
+      `<td class="l">${dmy(r.optin_date)}</td>`+
+      `<td>${r.reading}%</td>`+
+      `<td style="color:${ok?'var(--green)':'var(--red)'};font-weight:700">${ok?'Cleared':'Missed'}</td>`+
+      `<td>${fmt(r.days)}</td>`+
+      `<td>${r.factor>=1?'full':Math.round(r.factor*100)+'%'}</td>`+
+      `<td class="tot">${inr(r.due)}</td>`+
+    `</tr>`;
+  }).join('');
+  $('sehat-pay-count').textContent=fmt(p.rows.length);
+  SEHAT_PAY_BUILT=true;
+  filterSehatPay();
+}
+function filterSehatPay(){
+  const q=($('sehat-pay-search').value||'').trim().toLowerCase();
+  let shown=0; const rows=$('sehat-pay-tbody').querySelectorAll('tr');
+  rows.forEach(tr=>{const hit=!q||tr.dataset.s.includes(q); tr.style.display=hit?'':'none'; if(hit)shown++;});
+  $('sehat-pay-shown').textContent=q?`${fmt(shown)} of ${fmt(rows.length)} CSPs match “${q}”`
+    :`Showing all ${fmt(rows.length)} CSPs · highest payout first.`;
+}
+const dmy=s=>{const d=new Date(s+'T00:00:00');return isNaN(d)?String(s):
+  `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]}`;};
+
 function renderSehat(){
+  loadSehatPayout();
   const SQ=(typeof DATA==='object'&&DATA)?DATA.sehat_quality:null;
   // P0 · sign-up conversion — enrolled ÷ eligible, from the Sehat MG offer sheet.
   const en=SQ&&SQ.enroll;
