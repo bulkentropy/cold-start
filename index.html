@@ -1760,6 +1760,7 @@ function renderGate(g){
       to date. Each CSP is placed by its state <b>as of that day</b> — installs ÷ <b>matured</b> customer-confirmed leads vs the
       <b>${g.gate_pct}%</b> gate. Total is constant (${fmt(g.enrolled)}); the composition shift is the story.`;
     const STK=[['above','#008043','Above '+g.gate_pct+'% gate'],['below','#C77700','Below the gate'],
+               ['in_flight','#1E88C7','Work in flight'],
                ['not_dispatched','#6D17CE','Never dispatched'],['no_leads','#9A93AD','No leads']];
     const TOT=n, W=720,H=300,L=30,R=10,T=22,B=22,m=s.length;
     const x=i=>L+(W-L-R)*(m===1?.5:i/(m-1)), yOf=v=>T+(H-T-B)*(1-v/TOT);
@@ -1803,6 +1804,7 @@ function renderGate(g){
       (${g.window[0]} → ${g.window[1]}) · gate = <b>${g.gate_pct}%</b> · mirrors the in-app गारंटी कमाई rate`;
     const SEG=[['above','var(--green)','Above the '+g.gate_pct+'% gate','installs ÷ tech-assigned ≥ '+g.gate_pct+'%'],
                ['below','var(--amber)','Below the gate','under '+g.gate_pct+'% (includes 0 installs)'],
+               ['in_flight','#1E88C7','Work in flight','dispatched, nothing finished yet — not scoreable'],
                ['not_dispatched','var(--purple)','Never dispatched','confirmed leads, no technician ever assigned'],
                ['no_leads','#9A93AD','No leads','nothing confirmed or dispatched']];
     $('gate-meter').innerHTML=SEG.map(([k,c])=>`<div style="width:${100*(g[k]||0)/n}%;background:${c};border-radius:0"></div>`).join('');
@@ -1815,8 +1817,9 @@ function renderGate(g){
     <span style="font-size:1.5rem;font-weight:800;color:var(--green)">🎯 ${fmt(om)}</span>
     <span style="font-weight:600">of the ${fmt(g.below)} below-gate CSPs are <b>one install away</b> from clearing the ${g.gate_pct}% gate</span>
     <div class="sub" style="margin-top:4px">Installing one more lead (matured +1, install +1) pushes each of these over:
-    (installs + 1) ÷ (tech-assigned + 1) ≥ ${g.gate_pct}%. ${fmt(g.pending_tasks)} dispatched jobs are still in flight across all CSPs —
-    unlike the old rule these already sit in the denominator, so the rate rises as they land.</div></div>`;
+    (installs + 1) ÷ (tech-assigned + 1) ≥ ${g.gate_pct}%. ${fmt(g.pending_tasks)} dispatched jobs are still in flight across all CSPs.
+    They are <b>not</b> in the denominator until they finish, so today's rate is the optimistic
+    reading — it settles downward as they land.</div></div>`;
   $('gate-foot').innerHTML=`<b>Aligned to the MG payout logic — revised for August 2026.</b>
     Denominator = leads that reached <b>technician assigned</b> (an executor was attached). Numerator = of those,
     <b>installed</b> — any install counts; being late against the customer's chosen slot is not tested.

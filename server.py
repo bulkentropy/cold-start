@@ -141,6 +141,18 @@ MG_REMOVED_SHEET = "1nr3QGLaKnt_vY_VoMp5_wWyzkhNSRfEqWtjyIsyW4fo"   # Enforcemen
 MG_REMOVED_GID = "0"
 MG_REMOVED_URL = ("https://docs.google.com/spreadsheets/d/%s/edit?gid=%s"
                   % (MG_REMOVED_SHEET, MG_REMOVED_GID))
+# The lead's terminal event, in IST, or NULL while it is still running. Substituted as
+# {TERMINAL_D} into l1_status.sql and gate_daily.sql so the gate snapshot and the daily
+# reconstruction cannot drift apart — they MUST use the same definition. Replaces
+# MAX(UPDATED_AT), which moved whenever a row was touched for any reason (BUG-571).
+TERMINAL_D_SQL = """IFF(MAX(c.INSTALLATION_COMPLETED_AT) IS NULL
+          AND MAX(c.FAILURE_REPORTED_AT) IS NULL
+          AND MAX(c.DISMISSED_AT) IS NULL, NULL,
+          TO_DATE(DATEADD(minute, 330, GREATEST(
+            COALESCE(MAX(c.INSTALLATION_COMPLETED_AT), '1900-01-01'::timestamp_tz),
+            COALESCE(MAX(c.FAILURE_REPORTED_AT),       '1900-01-01'::timestamp_tz),
+            COALESCE(MAX(c.DISMISSED_AT),              '1900-01-01'::timestamp_tz)))))"""
+
 MG_REMOVED_FALLBACK = "mg_removed.json"       # local dev copy; gitignored, see MG_REMOVED_OBJECT
 MG_REMOVED_OBJECT = "enforcement/mg_removed.json"   # snapshot in the private cs-docs bucket
 # Share the sheet with this service account (Viewer) to make the read genuinely live:
@@ -1375,6 +1387,7 @@ def compute_cohort(enrolled_ids, latest):
     ssql = open(os.path.join(BASE_DIR, "sql", "l1_status.sql"), encoding="utf-8").read()
     ssql = ssql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
     ssql = ssql.replace("{MONTH_START}", month_start)
+    ssql = ssql.replace("{TERMINAL_D}", TERMINAL_D_SQL)
     _agg, _sel = _week_sql(IGN_WEEKS)
     ssql = ssql.replace("{WEEK_AGG}", _agg).replace("{WEEK_SELECT}", _sel)
     sraw = {str(r["partner_id"]): r for r in metabase_sql(ssql)}
@@ -1472,7 +1485,7 @@ def compute_cohort(enrolled_ids, latest):
     # unlike the old rule these DO sit in the denominator and drag the rate until they
     # land, so a mid-month reading is pessimistic.
     GATE = 0.60
-    g = {"above": 0, "below": 0, "not_dispatched": 0, "no_leads": 0,
+    g = {"above": 0, "below": 0, "in_flight": 0, "not_dispatched": 0, "no_leads": 0,
          "below_zero_install": 0, "one_more": 0, "pending_tasks": 0,
          "nodispatch_leads": 0}
     for p in enrolled_ids:
@@ -1484,7 +1497,15 @@ def compute_cohort(enrolled_ids, latest):
         g["pending_tasks"] += pend
         g["nodispatch_leads"] += nod
         if recv == 0:
-            g["not_dispatched" if nod > 0 else "no_leads"] += 1
+            # SEP 2026: an in-flight lead has no terminal event, so it is in no month's
+            # denominator. Without this state such a CSP reads as "no leads" when it is
+            # actually working — 40 of 479 on the day the rule changed.
+            if pend > 0:
+                g["in_flight"] += 1
+            elif nod > 0:
+                g["not_dispatched"] += 1
+            else:
+                g["no_leads"] += 1
         elif inst / recv >= GATE:
             g["above"] += 1
         else:
@@ -1502,12 +1523,14 @@ def compute_cohort(enrolled_ids, latest):
         dsql = open(os.path.join(BASE_DIR, "sql", "gate_daily.sql"), encoding="utf-8").read()
         dsql = (dsql.replace("{PARTNER_IN_LIST}", ",".join(f"'{p}'" for p in enrolled_ids))
                     .replace("{MONTH_START}", month_start)
+                    .replace("{TERMINAL_D}", TERMINAL_D_SQL)
                     .replace("{WEEK_AGG}", _week_sql(IGN_WEEKS)[0])
                     .replace("{WEEK_SELECT}", _week_sql(IGN_WEEKS)[1])
                     .replace("{TODAY}", today.isoformat())
                     .replace("{ENROLLED_N}", str(len(enrolled_ids))))
         gate["daily"] = [{"day": str(r["day"])[:10], "above": r.get("above") or 0,
                           "below": r.get("below") or 0,
+                          "in_flight": r.get("in_flight") or 0,
                           "not_dispatched": r.get("not_dispatched") or 0,
                           "no_leads": r.get("no_leads") or 0} for r in metabase_sql(dsql)]
     except Exception:

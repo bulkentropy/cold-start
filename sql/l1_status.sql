@@ -9,21 +9,28 @@
 --      recv_m (DENOMINATOR) = leads that reached TECH ASSIGNED (EXECUTOR_ID set).
 --      inst_m (NUMERATOR)   = of those, installed (any install; on-time is NOT tested).
 --    Grain is one row per (CONNECTION_ID, CSP_ID) — a booking re-allotted to the SAME
---    CSP counts once. Month attribution is TO_DATE(IST(MAX(UPDATED_AT))) per pair.
+--    CSP counts once.
 --
---    Changes from the pre-August rule, all deliberate and all matching the payout side:
---      * denominator was "customer-confirmed lead that reached a final state"; it is now
---        the narrower "technician was assigned". Aug MTD this cuts the cohort denominator
---        ~58% and lifts the rate ~29 pts with an unchanged numerator.
---      * still-open jobs are no longer held out — a dispatched job not yet finished now
---        counts against the rate, so a mid-month reading is pessimistic and firms up.
---      * true system/upstream cancels are no longer excluded (immaterial: 67 of 4,279).
---      * nodisp_m below is NOT part of the rate. It exists because a confirmed lead that
---        never got a technician now leaves the metric entirely instead of counting as a
---        miss, and that failure must stay visible somewhere.
---    ⚠ MAX(UPDATED_AT) is a row-write timestamp, not a business event: a July install
---    whose row is touched in August moves into August, and a past month's number is not
---    reproducible later. Kept deliberately so the dashboard matches what actually pays.
+--    SEPTEMBER 2026: month attribution moved off UPDATED_AT onto the lead's real
+--    terminal events (BUG-571 — UPDATED_AT moves whenever the row is touched for any
+--    reason, so a July install touched in August silently became an August install, and
+--    a closed month could not be reproduced afterwards). Now:
+--      numerator month   = INSTALLATION_COMPLETED_AT
+--      denominator month = the terminal event, GREATEST of INSTALLATION_COMPLETED_AT /
+--                          FAILURE_REPORTED_AT / DISMISSED_AT
+--    Consequences, all deliberate:
+--      * a dispatched lead with NO terminal event yet is no longer in the denominator.
+--        It sits in pend_m instead. That reverses the August rule, where in-flight jobs
+--        dragged the rate: a mid-month reading is now OPTIMISTIC and settles downward as
+--        jobs terminate, where it used to be pessimistic and settle upward. Sep MTD this
+--        removed 1,120 leads from the denominator.
+--      * measured on the enrolled cohort at the switch: denominator 1,344 -> 965,
+--        installs 636 -> 612, rate 47.3% -> 63.4%.
+--      * nodisp_m is NOT part of the rate. A confirmed lead that never got a technician
+--        leaves the metric entirely rather than counting as a miss, and that failure has
+--        to stay visible somewhere.
+--    Past months are now reproducible: both timestamps are business events that do not
+--    move once written.
 --    Placeholders substituted by server.py: PARTNER_IN_LIST, MONTH_START, and the
 --    week columns WEEK_AGG / WEEK_SELECT (names given without braces on purpose -
 --    writing them literally here would make the substitution inject SQL into this
@@ -61,15 +68,22 @@ tt AS (
 -- above, which stays task-level for the ignition windows.
 pairs AS (
     SELECT mg.PARTNER_ID AS partner_id, c.CONNECTION_ID,
-      MAX(IFF(c.OTP_VERIFIED = TRUE OR c.INSTALLATION_COMPLETED_AT IS NOT NULL
-              OR c.COMPLETED_STEP >= 7, 1, 0))                         AS has_installed,
+      -- SEP 2026: install is INSTALLATION_COMPLETED_AT only. OTP_VERIFIED /
+      -- COMPLETED_STEP >= 7 without a completion time carry no date, so they cannot be
+      -- attributed to a month at all (2 such leads MTD when this changed).
+      MAX(IFF(c.INSTALLATION_COMPLETED_AT IS NOT NULL, 1, 0))          AS has_installed,
       MAX(IFF(c.EXECUTOR_ID IS NOT NULL, 1, 0))                        AS tech_assigned,
       MAX(IFF(c.CONFIRMED_SLOT_AT IS NOT NULL
               OR c.CURRENT_STATE = 'AWAITING_TECHNICIAN_ASSIGNMENT', 1, 0)) AS was_confirmed,
-      MAX(IFF(c.CURRENT_STATE IN ('TECHNICIAN_ASSIGNED','ARRIVED_AT_SITE',
-              'INSTALLATION_IN_PROGRESS_PRE_FEE','INSTALLATION_IN_PROGRESS_POST_FEE',
-              'AWAITING_CUSTOMER_OTP','FEE_COLLECTION_PENDING'), 1, 0)) AS still_open,
-      IFF(TO_DATE(DATEADD(minute, 330, MAX(c.UPDATED_AT))) >= '{MONTH_START}'::DATE, 1, 0) AS in_month
+      -- numerator month: when the install actually happened
+      IFF(TO_DATE(DATEADD(minute, 330, MAX(c.INSTALLATION_COMPLETED_AT)))
+          >= '{MONTH_START}'::DATE, 1, 0)                              AS inst_in_month,
+      -- denominator month: the lead's terminal event, whichever came last
+      IFF({TERMINAL_D} >= '{MONTH_START}'::DATE, 1, 0)                 AS term_in_month,
+      -- dispatched and still running: no terminal event yet, so outside the month
+      IFF(MAX(c.INSTALLATION_COMPLETED_AT) IS NULL
+          AND MAX(c.FAILURE_REPORTED_AT) IS NULL
+          AND MAX(c.DISMISSED_AT) IS NULL, 1, 0)                       AS no_terminal
     FROM PROD_DB.CSP_TAS_SERVICE_CSP_TAS_SERVICE.INSTALL_EXECUTION_CANDIDATES c
     JOIN mg ON mg.CSP_ID = c.CSP_ID
     WHERE c._FIVETRAN_ACTIVE
@@ -77,11 +91,12 @@ pairs AS (
 ),
 gate AS (
     SELECT partner_id,
-      SUM(IFF(tech_assigned = 1 AND in_month = 1, 1, 0))                             AS recv_m,
-      SUM(IFF(has_installed = 1 AND in_month = 1, 1, 0))                             AS inst_m,
-      SUM(IFF(tech_assigned = 1 AND has_installed = 0 AND still_open = 1
-              AND in_month = 1, 1, 0))                                               AS pend_m,
-      SUM(IFF(tech_assigned = 0 AND was_confirmed = 1 AND in_month = 1, 1, 0))        AS nodisp_m
+      SUM(IFF(tech_assigned = 1 AND term_in_month = 1, 1, 0))                        AS recv_m,
+      SUM(IFF(tech_assigned = 1 AND has_installed = 1 AND inst_in_month = 1, 1, 0))  AS inst_m,
+      -- in flight: dispatched, not finished, no terminal event. These are NOT in the
+      -- denominator now, so they must stay visible here or they vanish silently.
+      SUM(IFF(tech_assigned = 1 AND has_installed = 0 AND no_terminal = 1, 1, 0))    AS pend_m,
+      SUM(IFF(tech_assigned = 0 AND was_confirmed = 1 AND term_in_month = 1, 1, 0))  AS nodisp_m
     FROM pairs GROUP BY 1
 ),
 ign AS (
