@@ -20,6 +20,24 @@ bookings AS (
            BOOKING_CONFIRM_TIME AS bt, NEXT_BOOKING_CONFIRM_TIME AS nb
     FROM PROD_DB.DBT.fct_booking_window
     WHERE BOOKING_CONFIRM_DATE >= '{START_DATE}'
+      -- PHANTOM-BOOKING GUARD. fct_booking_window is an incremental model whose
+      -- merge key includes BOOKING_CONFIRM_TIME, which it RECOMPUTES 1-5 min
+      -- later on every re-run. Since ~25 Aug 2026 each daily run therefore
+      -- misses its key over a rolling lookback and INSERTS a second copy of
+      -- bookings it has already loaded (~250 extra rows/day, still ongoing).
+      -- Every duplicate pair shares CONNECTION_ID exactly, so that is the
+      -- stable identity: keep the first-loaded row (the one that still carries
+      -- its attribution columns). CONNECTION_ID is null on <1% of rows; those
+      -- fall back to a 15-min repeat-confirm cut, which is where the gap
+      -- histogram flattens (genuine re-bookings sit a median 7.4 DAYS apart).
+      QUALIFY (CONNECTION_ID IS NOT NULL
+               AND ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID
+                        ORDER BY DBT_LOADED_AT, BOOKING_CONFIRM_TIME) = 1)
+           OR (CONNECTION_ID IS NULL
+               AND COALESCE(DATEDIFF('second',
+                     LAG(BOOKING_CONFIRM_TIME) OVER (PARTITION BY MOBILE
+                                                     ORDER BY BOOKING_CONFIRM_TIME),
+                     BOOKING_CONFIRM_TIME), 999999) > 900)
 ),
 acc AS (
     SELECT b.*, dr.ACCOUNT_ID::STRING AS account_id, dr.LCO_ACCOUNT_ID AS lco
@@ -34,7 +52,7 @@ acc_clean AS (   -- drop test-LCO bookings
     WHERE lco IS NULL OR lco NOT IN
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
 ),
-conn AS (
+conn_raw AS (
     SELECT a.mobile, a.booking_date, ceh.CONNECTION_ID
     FROM acc_clean a
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
@@ -46,6 +64,12 @@ conn AS (
       ON c.CONNECTION_ID = ceh.CONNECTION_ID AND c.CUSTOMER_ID::STRING = a.account_id
      AND c._fivetran_active = TRUE
     QUALIFY ROW_NUMBER() OVER (PARTITION BY a.mobile, a.booking_date ORDER BY ceh.EVENT_TIMESTAMP) = 1
+),
+conn AS (   -- de-duplicate: two booking instances that resolve to the
+    -- same CONNECTION_ID are one journey, and counting both double-counts
+    -- every downstream rung (tl and tasks_all both join on CONNECTION_ID).
+    SELECT * FROM conn_raw
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CONNECTION_ID ORDER BY booking_date) = 1
 ),
 tl AS (   -- latest/active TAS candidate (the task) per connection, as in Q11528
     SELECT CONNECTION_ID, CSP_ID, CREATED_AT,
