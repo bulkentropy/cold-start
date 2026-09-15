@@ -2145,6 +2145,9 @@ _MUM_STUCK = {"CANCELLED_BY_UPSTREAM": "stuck_timeout", "DECLINED": "stuck_decli
 MUM_OPEN_STAGES = {"no_csp", "received", "slot_proposed", "slot_confirmed", "tech_assigned"}
 MUM_STAGE_ORDER = ["stuck_timeout", "stuck_declined", "stuck_failed", "no_csp", "received",
                    "slot_proposed", "slot_confirmed", "tech_assigned", "installed", "cancelled"]
+MUM_DAY_PRIORITY = {"tech_assigned": 6, "slot_confirmed": 5, "slot_proposed": 4, "received": 3,
+                    "no_csp": 3, "stuck_timeout": 2, "stuck_declined": 2, "stuck_failed": 2,
+                    "installed": 1, "cancelled": 0}
 _mum_zones = None
 _mum_csps = None
 
@@ -2207,6 +2210,58 @@ def _ist(s):
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def _mum_source(r):
+    """(group, label, detail). Three layers, most specific first:
+    1. Branch's last attributed touch in the 7 days before the confirm — the ad
+       network, campaign and adset, and whether it was a click or a view.
+    2. The dbt attribution journey at booking confirm (Online / CC / BDO / Organic)
+       — read from ATTRIBUTION_ACC_BOOKING_CONF1 directly, because FINAL_SOURCE on
+       the fct row we keep was computed before the click synced and says Organic
+       for ~30% of ad-driven bookings.
+    3. Non-paid Branch links (WhatsApp inbound, website-to-app, marketing links).
+    The first-touch lead source rides along as detail ("lead via CC")."""
+    feat = (r.get("touch_feature") or "").strip()
+    partner = (r.get("touch_partner") or "").strip()
+    ttype = (r.get("touch_type") or "").upper()
+    adset = r.get("touch_adset") or r.get("touch_campaign") or ""
+    att = (r.get("att_source") or "").strip()
+    chan = (r.get("att_channel") or "").strip()
+    lead = (r.get("lead_source") or "").strip()
+    detail = []
+    if feat == "paid advertising" and partner:
+        net = ("Meta" if "facebook" in partner.lower() or "meta" in partner.lower()
+               else "Google" if "google" in partner.lower() else partner)
+        mum = "MUMBAI" in adset.upper()
+        label = f"{net} ad · {'Mumbai' if mum else 'other'} campaign"
+        if ttype == "IMPRESSION":
+            label += " (view-through)"
+        detail.append(f"{ttype.lower() or 'touch'} {_ist(r.get('touch_at')) or ''}".strip())
+        if adset:
+            detail.append(adset)
+        if r.get("touch_ad"):
+            detail.append("ad: " + r["touch_ad"])
+        group = "paid"
+    elif att == "CC" or (r.get("source") or "") == "CC":
+        group, label = "cc", "Call centre"
+        if r.get("att_last_call"):
+            detail.append("call " + str(r["att_last_call"])[:16])
+    elif att == "BDO":
+        group, label = "bdo", "BDO"
+    elif att == "Online" and chan:
+        group, label = "paid", f"{chan} (dbt journey, no Branch touch)"
+    elif feat == "WhatsappInbound":
+        group, label = "organic", "Organic · WhatsApp inbound"
+    elif feat == "website_to_app":
+        group, label = "organic", "Organic · website"
+    elif feat == "marketing":
+        group, label = "organic", "Organic · marketing link"
+    else:
+        group, label = "organic", "Organic"
+    if lead and lead.lower() not in label.lower():
+        detail.append(f"lead via {lead}")
+    return group, label, " · ".join(detail)
+
+
 def compute_mumbai():
     sql = open(os.path.join(BASE_DIR, "sql", "mumbai_bookings.sql"), encoding="utf-8").read()
     raw = metabase_sql(sql.replace("{START_DATE}", MUMBAI_START))
@@ -2239,6 +2294,7 @@ def compute_mumbai():
         c = csps.get(r.get("csp_id") or "") or {}
         owner, bucket, why = (_fail_owner(r.get("last_reason")) if stage.startswith("stuck")
                               else ("", "", ""))
+        sgroup, slabel, sdetail = _mum_source(r)
         rows.append({
             "key": r.get("connection_id") or f"{r.get('mobile')}|{r.get('booked_at')}",
             "mobile": r.get("mobile"), "name": r.get("cust_name") or "",
@@ -2246,7 +2302,9 @@ def compute_mumbai():
             "booked_at": booked, "booked_on": (r.get("booked_on") or "")[:10],
             "age_days": max(0, (now - bdt).days), "idle_days": max(0, (now - mdt).days),
             "is_mkt": (r.get("booked_on") or "")[:10] >= MUMBAI_MKT_START,
-            "source": r.get("source") or "—", "flow": r.get("flow") or "",
+            "source": slabel, "source_group": sgroup, "source_detail": sdetail,
+            "source_raw": r.get("source") or "", "lead_source": r.get("lead_source") or "",
+            "flow": r.get("flow") or "",
             "city": r.get("city") or "", "locality": r.get("locality") or "",
             "pincode": r.get("pincode") or "", "address": r.get("address") or "",
             "lat": r.get("lat"), "lng": r.get("lng"),
@@ -2271,8 +2329,11 @@ def compute_mumbai():
             "csp_align_label": c.get("alignment_label") or "",
             "csp_state": c.get("csp_state") or "",
         })
-    order = {s: i for i, s in enumerate(MUM_STAGE_ORDER)}
-    rows.sort(key=lambda r: (order.get(r["stage"], 99), -r["age_days"], r["booked_at"] or ""))
+    # Latest booking day first; within a day the ones closest to an install come
+    # first (technician assigned > slot confirmed > proposed/received > stuck), so
+    # the caller protects today's near-installs before chasing timeouts.
+    rows.sort(key=lambda r: (r["booked_on"], MUM_DAY_PRIORITY.get(r["stage"], 0),
+                             r["booked_at"] or ""), reverse=True)
 
     def _count(pred):
         return sum(1 for r in rows if pred(r))
@@ -2284,10 +2345,11 @@ def compute_mumbai():
         "open": _count(lambda r: r["stage"] in MUM_OPEN_STAGES),
         "stuck": _count(lambda r: r["stage"].startswith("stuck")),
         "by_stage": {s: _count(lambda r, s=s: r["stage"] == s) for s in MUM_STAGE_ORDER},
-        "by_source": {},
+        "by_source": {}, "by_source_group": {},
     }
     for r in rows:
         summary["by_source"][r["source"]] = summary["by_source"].get(r["source"], 0) + 1
+        summary["by_source_group"][r["source_group"]] = summary["by_source_group"].get(r["source_group"], 0) + 1
     daily = {d: {"day": d, "booked": 0, "paid": 0, "installed": 0}
              for d in _daterange(MUMBAI_START, today)}
     for r in rows:
@@ -2295,7 +2357,7 @@ def compute_mumbai():
         if not d:
             continue
         d["booked"] += 1
-        d["paid"] += 0 if r["source"] in ("Organic", "CC", "—") else 1
+        d["paid"] += 1 if r["source_group"] == "paid" else 0
         d["installed"] += 1 if r["stage"] == "installed" else 0
     by_csp = {}
     for r in rows:

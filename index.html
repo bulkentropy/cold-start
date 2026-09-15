@@ -514,9 +514,10 @@ svg text{font-family:inherit}
           Marketing for Mumbai went live on <b>13 Sep</b>. This pane pulls every confirmed booking inside the
           MMR box since <b>1 Sep</b> (so the organic baseline is visible), reads its current stage from the
           CSP task, and puts the ones that are <b>not installed and not cancelled by the customer</b> into a
-          calling queue — <b>stuck</b> first (CSP timed out, declined or reported failure, customer still
-          waiting), then the open pipeline by age. Log every CSP call against the booking so the next person
-          sees what was said. Zones and marketing tiers come from the Mumbai targeting pack v2.
+          calling queue — latest day first, and within a day the ones closest to an install first (technician
+          assigned → slot confirmed → proposed → <b>stuck</b>: CSP timed out, declined or reported failure while
+          the customer is still waiting). Log every CSP call against the booking; it drops out of the way until
+          its follow-up date, then comes back on top. Zones and marketing tiers come from the Mumbai targeting pack v2.
         </div>
       </div>
       <div class="hdr-right" style="align-items:flex-start">
@@ -565,7 +566,12 @@ svg text{font-family:inherit}
     <div class="foot">Stage is the CSP task's current state. <b>Stuck</b> = the task went terminal (timed out on the CSP,
       declined, or install reported failed) without an install or a customer cancellation — the customer is most likely
       still waiting. <b>Idle</b> = days since the task last moved. Age = days since booking. Mobile numbers are for calling
-      only — do not export this table.</div>
+      only — do not export this table. <b>Order:</b> latest booking day first; within a day technician-assigned →
+      slot-confirmed → proposed → stuck. Once you log a call the row drops to the bottom (greyed) and comes back on
+      top, highlighted, on its follow-up date — leave the follow-up blank only if nothing more is needed.
+      <b>Source:</b> from the last ad touch before booking (Branch: network, campaign, click vs view), else the
+      attribution journey (call centre / BDO), else organic; "lead via CC" means the lead was first created by the
+      call centre.</div>
   </div>
 
   <div class="card section">
@@ -3154,7 +3160,7 @@ async function renderMumbai(){
   $('mum-tiles').innerHTML=
     ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
     ptile(fmt(s.today),'Today','booked so far')+
-    ptile(fmt(s.stuck),'Stuck — call first','CSP timed out / declined / failed','var(--red)')+
+    ptile(fmt(s.stuck),'Stuck','CSP timed out / declined / failed — customer waiting','var(--red)')+
     ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
@@ -3187,8 +3193,8 @@ function drawMumDaily(){
     svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${r.day.slice(8)}</text>`;
   });
   $('mum-daily').innerHTML=svg+'</svg>'+
-    `<div class="legend"><span><i style="background:var(--purple);opacity:.7"></i>organic / CC</span>
-     <span><i style="background:var(--accent)"></i>paid (Facebook etc.)</span>
+    `<div class="legend"><span><i style="background:var(--purple);opacity:.7"></i>organic / call centre</span>
+     <span><i style="background:var(--accent)"></i>paid (ad click or view before booking)</span>
      <span style="color:var(--green);font-weight:700">✓n</span><span>installed from that day's bookings</span></div>`;
   const mk=MUM.daily.filter(r=>r.day>=MUM.mkt_start), pre=MUM.daily.filter(r=>r.day<MUM.mkt_start);
   const avg=a=>a.length?Math.round(10*a.reduce((s,r)=>s+r.booked,0)/a.length)/10:0;
@@ -3214,8 +3220,17 @@ async function renderMumQueue(){
   if(tier)rows=rows.filter(r=>tier==='none'?!r.tier:r.tier===tier);
   if(src)rows=rows.filter(r=>r.source===src);
   if(uncalled)rows=rows.filter(r=>!mumLastCall(logs,r.key));
-  if(q)rows=rows.filter(r=>[r.name,r.mobile,r.locality,r.zone,r.city,r.pincode,r.csp_name,r.csp_poc,r.booking_id].join(' ').toLowerCase().includes(q));
-  $('mum-q-count').textContent=`${rows.length} booking${rows.length===1?'':'s'}`;
+  if(q)rows=rows.filter(r=>[r.name,r.mobile,r.locality,r.zone,r.city,r.pincode,r.csp_name,r.csp_poc,r.booking_id,r.source].join(' ').toLowerCase().includes(q));
+  // Server order is latest day first, near-installs first within the day. On top of
+  // that: a booking that has been called sinks to the bottom until its follow-up
+  // date, when it resurfaces at the very top as "due". No follow-up date = stays down.
+  const today=new Date().toISOString().slice(0,10);
+  const bucket=r=>{const l=mumLastCall(logs,r.key); if(!l)return 1;
+    const f=l.follow_up_on?String(l.follow_up_on).slice(0,10):''; return f&&f<=today?0:2;};
+  const fu=r=>{const l=mumLastCall(logs,r.key); return l&&l.follow_up_on?String(l.follow_up_on).slice(0,10):'9999';};
+  rows=rows.map((r,i)=>({r,i,b:bucket(r),f:fu(r)})).sort((a,b)=>a.b-b.b||(a.b===1?a.i-b.i:a.f<b.f?-1:a.f>b.f?1:a.i-b.i)).map(x=>x.r);
+  const due=rows.filter(r=>bucket(r)===0).length;
+  $('mum-q-count').textContent=`${rows.length} booking${rows.length===1?'':'s'}${due?` · ${due} follow-up${due===1?'':'s'} due`:''}`;
   const detail=r=>{
     if(r.stage==='installed')return 'installed '+esc(r.installed_at||'');
     if(r.stage==='cancelled')return esc(r.cancelled_at||'')+(r.cancel_reason?' · '+esc(r.cancel_reason):'');
@@ -3229,11 +3244,13 @@ async function renderMumQueue(){
     rows.map(r=>{
       const l=mumLastCall(logs,r.key), nCalls=logs.filter(x=>x.booking_key===r.key).length;
       const idle=r.idle_days>=2&&inQueue(r)?`<span style="color:var(--red);font-weight:700"> · idle ${r.idle_days}d</span>`:'';
-      return `<tr id="mum-row-${esc(r.key)}">
-        <td style="white-space:nowrap"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}<br><span class="sub">${r.age_days}d old${idle}</span></td>
+      const b=bucket(r), rowStyle=b===0?'background:#FFF3E0':b===2?'opacity:.62':'';
+      const dueTag=b===0?`<div><span class="pill min">follow-up due ${esc(String(l.follow_up_on).slice(5,10))}</span></div>`:'';
+      return `<tr id="mum-row-${esc(r.key)}" style="${rowStyle}">
+        <td style="white-space:nowrap"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}<br><span class="sub">${r.age_days}d old${idle}</span>${dueTag}</td>
         <td class="tt2">${esc(r.name||'—')}<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.mobile)}</span></td>
         <td style="max-width:240px"><span class="sub">${esc(r.locality||r.address||'')}</span><br>${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</td>
-        <td>${esc(r.source)}${r.flow?`<br><span class="sub">${esc(r.flow)}</span>`:''}</td>
+        <td style="max-width:200px">${r.source_group==='paid'?`<b style="color:var(--accent)">${esc(r.source)}</b>`:esc(r.source)}${r.source_detail?`<br><span class="sub" title="${esc(r.source_detail)}">${esc(r.source_detail.split(' · ').filter(x=>!/^(MUMBAI|META|GOOGLE|DEL_|BHARAT|UAC_)/i.test(x)).join(' · '))}</span>`:''}${r.flow?`<br><span class="sub">flow ${esc(r.flow)}</span>`:''}</td>
         <td>${mumStagePill(r.stage)}<br><span class="sub">${detail(r)}</span></td>
         <td class="tt2">${esc(r.csp_name||r.csp_id||'—')}${r.csp_poc?`<br><span class="sub">${esc(r.csp_poc)}</span>`:''}
             ${r.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.csp_mobile)}</span>`:''}
@@ -3245,17 +3262,18 @@ async function renderMumQueue(){
 function mumCallForm(key){
   const r=MUM.rows.find(x=>x.key===key); if(!r)return;
   document.querySelectorAll('.mum-form').forEach(e=>e.remove());
+  const today=new Date().toISOString().slice(0,10), tomorrow=new Date(Date.now()+86400e3).toISOString().slice(0,10);
   const row=document.getElementById('mum-row-'+key);
   const tr=document.createElement('tr'); tr.className='rowform mum-form';
   tr.innerHTML=`<td colspan="8"><div class="sub" style="margin-bottom:8px">Logging a call for <b>${esc(r.name||r.mobile)}</b> — CSP <b>${esc(r.csp_name||'?')}</b> · stage ${esc((MUM_STAGE[r.stage]||[r.stage])[0])}</div>
     <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px">
-      <select id="mc-outcome">${MUM_OUTCOMES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
-      <input id="mc-date" type="date" value="${new Date().toISOString().slice(0,10)}" title="call date">
-      <input id="mc-follow" type="date" title="follow up on">
+      <label><span class="label" style="display:block;margin-bottom:3px">Outcome</span><select id="mc-outcome">${MUM_OUTCOMES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">Call date</span><input id="mc-date" type="date" value="${today}"></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">Follow up on · booking resurfaces this day</span><input id="mc-follow" type="date" value="${tomorrow}"></label>
     </div>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px">
-      <input id="mc-next" placeholder="next step (e.g. CSP visiting Tue AM, re-farm to X)">
-      <textarea id="mc-notes" placeholder="what was said — their words, blockers, promises" style="min-height:40px"></textarea>
+      <label><span class="label" style="display:block;margin-bottom:3px">Next step / promise</span><input id="mc-next" placeholder="e.g. CSP visiting Tue AM · re-farm to X"></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">Notes</span><textarea id="mc-notes" placeholder="what was said — their words, blockers, promises" style="min-height:40px"></textarea></label>
     </div>
     <div style="margin-top:8px"><button class="btn" style="padding:7px 18px;font-size:13px" onclick="mumSaveCall('${esc(key)}')">Save call</button>
       <button class="statbtn" style="margin-left:8px" onclick="this.closest('tr').remove()">Cancel</button></div></td>`;
