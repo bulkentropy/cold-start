@@ -144,6 +144,10 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .chip2.mum-stuck{background:#FFE9E5;color:var(--red)} .chip2.mum-open{background:#F1E5FF;color:var(--purple)}
 .chip2.mum-done{background:#E1FAED;color:var(--green)} .chip2.mum-closed{background:var(--n200);color:var(--muted)}
 .chip2.mum-warn{background:#FFF3E0;color:var(--amber)}
+.mum-line{display:block;line-height:1.4} .mum-mono{font-family:monospace;font-size:12px;color:var(--deep)}
+.mum-notes{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer;color:var(--deep);font-size:12.5px;line-height:1.45;margin-top:2px}
+.mum-notes.open{display:block;-webkit-line-clamp:unset;white-space:pre-wrap}
+.mum-more{font-size:11.5px;font-weight:700;color:var(--accent);cursor:pointer;display:inline-block;margin-top:2px}
 .item{border-top:1px solid var(--n200);padding:12px 0}
 .item:first-child{border-top:none}
 .item .t{font-weight:600;font-size:14.5px}
@@ -3217,6 +3221,7 @@ function mumView(v){
   renderMumQueue();
 }
 function mumLastCall(logs,key){ return logs.find(l=>l.booking_key===key); }
+function mumMore(el){ el.classList.toggle('open'); const m=el.nextElementSibling; if(m&&m.classList.contains('mum-more')) m.textContent=el.classList.contains('open')?'less ⌃':'more ⌄'; }
 async function renderMumQueue(){
   if(!MUM) return;
   const logs=await hub('mumbai_calls');
@@ -3255,15 +3260,15 @@ async function renderMumQueue(){
       const b=bucket(r), rowStyle=b===0?'background:#FFF3E0':b===2?'opacity:.62':'';
       const dueTag=b===0?`<div><span class="pill min">follow-up due ${esc(String(l.follow_up_on).slice(5,10))}</span></div>`:'';
       return `<tr id="mum-row-${esc(r.key)}" style="${rowStyle}">
-        <td style="white-space:nowrap"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}<br><span class="sub">${r.age_days}d old${idle}</span>${dueTag}</td>
-        <td class="tt2">${esc(r.name||'—')}<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.mobile)}</span></td>
-        <td style="max-width:240px"><span class="sub">${esc(r.locality||r.address||'')}</span><br>${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</td>
-        <td style="max-width:200px">${r.source_group==='paid'?`<b style="color:var(--accent)">${esc(r.source)}</b>`:esc(r.source)}${r.source_detail?`<br><span class="sub" title="${esc(r.source_detail)}">${esc(r.source_detail.split(' · ').filter(x=>!/^(MUMBAI|META|GOOGLE|DEL_|BHARAT|UAC_)/i.test(x)).join(' · '))}</span>`:''}${r.flow?`<br><span class="sub">flow ${esc(r.flow)}</span>`:''}</td>
-        <td>${mumStagePill(r.stage)}<br><span class="sub">${detail(r)}</span></td>
-        <td class="tt2">${esc(r.csp_name||r.csp_id||'—')}${r.csp_poc?`<br><span class="sub">${esc(r.csp_poc)}</span>`:''}
-            ${r.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.csp_mobile)}</span>`:''}
-            <br>${mumAlign(r.csp_alignment)}${r.csp_am?` <span class="sub">${esc(r.csp_am.replace('AM-',''))}</span>`:''}</td>
-        <td style="max-width:220px">${l?`<b>${esc(dstr(l.called_at))}</b> · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}<br><span class="sub">${esc(l.called_by||'')}${l.next_step?' · next: '+esc(l.next_step):''}${l.follow_up_on?' · by '+esc(dstr(l.follow_up_on)):''}${nCalls>1?` · ${nCalls} calls`:''}</span>${l.notes?`<br><span class="sub" style="color:var(--deep)">${esc(l.notes)}</span>`:''}`:'<span class="sub">not called</span>'}</td>
+        <td style="white-space:nowrap"><span class="mum-line"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}</span><span class="mum-line sub">${r.age_days}d old${idle}</span>${dueTag}</td>
+        <td class="tt2"><span class="mum-line">${esc(r.name||'—')}</span><span class="mum-line mum-mono">${esc(r.mobile)}</span></td>
+        <td style="max-width:240px"><span class="mum-line sub">${esc(r.locality||r.address||'')}</span><span class="mum-line">${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</span></td>
+        <td style="max-width:200px">${r.source_group==='paid'?`<b style="color:var(--accent)">${esc(r.source)}</b>`:esc(r.source)}${r.source_detail?`<span class="mum-line sub" title="${esc(r.source_detail)}">${esc(r.source_detail.split(' · ').filter(x=>/^(click|impression|touch|call|lead via)/i.test(x)).join(' · '))}</span>`:''}${r.flow?`<span class="mum-line sub">flow ${esc(r.flow)}</span>`:''}</td>
+        <td><span class="mum-line">${mumStagePill(r.stage)}</span><span class="mum-line sub">${detail(r)}</span></td>
+        <td class="tt2" style="max-width:220px"><span class="mum-line">${esc(r.csp_name||r.csp_id||'—')}</span>${r.csp_poc&&r.csp_poc.toLowerCase()!==(r.csp_name||'').toLowerCase()?`<span class="mum-line sub">${esc(r.csp_poc)}</span>`:''}
+            ${r.csp_mobile?`<span class="mum-line mum-mono">${esc(r.csp_mobile)}</span>`:''}
+            <span class="mum-line" style="margin-top:3px">${mumAlign(r.csp_alignment)}${r.csp_am?` <span class="sub">${esc(r.csp_am.replace('AM-',''))}</span>`:''}</span></td>
+        <td style="max-width:260px">${l?`<span class="mum-line"><b>${esc(dstr(l.called_at))}</b> · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</span><span class="mum-line sub">${esc(l.called_by||'')}${l.next_step?' · next: '+esc(l.next_step):''}${l.follow_up_on?' · by '+esc(dstr(l.follow_up_on)):''}${nCalls>1?` · ${nCalls} calls`:''}</span>${l.notes?`<div class="mum-notes" onclick="mumMore(this)">${esc(l.notes)}</div>${l.notes.length>120?`<span class="mum-more" onclick="mumMore(this.previousSibling)">more ⌄</span>`:''}`:''}`:'<span class="sub">not called</span>'}</td>
         <td class="editcell"><button class="statbtn" onclick="mumCallForm('${esc(r.key)}')">📞 log call</button></td>
       </tr>`;}).join('')||'<tr><td colspan="8" class="sub">nothing here</td></tr>';
 }
@@ -3303,7 +3308,7 @@ async function renderMumCsps(){
   $('mum-csp-table').innerHTML=`<tr><th>CSP</th><th>Alignment</th><th>AM · region</th><th>Open</th><th>Lost</th><th>Installed</th><th>Cancelled</th><th>Oldest open</th><th>Last call on their bookings</th></tr>`+
     MUM.csps.map(c=>{
       const l=logs.find(x=>x.csp_id===c.csp_id);
-      return `<tr><td class="tt2">${esc(c.csp_name||c.csp_id)}${c.csp_poc?`<br><span class="sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(c.csp_mobile)}</span>`:''}</td>
+      return `<tr><td class="tt2"><span class="mum-line">${esc(c.csp_name||c.csp_id)}</span>${c.csp_poc&&c.csp_poc.toLowerCase()!==(c.csp_name||'').toLowerCase()?`<span class="mum-line sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<span class="mum-line mum-mono">${esc(c.csp_mobile)}</span>`:''}</td>
         <td>${mumAlign(c.alignment)}</td><td class="sub">${esc((c.am||'').replace('AM-',''))}${c.region?' · '+esc(c.region):''}</td>
         <td><b>${c.open}</b></td><td>${c.stuck?`<b style="color:var(--red)">${c.stuck}</b>`:'0'}</td><td style="color:var(--green)">${c.installed}</td><td class="sub">${c.cancelled}</td>
         <td>${c.open+c.stuck?c.oldest_open+'d':'—'}</td>
@@ -3314,7 +3319,7 @@ async function renderMumLog(){
   $('mum-log-count').textContent=`${logs.length} call${logs.length===1?'':'s'} logged`;
   $('mum-log').innerHTML=logs.slice(0,60).map(l=>`<div class="act-item"><span class="who">${esc(l.cust_name||l.mobile||'')}</span>
     <span class="when">· ${esc(dstr(l.called_at))} · ${esc(l.called_by||'')} · CSP ${esc(l.csp_name||l.csp_id||'?')} · ${esc((MUM_STAGE[l.stage_at_call]||[l.stage_at_call||''])[0])}</span><br>
-    <b>${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</b>${l.next_step?' → '+esc(l.next_step):''}${l.follow_up_on?' (by '+esc(dstr(l.follow_up_on))+')':''}${l.notes?'<br>'+esc(l.notes):''}</div>`).join('')
+    <b>${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</b>${l.next_step?' → '+esc(l.next_step):''}${l.follow_up_on?' (by '+esc(dstr(l.follow_up_on))+')':''}${l.notes?`<div class="mum-notes" onclick="mumMore(this)">${esc(l.notes)}</div>${l.notes.length>120?`<span class="mum-more" onclick="mumMore(this.previousSibling)">more ⌄</span>`:''}`:''}</div>`).join('')
     ||'<div class="act-item sub">no calls logged yet — use “log call” on any row above</div>';
 }
 </script>
