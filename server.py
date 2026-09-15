@@ -261,6 +261,16 @@ SEHAT_OBJECT = "settlements/sehat_payout.json"
 AUGUST = None
 SEHAT_PAYOUT = None
 
+# Mumbai restart — bookings tracker + CSP calling queue. Marketing (Meta) went live
+# on 13 Sep 2026; the window opens on 1 Sep so the organic baseline is visible.
+# The CSP alignment list names partners with their audit/consent status, so it
+# lives in the private bucket like the settlements (data/mumbai_csps.json is the
+# gitignored dev fallback). Zones are the pack's polygons — derived, no names.
+MUMBAI_START = "2026-09-01"
+MUMBAI_MKT_START = "2026-09-13"
+MUMBAI_CSPS_OBJECT = "mumbai/csps.json"
+MUMBAI_TTL_S = 10 * 60
+
 
 def _load_settlement(obj, local):
     """Settlements name individual CSPs — August against FPV enforcement reasons — and
@@ -1743,12 +1753,16 @@ h1{font-size:1.4rem;font-weight:800;color:#161021;margin:4px 0 18px}
 input{width:100%;box-sizing:border-box;border:1px solid #D7D3E0;border-radius:8px;padding:12px;font-size:15px;margin-bottom:14px}
 button{width:100%;background:#D9008D;color:#fff;border:none;border-radius:40px;padding:12px;font-size:15px;font-weight:600;cursor:pointer}
 .err{color:#E01E00;font-size:13px;margin-bottom:10px}</style></head><body>
-<form class="card" method="POST" action="/login">
+<form class="card" method="POST" action="/login"><input type="hidden" name="next" value="{NEXT}">
 <div class="label">WIOM · Cold-start Project</div><h1>Team access</h1>
 {ERR}<input type="email" name="email" placeholder="you@wiom.in" required
   pattern="[A-Za-z0-9._%+-]+@wiom\\.in" title="Use your @wiom.in email" autofocus>
 <input type="password" name="password" placeholder="Access password" required>
 <button>Enter</button></form></body></html>"""
+
+
+def _login_html(err, nxt="/"):
+    return LOGIN_HTML.replace("{ERR}", err).replace("{NEXT}", nxt)
 
 
 # ----------------------------------------------------------------------------
@@ -1772,6 +1786,9 @@ CS_KINDS = {
     "call_logs": ("cs_call_logs", "created_at.desc",
                   ("partner_id", "partner_name", "reason", "called_by", "called_at",
                    "outcome", "learning", "belief_after")),
+    "mumbai_calls": ("cs_mumbai_calls", "created_at.desc",
+                     ("booking_key", "mobile", "cust_name", "csp_id", "csp_name", "stage_at_call",
+                      "called_by", "called_at", "outcome", "next_step", "follow_up_on", "notes")),
 }
 
 
@@ -2108,6 +2125,239 @@ def compute_failures(days_n=15):
     return {"daily": [daily[d] for d in days], "wiom_list": wiom, "through": yday}
 
 
+# ----------------------------------------------------------------------------
+# Mumbai restart — every MMR booking since MUMBAI_START, staged, with its CSP.
+# ----------------------------------------------------------------------------
+# TAS current-state -> stage. Stuck stages sort first: the current candidate has
+# gone terminal without an install or a customer cancellation, so the customer is
+# most likely still waiting and nobody is working the booking.
+_MUM_OPEN = {
+    "AWAITING_SLOT_PROPOSAL": "received",
+    "AWAITING_CUSTOMER_SLOT_CONFIRMATION": "slot_proposed",
+    "AWAITING_TECHNICIAN_ASSIGNMENT": "slot_confirmed",
+    "TECHNICIAN_ASSIGNED": "tech_assigned", "ARRIVED_AT_SITE": "tech_assigned",
+    "INSTALLATION_IN_PROGRESS_PRE_FEE": "tech_assigned",
+    "INSTALLATION_IN_PROGRESS_POST_FEE": "tech_assigned",
+    "FEE_COLLECTION_PENDING": "tech_assigned", "AWAITING_CUSTOMER_OTP": "tech_assigned",
+}
+_MUM_STUCK = {"CANCELLED_BY_UPSTREAM": "stuck_timeout", "DECLINED": "stuck_declined",
+              "INSTALLATION_REPORTED_FAILED": "stuck_failed"}
+MUM_OPEN_STAGES = {"no_csp", "received", "slot_proposed", "slot_confirmed", "tech_assigned"}
+MUM_STAGE_ORDER = ["stuck_timeout", "stuck_declined", "stuck_failed", "no_csp", "received",
+                   "slot_proposed", "slot_confirmed", "tech_assigned", "installed", "cancelled"]
+_mum_zones = None
+_mum_csps = None
+
+
+def _mum_load_zones():
+    global _mum_zones
+    if _mum_zones is None:
+        try:
+            _mum_zones = json.load(open(os.path.join(BASE_DIR, "data", "mumbai_zones.json"),
+                                        encoding="utf-8"))["zones"]
+        except Exception as e:
+            print("mumbai zones unavailable:", e)
+            _mum_zones = []
+    return _mum_zones
+
+
+def _mum_load_csps():
+    global _mum_csps
+    if _mum_csps is None:
+        d = _load_settlement(MUMBAI_CSPS_OBJECT, "mumbai_csps.json") or {}
+        _mum_csps = {r["csp_id"]: r for r in d.get("rows") or [] if r.get("csp_id")}
+    return _mum_csps
+
+
+def _in_ring(lng, lat, ring):
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if (yi > lat) != (yj > lat) and lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _mum_zone(lat, lng):
+    if lat is None or lng is None:
+        return None
+    for z in _mum_load_zones():
+        x0, y0, x1, y1 = z["bbox"]
+        if x0 <= lng <= x1 and y0 <= lat <= y1 and any(_in_ring(lng, lat, r) for r in z["rings"]):
+            return z
+    return None
+
+
+def _ist(s):
+    """Metabase timestamp string -> 'YYYY-MM-DD HH:MM' in IST. TAS columns come
+    through as UTC ('... Z'); fct_booking_window / DynamoDB ones are already IST."""
+    if not s:
+        return None
+    raw = str(s)
+    t = raw.replace("T", " ").replace("Z", "").strip()
+    try:
+        dt = datetime.fromisoformat(t[:19])
+    except ValueError:
+        return None
+    if raw.rstrip().endswith("Z"):
+        dt = dt + timedelta(hours=5, minutes=30)
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def compute_mumbai():
+    sql = open(os.path.join(BASE_DIR, "sql", "mumbai_bookings.sql"), encoding="utf-8").read()
+    raw = metabase_sql(sql.replace("{START_DATE}", MUMBAI_START))
+    csps = _mum_load_csps()
+    now = datetime.now(IST).replace(tzinfo=None)
+    today = now.date().isoformat()
+    rows = []
+    for r in raw:
+        state = r.get("tas_state") or ""
+        installed = (r.get("inst_any") == 1 or r.get("fct_installed") == 1
+                     or state in ("CONNECTION_ACTIVE", "RATING_PENDING"))
+        cust_cancel = bool(r.get("cancelled_at")) or state == "CANCELLED_BY_CUSTOMER"
+        if installed:
+            stage = "installed"
+        elif cust_cancel:
+            stage = "cancelled"
+        elif state in _MUM_STUCK:
+            stage = _MUM_STUCK[state]
+        elif state in _MUM_OPEN:
+            stage = _MUM_OPEN[state]
+        elif state or r.get("csp_id"):
+            stage = "received"
+        else:
+            stage = "no_csp"
+        booked = _ist(r.get("booked_at"))
+        bdt = datetime.strptime(booked, "%Y-%m-%d %H:%M") if booked else now
+        moved = _ist(r.get("last_moved")) or _ist(r.get("task_updated")) or booked
+        mdt = datetime.strptime(moved, "%Y-%m-%d %H:%M") if moved else bdt
+        z = _mum_zone(r.get("lat"), r.get("lng"))
+        c = csps.get(r.get("csp_id") or "") or {}
+        owner, bucket, why = (_fail_owner(r.get("last_reason")) if stage.startswith("stuck")
+                              else ("", "", ""))
+        rows.append({
+            "key": r.get("connection_id") or f"{r.get('mobile')}|{r.get('booked_at')}",
+            "mobile": r.get("mobile"), "name": r.get("cust_name") or "",
+            "booking_id": r.get("booking_id"),
+            "booked_at": booked, "booked_on": (r.get("booked_on") or "")[:10],
+            "age_days": max(0, (now - bdt).days), "idle_days": max(0, (now - mdt).days),
+            "is_mkt": (r.get("booked_on") or "")[:10] >= MUMBAI_MKT_START,
+            "source": r.get("source") or "—", "flow": r.get("flow") or "",
+            "city": r.get("city") or "", "locality": r.get("locality") or "",
+            "pincode": r.get("pincode") or "", "address": r.get("address") or "",
+            "lat": r.get("lat"), "lng": r.get("lng"),
+            "zone": z["name"] if z else None, "zone_id": z["id"] if z else None,
+            "tier": z["tier"] if z else None, "cell": z["cell"] if z else None,
+            "pref_install": (r.get("pref_install") or "")[:10] or None,
+            "stage": stage, "tas_state": state or None,
+            "slot_proposed": (r.get("slot_proposed") or "")[:10] or None,
+            "slot_confirmed": _ist(r.get("slot_confirmed")),
+            "tech_assigned": r.get("tech_assigned") == 1,
+            "installed_at": _ist(r.get("installed_at")) or _ist(r.get("fct_install")),
+            "cancelled_at": _ist(r.get("cancelled_at")), "cancel_reason": r.get("cancel_reason"),
+            "last_reason": r.get("last_reason"), "last_moved": moved,
+            "fail_owner": owner, "fail_bucket": bucket, "fail_why": why,
+            "refarms": max(0, (r.get("n_candidates") or 1) - 1),
+            "csp_id": r.get("csp_id"), "csp_name": r.get("csp_name") or c.get("csp_name") or "",
+            "csp_poc": r.get("csp_poc") or "", "csp_mobile": r.get("csp_mobile") or "",
+            "csp_group": r.get("csp_group") or "", "csp_status": r.get("csp_status") or "",
+            "partner_id": r.get("partner_id") or c.get("partner_id"),
+            "csp_region": c.get("region") or "", "csp_am": c.get("am") or "",
+            "csp_alignment": c.get("alignment") or "",
+            "csp_align_label": c.get("alignment_label") or "",
+            "csp_state": c.get("csp_state") or "",
+        })
+    order = {s: i for i, s in enumerate(MUM_STAGE_ORDER)}
+    rows.sort(key=lambda r: (order.get(r["stage"], 99), -r["age_days"], r["booked_at"] or ""))
+
+    def _count(pred):
+        return sum(1 for r in rows if pred(r))
+    summary = {
+        "total": len(rows), "mkt": _count(lambda r: r["is_mkt"]),
+        "today": _count(lambda r: r["booked_on"] == today),
+        "installed": _count(lambda r: r["stage"] == "installed"),
+        "cancelled": _count(lambda r: r["stage"] == "cancelled"),
+        "open": _count(lambda r: r["stage"] in MUM_OPEN_STAGES),
+        "stuck": _count(lambda r: r["stage"].startswith("stuck")),
+        "by_stage": {s: _count(lambda r, s=s: r["stage"] == s) for s in MUM_STAGE_ORDER},
+        "by_source": {},
+    }
+    for r in rows:
+        summary["by_source"][r["source"]] = summary["by_source"].get(r["source"], 0) + 1
+    daily = {d: {"day": d, "booked": 0, "paid": 0, "installed": 0}
+             for d in _daterange(MUMBAI_START, today)}
+    for r in rows:
+        d = daily.get(r["booked_on"])
+        if not d:
+            continue
+        d["booked"] += 1
+        d["paid"] += 0 if r["source"] in ("Organic", "CC", "—") else 1
+        d["installed"] += 1 if r["stage"] == "installed" else 0
+    by_csp = {}
+    for r in rows:
+        if not r["csp_id"]:
+            continue
+        c = by_csp.setdefault(r["csp_id"], {
+            "csp_id": r["csp_id"], "csp_name": r["csp_name"], "csp_poc": r["csp_poc"],
+            "csp_mobile": r["csp_mobile"], "partner_id": r["partner_id"],
+            "region": r["csp_region"], "am": r["csp_am"], "alignment": r["csp_alignment"],
+            "align_label": r["csp_align_label"], "total": 0, "open": 0, "stuck": 0,
+            "installed": 0, "cancelled": 0, "oldest_open": 0})
+        c["total"] += 1
+        if r["stage"] in MUM_OPEN_STAGES:
+            c["open"] += 1
+            c["oldest_open"] = max(c["oldest_open"], r["age_days"])
+        elif r["stage"].startswith("stuck"):
+            c["stuck"] += 1
+            c["oldest_open"] = max(c["oldest_open"], r["age_days"])
+        elif r["stage"] == "installed":
+            c["installed"] += 1
+        elif r["stage"] == "cancelled":
+            c["cancelled"] += 1
+    csp_rows = sorted(by_csp.values(), key=lambda c: (-(c["open"] + c["stuck"]), -c["oldest_open"]))
+    return {"asof": datetime.now(IST).isoformat(timespec="seconds"),
+            "start": MUMBAI_START, "mkt_start": MUMBAI_MKT_START,
+            "ttl_min": MUMBAI_TTL_S // 60, "csps_loaded": len(csps),
+            "zones_loaded": len(_mum_load_zones()),
+            "summary": summary, "daily": sorted(daily.values(), key=lambda d: d["day"]),
+            "csps": csp_rows, "rows": rows}
+
+
+_mum_cache = {"packed": None, "at": 0.0}
+_mum_lock = threading.Lock()
+_mum_building = threading.Event()
+
+
+def _mum_build():
+    try:
+        packed = _pack(compute_mumbai())
+        with _mum_lock:
+            _mum_cache["packed"] = packed
+            _mum_cache["at"] = time.time()
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _mum_building.clear()
+
+
+def serve_mumbai(force=False):
+    """Same shape as serve(): last-good bytes straight away, rebuild off the request
+    path once the TTL lapses. Only a cold start or a forced refresh waits on Metabase."""
+    stale = time.time() - _mum_cache["at"] >= MUMBAI_TTL_S
+    if _mum_cache["packed"] is None or force:
+        if not _mum_building.is_set():
+            _mum_building.set()
+            _mum_build()
+    elif stale and not _mum_building.is_set():
+        _mum_building.set()
+        threading.Thread(target=_mum_build, daemon=True).start()
+    return _mum_cache["packed"] or _pack({"error": "mumbai data unavailable"})
+
+
 def refresh(force=False):
     with _lock:
         if (not force and _cache["payload"]
@@ -2321,14 +2571,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
+            nxt = "/mumbai" if path == "/mumbai" else "/"
             if path == "/login":
-                return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
+                return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
                 if (path.startswith("/api")
-                        or path in ("/data", "/data/heavy", "/refresh", "/settlement")):
+                        or path in ("/data", "/data/heavy", "/refresh", "/settlement", "/mumbai.json")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
-                return self._send(200, LOGIN_HTML.replace("{ERR}", "").encode(), "text/html; charset=utf-8")
-            if path == "/":
+                return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
+            if path in ("/", "/mumbai"):
+                # /mumbai is the standalone Mumbai-restart page: same file, the script
+                # reads location.pathname and hides everything but that initiative.
                 html = open(os.path.join(BASE_DIR, "index.html"), "rb").read()
                 self._send(200, html, "text/html; charset=utf-8")
             elif path == "/data":
@@ -2347,6 +2600,10 @@ class Handler(BaseHTTPRequestHandler):
                 # Closed settlement: the bytes cannot change without a redeploy.
                 self._send(200, raw, "application/json", gz=gz,
                            cache="private, max-age=86400")
+            elif path == "/mumbai.json":
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                raw, gz = serve_mumbai(force=qs.get("force", ["0"])[0] == "1")
+                self._send(200, raw, "application/json", gz=gz)
             elif path == "/refresh":
                 refresh(force=True)
                 raw, gz = _cache["light"]
@@ -2377,15 +2634,17 @@ class Handler(BaseHTTPRequestHandler):
                 form = urllib.parse.parse_qs(self.rfile.read(n).decode())
                 email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
+                nxt = (form.get("next") or ["/"])[0]
+                nxt = nxt if nxt in ("/", "/mumbai") else "/"     # never an open redirect
                 if not EMAIL_RE.match(email):
                     err = '<div class="err">Use your @wiom.in email.</div>'
                 elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
                     return self._send(302, b"", "text/plain",
-                                      {"Location": "/",
+                                      {"Location": nxt,
                                        "Set-Cookie": f"cs_auth={make_token(email)}; Path=/; Max-Age={SESSION_DAYS*86400}; HttpOnly; SameSite=Lax"})
                 else:
                     err = '<div class="err">Wrong password.</div>'
-                return self._send(200, LOGIN_HTML.replace("{ERR}", err).encode(), "text/html; charset=utf-8")
+                return self._send(200, _login_html(err, nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
                 return self._send(401, b'{"error":"auth required"}', "application/json")
             if path == "/api/upload":

@@ -14,3 +14,7 @@ data/sehat_payout.json
 # Enforcement Hub removal list: names, mobiles, emails, FPV reasons.
 # Served from cs-docs at runtime - see MG_REMOVED_OBJECT.
 data/mg_removed.json
+
+# Mumbai CSP alignment list: partner names with audit/consent status.
+# Served from cs-docs at runtime - see MUMBAI_CSPS_OBJECT.
+data/mumbai_csps.json

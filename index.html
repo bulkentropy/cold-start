@@ -141,6 +141,9 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .chip2.blocked,.chip2.reversed{background:#FFE9E5;color:var(--red)}
 .chip2.done,.chip2.closed,.chip2.superseded{background:var(--n200);color:var(--muted)}
 .chip2.decision_point{background:#F1E5FF;color:var(--purple)}
+.chip2.mum-stuck{background:#FFE9E5;color:var(--red)} .chip2.mum-open{background:#F1E5FF;color:var(--purple)}
+.chip2.mum-done{background:#E1FAED;color:var(--green)} .chip2.mum-closed{background:var(--n200);color:var(--muted)}
+.chip2.mum-warn{background:#FFF3E0;color:var(--amber)}
 .item{border-top:1px solid var(--n200);padding:12px 0}
 .item:first-child{border-top:none}
 .item .t{font-weight:600;font-size:14.5px}
@@ -497,6 +500,88 @@ svg text{font-family:inherit}
     <div id="rem-tiles" class="strip"></div>
     <div id="rem-table" style="overflow-x:auto; margin-top:14px"></div>
     <div class="sub" id="rem-foot" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ===================== MUMBAI RESTART ===================== -->
+<div id="pane-mumbai" style="display:none">
+  <div class="card section">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="label">Mumbai restart · bookings tracker &amp; CSP calling queue</div>
+        <h2 style="margin-top:4px">Every Mumbai booking, where it stands, and who to call</h2>
+        <div class="sub" style="margin-top:8px;max-width:900px">
+          Marketing for Mumbai went live on <b>13 Sep</b>. This pane pulls every confirmed booking inside the
+          MMR box since <b>1 Sep</b> (so the organic baseline is visible), reads its current stage from the
+          CSP task, and puts the ones that are <b>not installed and not cancelled by the customer</b> into a
+          calling queue — <b>stuck</b> first (CSP timed out, declined or reported failure, customer still
+          waiting), then the open pipeline by age. Log every CSP call against the booking so the next person
+          sees what was said. Zones and marketing tiers come from the Mumbai targeting pack v2.
+        </div>
+      </div>
+      <div class="hdr-right" style="align-items:flex-start">
+        <span class="asof" id="mum-asof">loading…</span>
+        <button class="btn" id="mum-refbtn" onclick="loadMumbai(true)" style="padding:8px 20px;font-size:13px">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip section" id="mum-tiles"></div>
+
+  <div class="card section">
+    <div class="chart-head">
+      <div><div class="label">Bookings per day</div>
+        <h2>Organic vs paid, with installs so far</h2></div>
+      <div class="sub" id="mum-daily-cap"></div>
+    </div>
+    <div id="mum-daily" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card section">
+    <div class="chart-head" style="flex-wrap:wrap;gap:12px">
+      <div><div class="label">Calling queue</div>
+        <h2 id="mum-q-title">Bookings that need a CSP call</h2></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="toggle" id="mum-view">
+          <button class="on" data-v="queue" onclick="mumView('queue')">Needs call</button>
+          <button data-v="stuck" onclick="mumView('stuck')">Stuck</button>
+          <button data-v="open" onclick="mumView('open')">In pipeline</button>
+          <button data-v="installed" onclick="mumView('installed')">Installed</button>
+          <button data-v="cancelled" onclick="mumView('cancelled')">Cancelled</button>
+          <button data-v="all" onclick="mumView('all')">All</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+      <input class="payout-search" id="mum-q" placeholder="search customer, mobile, locality, CSP…" oninput="renderMumQueue()">
+      <select id="mum-csp" class="payout-search" style="min-width:200px" onchange="renderMumQueue()"><option value="">all CSPs</option></select>
+      <select id="mum-tier" class="payout-search" style="min-width:150px" onchange="renderMumQueue()">
+        <option value="">all tiers</option><option>START_NOW</option><option>START_ON_DEMAND</option><option>HOLD</option><option>OFF</option><option value="none">outside zones</option></select>
+      <select id="mum-src" class="payout-search" style="min-width:140px" onchange="renderMumQueue()"><option value="">all sources</option></select>
+      <label class="sub" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mum-uncalled" onchange="renderMumQueue()"> not called yet</label>
+      <span class="sub" id="mum-q-count"></span>
+    </div>
+    <div class="tablewrap" style="margin-top:12px"><table class="board" id="mum-table" style="min-width:1100px"></table></div>
+    <div class="foot">Stage is the CSP task's current state. <b>Stuck</b> = the task went terminal (timed out on the CSP,
+      declined, or install reported failed) without an install or a customer cancellation — the customer is most likely
+      still waiting. <b>Idle</b> = days since the task last moved. Age = days since booking. Mobile numbers are for calling
+      only — do not export this table.</div>
+  </div>
+
+  <div class="card section">
+    <div class="chart-head">
+      <div><div class="label">By CSP</div><h2>Who is holding the open bookings</h2></div>
+      <div class="sub">sorted by open + stuck, then oldest</div>
+    </div>
+    <div class="tablewrap"><table class="board" id="mum-csp-table" style="min-width:900px"></table></div>
+  </div>
+
+  <div class="card section">
+    <div class="chart-head">
+      <div><div class="label">Call log</div><h2>Latest calls</h2></div>
+      <div class="sub" id="mum-log-count"></div>
+    </div>
+    <div id="mum-log" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -967,20 +1052,34 @@ const _isI=f=>f==='I'||f==='I1';         // the current live flow: booking fee +
    cohort (99 priority CSPs, not Install-MG eligible) with its own P0/P1 metrics.
    Shared surfaces (Knowledge repo, Tasks, Decisions, Changelog) are project-wide
    and currently live under Install MG. */
-const INITS=['install','sehat'];
+const INITS=['install','sehat','mumbai'];
 let INIT='install';
 function showInit(i){
   INIT=i;
   document.querySelectorAll('#inits .init').forEach(b=>b.classList.toggle('on',b.dataset.i===i));
   const isInstall=i==='install';
-  $('pane-sehat').style.display=isInstall?'none':'';
+  $('pane-sehat').style.display=i==='sehat'?'':'none';
+  $('pane-mumbai').style.display=i==='mumbai'?'':'none';
   document.querySelector('.tabs').style.display=isInstall?'':'none';
-  // NSM counts installs by enrolled Install-MG CSPs — meaningless for the Sehat cohort.
+  // NSM counts installs by enrolled Install-MG CSPs — meaningless for the other initiatives.
   const nsm=$('nsm'); if(nsm) nsm.style.display=(isInstall&&NSM_READY)?'':'none';
   if(isInstall){ showTab(TAB||'ov'); }
   else { TABS.forEach(x=>$('pane-'+x).style.display='none');
          METRICS.forEach(m=>$('pane-'+m).style.display='none');
-         location.hash='sehat'; renderSehat(); }
+         if(!STANDALONE) location.hash=i;
+         if(i==='sehat') renderSehat(); else if(MUM) renderMumbai(); else loadMumbai(); }
+}
+function bootStandalone(){
+  document.querySelector('header .label').textContent='WIOM · Mumbai restart';
+  document.querySelector('header h1').textContent='Mumbai bookings & CSP calling queue';
+  $('asof').style.display='none'; $('refbtn').style.display='none';
+  $('inits').style.display='none'; document.querySelector('.tabs').style.display='none';
+  const nsm=$('nsm'); if(nsm) nsm.style.display='none';
+  document.title='Mumbai restart — bookings & CSP calls';
+  TABS.forEach(x=>$('pane-'+x).style.display='none'); METRICS.forEach(m=>$('pane-'+m).style.display='none');
+  $('pane-sehat').style.display='none';
+  INIT='mumbai'; $('pane-mumbai').style.display='';
+  loadMumbai();
 }
 
 /* Sehat MG metric spec. `value` stays null until the feed exists — tiles render
@@ -1429,6 +1528,11 @@ let PMONTH='jul';
 let PAYOUT_DATA=null, PAYOUT_BUILT=false;
 let AUGUST_DATA=null, AUGUST_BUILT=false;
 let REMOVED_DATA=null;
+let MUM=null, MUM_VIEW='queue', MUM_REQ=null;   // Mumbai restart pane — hoisted for the same reason
+/* /mumbai is a standalone page for the Mumbai restart team: same file, but only that
+   initiative renders — no selector, no tabs, no NSM strip, and the main payload is
+   never fetched. It is deliberately absent from the dashboard's initiative row. */
+const STANDALONE=location.pathname.replace(/\/$/,'')==='/mumbai'?'mumbai':null;
 async function setPayoutMonth(m){
   PMONTH=m;
   document.querySelectorAll('#payout-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
@@ -1685,7 +1789,9 @@ async function submitContent(){await post('content',{title:$('c-title').value,sl
 const initHash=location.hash.replace('#','');
 if(initHash.includes('event')){MODE='event';
   document.querySelectorAll('#modetoggle button').forEach(b=>b.classList.toggle('on',b.dataset.mode==='event'));}
-if(initHash.startsWith('sehat')){ showInit('sehat'); }
+if(STANDALONE){ bootStandalone(); }
+else if(initHash.startsWith('mumbai')){ location.replace('/mumbai'); }   // the deep-dive lives on its own page
+else if(initHash.startsWith('sehat')){ showInit('sehat'); }
 else if(initHash==='aug'||initHash==='payout-aug'){
   // '#aug' was its own tab before August moved under Payout — keep old links working
   PMONTH='aug'; showTab('payout'); setPayoutMonth('aug');
@@ -3001,8 +3107,187 @@ function chartCard(s,m,meta){
   return card;
 }
 
-load(false);
-setInterval(()=>load(false),30*60*1000);
+if(!STANDALONE){ load(false); setInterval(()=>load(false),30*60*1000); }
+else { setInterval(()=>loadMumbai(false),10*60*1000); }
+/* ============================ MUMBAI RESTART ============================
+   Bookings tracker + CSP calling queue. Data is its own endpoint (/mumbai, 10-min
+   server cache) so it never rides in the 30-minute dashboard payload; call logs
+   are the mumbai_calls hub kind (cs_mumbai_calls), keyed by booking. */
+const MUM_STAGE={
+  stuck_timeout:['Stuck · CSP timed out','stuck'], stuck_declined:['Stuck · CSP declined','stuck'],
+  stuck_failed:['Stuck · install failed','stuck'], no_csp:['No CSP yet','warn'],
+  received:['CSP received','open'], slot_proposed:['Slot proposed','open'],
+  slot_confirmed:['Slot confirmed','open'], tech_assigned:['Technician assigned','open'],
+  installed:['Installed','done'], cancelled:['Cancelled by customer','closed']};
+const MUM_OUTCOMES=[
+  ['csp_connected','CSP reached — will act'],['csp_visit_fixed','CSP reached — visit fixed'],
+  ['csp_no_answer','CSP not answering'],['csp_refused','CSP cannot / will not serve'],
+  ['customer_unreachable','Customer unreachable'],['customer_not_interested','Customer not interested'],
+  ['customer_reschedule','Customer wants another date'],['address_not_serviceable','Address not serviceable'],
+  ['wiom_issue','Wiom-side issue (device / routing)'],['other','Other']];
+const MUM_OUT_LABEL=Object.fromEntries(MUM_OUTCOMES);
+const mumTier=t=>!t?'<span class="pill pr">no zone</span>':
+  t==='START_NOW'?'<span class="pill sec">Start now</span>':t==='START_ON_DEMAND'?'<span class="pill min">On demand</span>':
+  `<span class="pill pr">${esc(t.toLowerCase())}</span>`;
+const mumAlign=a=>a==='A_audit_consent'?'<span class="pill sec">audit + consent</span>':
+  a==='B_audit_only'?'<span class="pill min">audit only</span>':a?`<span class="pill pr">${esc(a.replace(/^[A-Z]_/,'').replace(/_/g,' '))}</span>`:'';
+const mumStagePill=s=>{const [l,c]=MUM_STAGE[s]||[s,'']; return `<span class="chip2 mum-${c}">${esc(l)}</span>`;};
+const inQueue=r=>r.stage.startsWith('stuck')||['no_csp','received','slot_proposed','slot_confirmed','tech_assigned'].includes(r.stage);
+
+async function loadMumbai(force){
+  const btn=$('mum-refbtn'); if(btn)btn.disabled=true;
+  try{
+    MUM_REQ=MUM_REQ||fetch('/mumbai.json'+(force?'?force=1':''));
+    const r=await MUM_REQ; MUM_REQ=null;
+    if(r.status===401){location.href='/login';return;}
+    MUM=await r.json();
+    if(MUM.error){$('mum-asof').textContent=MUM.error;return;}
+    HUB.mumbai_calls=null;
+    renderMumbai();
+  }catch(e){ MUM_REQ=null; $('mum-asof').textContent='could not load — '+e; }
+  finally{ if(btn)btn.disabled=false; }
+}
+async function renderMumbai(){
+  if(!MUM) return;
+  const s=MUM.summary;
+  $('mum-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min';
+  $('mum-tiles').innerHTML=
+    ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
+    ptile(fmt(s.today),'Today','booked so far')+
+    ptile(fmt(s.stuck),'Stuck — call first','CSP timed out / declined / failed','var(--red)')+
+    ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
+    ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
+    ptile(fmt(s.cancelled),'Cancelled','by the customer');
+  drawMumDaily();
+  // filter options
+  const cspSel=$('mum-csp'), cur=cspSel.value;
+  cspSel.innerHTML='<option value="">all CSPs</option>'+MUM.csps.map(c=>`<option value="${esc(c.csp_id)}">${esc(c.csp_name||c.csp_id)} (${c.open+c.stuck})</option>`).join('');
+  cspSel.value=cur;
+  const srcSel=$('mum-src'), curS=srcSel.value;
+  srcSel.innerHTML='<option value="">all sources</option>'+Object.keys(s.by_source).sort().map(k=>`<option>${esc(k)}</option>`).join('');
+  srcSel.value=curS;
+  await renderMumQueue();
+  renderMumCsps();
+  renderMumLog();
+}
+function drawMumDaily(){
+  const t=MUM.daily, max=Math.max(...t.map(r=>r.booked),1);
+  const W=860,H=140,B=24,T=34,gap=4,bw=(W-(t.length-1)*gap)/t.length;
+  const yv=v=>T+(H-T-B)*(1-v/max);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
+  const mi=t.findIndex(r=>r.day>=MUM.mkt_start);
+  if(mi>0){const x=mi*(bw+gap)-gap/2; svg+=`<line x1="${x}" y1="6" x2="${x}" y2="${H-B}" stroke="var(--accent)" stroke-dasharray="3 3"/><text x="${x+4}" y="12" font-size="10" fill="var(--accent)" font-weight="700">marketing live →</text>`;}
+  t.forEach((r,i)=>{
+    const x0=i*(bw+gap), org=r.booked-r.paid;
+    const hO=(H-B)-yv(org), hP=(H-B)-yv(r.paid);
+    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,r.booked?1:0)}" fill="var(--purple)" opacity=".7"/>`;
+    if(r.paid)svg+=`<rect x="${x0}" y="${H-B-hO-hP}" width="${bw}" height="${hP}" fill="var(--accent)" rx="2"/>`;
+    if(r.booked)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${r.booked}</text>`;
+    if(r.installed)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-14}" font-size="9.5" fill="var(--green)" font-weight="700" text-anchor="middle">✓${r.installed}</text>`;
+    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${r.day.slice(8)}</text>`;
+  });
+  $('mum-daily').innerHTML=svg+'</svg>'+
+    `<div class="legend"><span><i style="background:var(--purple);opacity:.7"></i>organic / CC</span>
+     <span><i style="background:var(--accent)"></i>paid (Facebook etc.)</span>
+     <span style="color:var(--green);font-weight:700">✓n</span><span>installed from that day's bookings</span></div>`;
+  const mk=MUM.daily.filter(r=>r.day>=MUM.mkt_start), pre=MUM.daily.filter(r=>r.day<MUM.mkt_start);
+  const avg=a=>a.length?Math.round(10*a.reduce((s,r)=>s+r.booked,0)/a.length)/10:0;
+  $('mum-daily-cap').textContent=`${avg(pre)}/day before marketing → ${avg(mk)}/day since (${mk.length} day${mk.length===1?'':'s'}, today included)`;
+}
+function mumView(v){
+  MUM_VIEW=v;
+  document.querySelectorAll('#mum-view button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  $('mum-q-title').textContent={queue:'Bookings that need a CSP call',stuck:'Stuck bookings',open:'Open pipeline',
+    installed:'Installed',cancelled:'Cancelled by customer',all:'All bookings'}[v];
+  renderMumQueue();
+}
+function mumLastCall(logs,key){ return logs.find(l=>l.booking_key===key); }
+async function renderMumQueue(){
+  if(!MUM) return;
+  const logs=await hub('mumbai_calls');
+  const q=($('mum-q').value||'').trim().toLowerCase(), csp=$('mum-csp').value, tier=$('mum-tier').value,
+        src=$('mum-src').value, uncalled=$('mum-uncalled').checked;
+  let rows=MUM.rows.filter(r=>
+    MUM_VIEW==='all'||(MUM_VIEW==='queue'&&inQueue(r))||(MUM_VIEW==='stuck'&&r.stage.startsWith('stuck'))
+    ||(MUM_VIEW==='open'&&inQueue(r)&&!r.stage.startsWith('stuck'))||(MUM_VIEW===r.stage));
+  if(csp)rows=rows.filter(r=>r.csp_id===csp);
+  if(tier)rows=rows.filter(r=>tier==='none'?!r.tier:r.tier===tier);
+  if(src)rows=rows.filter(r=>r.source===src);
+  if(uncalled)rows=rows.filter(r=>!mumLastCall(logs,r.key));
+  if(q)rows=rows.filter(r=>[r.name,r.mobile,r.locality,r.zone,r.city,r.pincode,r.csp_name,r.csp_poc,r.booking_id].join(' ').toLowerCase().includes(q));
+  $('mum-q-count').textContent=`${rows.length} booking${rows.length===1?'':'s'}`;
+  const detail=r=>{
+    if(r.stage==='installed')return 'installed '+esc(r.installed_at||'');
+    if(r.stage==='cancelled')return esc(r.cancelled_at||'')+(r.cancel_reason?' · '+esc(r.cancel_reason):'');
+    if(r.stage.startsWith('stuck'))return `<span style="color:var(--red)">${esc(r.fail_bucket||r.last_reason||'')}</span> · ${esc(r.last_moved||'')}${r.refarms?` · re-farmed ×${r.refarms}`:''}`;
+    if(r.stage==='tech_assigned')return 'slot '+esc(r.slot_proposed||r.pref_install||'?');
+    if(r.stage==='slot_confirmed')return 'slot '+esc(r.slot_proposed||'?')+' · waiting for technician';
+    if(r.stage==='slot_proposed')return 'slot '+esc(r.slot_proposed||'?')+' · customer to confirm';
+    return esc(r.tas_state||'');
+  };
+  $('mum-table').innerHTML=`<tr><th>Booked</th><th>Customer</th><th>Where</th><th>Source</th><th>Stage</th><th>CSP</th><th>Last call</th><th></th></tr>`+
+    rows.map(r=>{
+      const l=mumLastCall(logs,r.key), nCalls=logs.filter(x=>x.booking_key===r.key).length;
+      const idle=r.idle_days>=2&&inQueue(r)?`<span style="color:var(--red);font-weight:700"> · idle ${r.idle_days}d</span>`:'';
+      return `<tr id="mum-row-${esc(r.key)}">
+        <td style="white-space:nowrap"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}<br><span class="sub">${r.age_days}d old${idle}</span></td>
+        <td class="tt2">${esc(r.name||'—')}<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.mobile)}</span></td>
+        <td style="max-width:240px"><span class="sub">${esc(r.locality||r.address||'')}</span><br>${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</td>
+        <td>${esc(r.source)}${r.flow?`<br><span class="sub">${esc(r.flow)}</span>`:''}</td>
+        <td>${mumStagePill(r.stage)}<br><span class="sub">${detail(r)}</span></td>
+        <td class="tt2">${esc(r.csp_name||r.csp_id||'—')}${r.csp_poc?`<br><span class="sub">${esc(r.csp_poc)}</span>`:''}
+            ${r.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(r.csp_mobile)}</span>`:''}
+            <br>${mumAlign(r.csp_alignment)}${r.csp_am?` <span class="sub">${esc(r.csp_am.replace('AM-',''))}</span>`:''}</td>
+        <td style="max-width:220px">${l?`<b>${esc(dstr(l.called_at))}</b> · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}<br><span class="sub">${esc(l.called_by||'')}${l.next_step?' · next: '+esc(l.next_step):''}${l.follow_up_on?' · by '+esc(dstr(l.follow_up_on)):''}${nCalls>1?` · ${nCalls} calls`:''}</span>${l.notes?`<br><span class="sub" style="color:var(--deep)">${esc(l.notes)}</span>`:''}`:'<span class="sub">not called</span>'}</td>
+        <td class="editcell"><button class="statbtn" onclick="mumCallForm('${esc(r.key)}')">📞 log call</button></td>
+      </tr>`;}).join('')||'<tr><td colspan="8" class="sub">nothing here</td></tr>';
+}
+function mumCallForm(key){
+  const r=MUM.rows.find(x=>x.key===key); if(!r)return;
+  document.querySelectorAll('.mum-form').forEach(e=>e.remove());
+  const row=document.getElementById('mum-row-'+key);
+  const tr=document.createElement('tr'); tr.className='rowform mum-form';
+  tr.innerHTML=`<td colspan="8"><div class="sub" style="margin-bottom:8px">Logging a call for <b>${esc(r.name||r.mobile)}</b> — CSP <b>${esc(r.csp_name||'?')}</b> · stage ${esc((MUM_STAGE[r.stage]||[r.stage])[0])}</div>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px">
+      <select id="mc-outcome">${MUM_OUTCOMES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
+      <input id="mc-date" type="date" value="${new Date().toISOString().slice(0,10)}" title="call date">
+      <input id="mc-follow" type="date" title="follow up on">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px">
+      <input id="mc-next" placeholder="next step (e.g. CSP visiting Tue AM, re-farm to X)">
+      <textarea id="mc-notes" placeholder="what was said — their words, blockers, promises" style="min-height:40px"></textarea>
+    </div>
+    <div style="margin-top:8px"><button class="btn" style="padding:7px 18px;font-size:13px" onclick="mumSaveCall('${esc(key)}')">Save call</button>
+      <button class="statbtn" style="margin-left:8px" onclick="this.closest('tr').remove()">Cancel</button></div></td>`;
+  row.after(tr); tr.scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function mumSaveCall(key){
+  const r=MUM.rows.find(x=>x.key===key); if(!r)return;
+  const who=editorName(true);
+  await post('mumbai_calls',{booking_key:key,mobile:r.mobile,cust_name:r.name,csp_id:r.csp_id,csp_name:r.csp_name,
+    stage_at_call:r.stage,called_by:who,called_at:$('mc-date').value,outcome:$('mc-outcome').value,
+    next_step:$('mc-next').value||null,follow_up_on:$('mc-follow').value||null,notes:$('mc-notes').value||null,_editor:who});
+  await renderMumQueue(); renderMumCsps(); renderMumLog();
+}
+async function renderMumCsps(){
+  const logs=await hub('mumbai_calls');
+  $('mum-csp-table').innerHTML=`<tr><th>CSP</th><th>Alignment</th><th>AM · region</th><th>Open</th><th>Stuck</th><th>Installed</th><th>Cancelled</th><th>Oldest open</th><th>Last call on their bookings</th></tr>`+
+    MUM.csps.map(c=>{
+      const l=logs.find(x=>x.csp_id===c.csp_id);
+      return `<tr><td class="tt2">${esc(c.csp_name||c.csp_id)}${c.csp_poc?`<br><span class="sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(c.csp_mobile)}</span>`:''}</td>
+        <td>${mumAlign(c.alignment)}</td><td class="sub">${esc((c.am||'').replace('AM-',''))}${c.region?' · '+esc(c.region):''}</td>
+        <td><b>${c.open}</b></td><td>${c.stuck?`<b style="color:var(--red)">${c.stuck}</b>`:'0'}</td><td style="color:var(--green)">${c.installed}</td><td class="sub">${c.cancelled}</td>
+        <td>${c.open+c.stuck?c.oldest_open+'d':'—'}</td>
+        <td class="sub">${l?`${esc(dstr(l.called_at))} · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)} · ${esc(l.called_by||'')}`:'—'}</td></tr>`;}).join('');
+}
+async function renderMumLog(){
+  const logs=await hub('mumbai_calls');
+  $('mum-log-count').textContent=`${logs.length} call${logs.length===1?'':'s'} logged`;
+  $('mum-log').innerHTML=logs.slice(0,60).map(l=>`<div class="act-item"><span class="who">${esc(l.cust_name||l.mobile||'')}</span>
+    <span class="when">· ${esc(dstr(l.called_at))} · ${esc(l.called_by||'')} · CSP ${esc(l.csp_name||l.csp_id||'?')} · ${esc((MUM_STAGE[l.stage_at_call]||[l.stage_at_call||''])[0])}</span><br>
+    <b>${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</b>${l.next_step?' → '+esc(l.next_step):''}${l.follow_up_on?' (by '+esc(dstr(l.follow_up_on))+')':''}${l.notes?'<br>'+esc(l.notes):''}</div>`).join('')
+    ||'<div class="act-item sub">no calls logged yet — use “log call” on any row above</div>';
+}
 </script>
 </body>
 </html>
