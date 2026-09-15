@@ -514,10 +514,11 @@ svg text{font-family:inherit}
           Marketing for Mumbai went live on <b>13 Sep</b>. This pane pulls every confirmed booking inside the
           MMR box since <b>1 Sep</b> (so the organic baseline is visible), reads its current stage from the
           CSP task, and puts the ones that are <b>not installed and not cancelled by the customer</b> into a
-          calling queue — latest day first, and within a day the ones closest to an install first (technician
-          assigned → slot confirmed → proposed → <b>stuck</b>: CSP timed out, declined or reported failure while
-          the customer is still waiting). Log every CSP call against the booking; it drops out of the way until
-          its follow-up date, then comes back on top. Zones and marketing tiers come from the Mumbai targeting pack v2.
+          <b>Convert</b> queue — latest day first, and within a day the ones closest to an install first
+          (technician assigned → slot confirmed → proposed). Bookings the CSP let go (timed out, declined,
+          reported failed) are final and sit in the <b>RCA</b> queue: call those for the root cause, not to
+          convert. Log every call against the booking; a convert call drops the row out of the way until its
+          follow-up date, then brings it back on top. Zones and marketing tiers come from the Mumbai targeting pack v2.
         </div>
       </div>
       <div class="hdr-right" style="align-items:flex-start">
@@ -541,12 +542,11 @@ svg text{font-family:inherit}
   <div class="card section">
     <div class="chart-head" style="flex-wrap:wrap;gap:12px">
       <div><div class="label">Calling queue</div>
-        <h2 id="mum-q-title">Bookings that need a CSP call</h2></div>
+        <h2 id="mum-q-title">Open bookings — call the CSP to get them installed</h2></div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div class="toggle" id="mum-view">
-          <button class="on" data-v="queue" onclick="mumView('queue')">Needs call</button>
-          <button data-v="stuck" onclick="mumView('stuck')">Stuck</button>
-          <button data-v="open" onclick="mumView('open')">In pipeline</button>
+          <button class="on" data-v="convert" onclick="mumView('convert')">Convert · open</button>
+          <button data-v="rca" onclick="mumView('rca')">RCA · lost</button>
           <button data-v="installed" onclick="mumView('installed')">Installed</button>
           <button data-v="cancelled" onclick="mumView('cancelled')">Cancelled</button>
           <button data-v="all" onclick="mumView('all')">All</button>
@@ -563,11 +563,11 @@ svg text{font-family:inherit}
       <span class="sub" id="mum-q-count"></span>
     </div>
     <div class="tablewrap" style="margin-top:12px"><table class="board" id="mum-table" style="min-width:1100px"></table></div>
-    <div class="foot">Stage is the CSP task's current state. <b>Stuck</b> = the task went terminal (timed out on the CSP,
-      declined, or install reported failed) without an install or a customer cancellation — the customer is most likely
-      still waiting. <b>Idle</b> = days since the task last moved. Age = days since booking. Mobile numbers are for calling
+    <div class="foot">Stage is the CSP task's current state. <b>Convert</b> holds the open pipeline — these calls are to get the
+      install done. <b>RCA</b> holds bookings the CSP let go (timed out, declined, install reported failed): those decisions
+      are final, so the call is to record the root cause, not to convert. <b>Idle</b> = days since the task last moved. Age = days since booking. Mobile numbers are for calling
       only — do not export this table. <b>Order:</b> latest booking day first; within a day technician-assigned →
-      slot-confirmed → proposed → stuck. Once you log a call the row drops to the bottom (greyed) and comes back on
+      slot-confirmed → proposed. Once you log a call the row drops to the bottom (greyed) and comes back on
       top, highlighted, on its follow-up date — leave the follow-up blank only if nothing more is needed.
       <b>Source:</b> from the last ad touch before booking (Branch: network, campaign, click vs view), else the
       attribution journey (call centre / BDO), else organic; "lead via CC" means the lead was first created by the
@@ -1534,7 +1534,7 @@ let PMONTH='jul';
 let PAYOUT_DATA=null, PAYOUT_BUILT=false;
 let AUGUST_DATA=null, AUGUST_BUILT=false;
 let REMOVED_DATA=null;
-let MUM=null, MUM_VIEW='queue', MUM_REQ=null;   // Mumbai restart pane — hoisted for the same reason
+let MUM=null, MUM_VIEW='convert', MUM_REQ=null;   // Mumbai restart pane — hoisted for the same reason
 /* /mumbai is a standalone page for the Mumbai restart team: same file, but only that
    initiative renders — no selector, no tabs, no NSM strip, and the main payload is
    never fetched. It is deliberately absent from the dashboard's initiative row. */
@@ -3120,8 +3120,8 @@ else { setInterval(()=>loadMumbai(false),10*60*1000); }
    server cache) so it never rides in the 30-minute dashboard payload; call logs
    are the mumbai_calls hub kind (cs_mumbai_calls), keyed by booking. */
 const MUM_STAGE={
-  stuck_timeout:['Stuck · CSP timed out','stuck'], stuck_declined:['Stuck · CSP declined','stuck'],
-  stuck_failed:['Stuck · install failed','stuck'], no_csp:['No CSP yet','warn'],
+  stuck_timeout:['Lost · CSP timed out','stuck'], stuck_declined:['Lost · CSP declined','stuck'],
+  stuck_failed:['Lost · install failed','stuck'], no_csp:['No CSP yet','warn'],
   received:['CSP received','open'], slot_proposed:['Slot proposed','open'],
   slot_confirmed:['Slot confirmed','open'], tech_assigned:['Technician assigned','open'],
   installed:['Installed','done'], cancelled:['Cancelled by customer','closed']};
@@ -3131,14 +3131,22 @@ const MUM_OUTCOMES=[
   ['customer_unreachable','Customer unreachable'],['customer_not_interested','Customer not interested'],
   ['customer_reschedule','Customer wants another date'],['address_not_serviceable','Address not serviceable'],
   ['wiom_issue','Wiom-side issue (device / routing)'],['other','Other']];
-const MUM_OUT_LABEL=Object.fromEntries(MUM_OUTCOMES);
+const MUM_RCA=[
+  ['rca_not_seen','CSP never saw / missed the booking'],['rca_no_capacity','CSP had no technician / capacity'],
+  ['rca_far','Address too far / outside CSP area'],['rca_no_coverage','No fibre / coverage at the address'],
+  ['rca_customer_unreachable','CSP could not reach the customer'],['rca_customer_backed_out','Customer backed out (price / timing)'],
+  ['rca_device','Device / material not available'],['rca_app_issue','CSP app / notification issue'],
+  ['rca_not_interested','CSP not interested in Wiom bookings'],['rca_csp_no_answer','CSP not answering'],['rca_other','Other']];
+const MUM_OUT_LABEL=Object.fromEntries([...MUM_OUTCOMES,...MUM_RCA]);
 const mumTier=t=>!t?'<span class="pill pr">no zone</span>':
   t==='START_NOW'?'<span class="pill sec">Start now</span>':t==='START_ON_DEMAND'?'<span class="pill min">On demand</span>':
   `<span class="pill pr">${esc(t.toLowerCase())}</span>`;
 const mumAlign=a=>a==='A_audit_consent'?'<span class="pill sec">audit + consent</span>':
   a==='B_audit_only'?'<span class="pill min">audit only</span>':a?`<span class="pill pr">${esc(a.replace(/^[A-Z]_/,'').replace(/_/g,' '))}</span>`:'';
 const mumStagePill=s=>{const [l,c]=MUM_STAGE[s]||[s,'']; return `<span class="chip2 mum-${c}">${esc(l)}</span>`;};
-const inQueue=r=>r.stage.startsWith('stuck')||['no_csp','received','slot_proposed','slot_confirmed','tech_assigned'].includes(r.stage);
+const isOpen=r=>['no_csp','received','slot_proposed','slot_confirmed','tech_assigned'].includes(r.stage);
+const isLost=r=>r.stage.startsWith('stuck');          // CSP timed out / declined / failed: closed, RCA only
+const inQueue=r=>isOpen(r)||isLost(r);
 
 async function loadMumbai(force){
   const btn=$('mum-refbtn'); if(btn)btn.disabled=true;
@@ -3160,7 +3168,7 @@ async function renderMumbai(){
   $('mum-tiles').innerHTML=
     ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
     ptile(fmt(s.today),'Today','booked so far')+
-    ptile(fmt(s.stuck),'Stuck','CSP timed out / declined / failed — customer waiting','var(--red)')+
+    ptile(fmt(s.stuck),'Lost to the CSP','timed out / declined / failed — RCA calls','var(--red)')+
     ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
@@ -3203,7 +3211,8 @@ function drawMumDaily(){
 function mumView(v){
   MUM_VIEW=v;
   document.querySelectorAll('#mum-view button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
-  $('mum-q-title').textContent={queue:'Bookings that need a CSP call',stuck:'Stuck bookings',open:'Open pipeline',
+  $('mum-q-title').textContent={convert:'Open bookings — call the CSP to get them installed',
+    rca:'Lost to the CSP — call for the root cause, not to convert',
     installed:'Installed',cancelled:'Cancelled by customer',all:'All bookings'}[v];
   renderMumQueue();
 }
@@ -3214,8 +3223,7 @@ async function renderMumQueue(){
   const q=($('mum-q').value||'').trim().toLowerCase(), csp=$('mum-csp').value, tier=$('mum-tier').value,
         src=$('mum-src').value, uncalled=$('mum-uncalled').checked;
   let rows=MUM.rows.filter(r=>
-    MUM_VIEW==='all'||(MUM_VIEW==='queue'&&inQueue(r))||(MUM_VIEW==='stuck'&&r.stage.startsWith('stuck'))
-    ||(MUM_VIEW==='open'&&inQueue(r)&&!r.stage.startsWith('stuck'))||(MUM_VIEW===r.stage));
+    MUM_VIEW==='all'||(MUM_VIEW==='convert'&&isOpen(r))||(MUM_VIEW==='rca'&&isLost(r))||(MUM_VIEW===r.stage));
   if(csp)rows=rows.filter(r=>r.csp_id===csp);
   if(tier)rows=rows.filter(r=>tier==='none'?!r.tier:r.tier===tier);
   if(src)rows=rows.filter(r=>r.source===src);
@@ -3263,17 +3271,20 @@ function mumCallForm(key){
   const r=MUM.rows.find(x=>x.key===key); if(!r)return;
   document.querySelectorAll('.mum-form').forEach(e=>e.remove());
   const today=new Date().toISOString().slice(0,10), tomorrow=new Date(Date.now()+86400e3).toISOString().slice(0,10);
+  const rca=isLost(r);
   const row=document.getElementById('mum-row-'+key);
   const tr=document.createElement('tr'); tr.className='rowform mum-form';
-  tr.innerHTML=`<td colspan="8"><div class="sub" style="margin-bottom:8px">Logging a call for <b>${esc(r.name||r.mobile)}</b> — CSP <b>${esc(r.csp_name||'?')}</b> · stage ${esc((MUM_STAGE[r.stage]||[r.stage])[0])}</div>
+  tr.innerHTML=`<td colspan="8"><div class="sub" style="margin-bottom:8px">${rca
+      ?`<b style="color:var(--red)">RCA call</b> for <b>${esc(r.name||r.mobile)}</b> — CSP <b>${esc(r.csp_name||'?')}</b> · ${esc((MUM_STAGE[r.stage]||[r.stage])[0])}${r.last_reason?' ('+esc(r.last_reason)+')':''}. This booking is closed; record <i>why</i> the CSP let it go.`
+      :`Logging a call for <b>${esc(r.name||r.mobile)}</b> — CSP <b>${esc(r.csp_name||'?')}</b> · stage ${esc((MUM_STAGE[r.stage]||[r.stage])[0])}`}</div>
     <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px">
-      <label><span class="label" style="display:block;margin-bottom:3px">Outcome</span><select id="mc-outcome">${MUM_OUTCOMES.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">${rca?'Root cause':'Outcome'}</span><select id="mc-outcome">${(rca?MUM_RCA:MUM_OUTCOMES).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
       <label><span class="label" style="display:block;margin-bottom:3px">Call date</span><input id="mc-date" type="date" value="${today}"></label>
-      <label><span class="label" style="display:block;margin-bottom:3px">Follow up on · booking resurfaces this day</span><input id="mc-follow" type="date" value="${tomorrow}"></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">${rca?'Follow up on · optional':'Follow up on · booking resurfaces this day'}</span><input id="mc-follow" type="date" value="${rca?'':tomorrow}"></label>
     </div>
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px">
-      <label><span class="label" style="display:block;margin-bottom:3px">Next step / promise</span><input id="mc-next" placeholder="e.g. CSP visiting Tue AM · re-farm to X"></label>
-      <label><span class="label" style="display:block;margin-bottom:3px">Notes</span><textarea id="mc-notes" placeholder="what was said — their words, blockers, promises" style="min-height:40px"></textarea></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">${rca?'Fix / learning':'Next step / promise'}</span><input id="mc-next" placeholder="${rca?'e.g. needs a second CSP in Powai · notification not reaching them':'e.g. CSP visiting Tue AM · re-farm to X'}"></label>
+      <label><span class="label" style="display:block;margin-bottom:3px">Notes</span><textarea id="mc-notes" placeholder="${rca?'what the CSP said happened — in their words':'what was said — their words, blockers, promises'}" style="min-height:40px"></textarea></label>
     </div>
     <div style="margin-top:8px"><button class="btn" style="padding:7px 18px;font-size:13px" onclick="mumSaveCall('${esc(key)}')">Save call</button>
       <button class="statbtn" style="margin-left:8px" onclick="this.closest('tr').remove()">Cancel</button></div></td>`;
@@ -3289,7 +3300,7 @@ async function mumSaveCall(key){
 }
 async function renderMumCsps(){
   const logs=await hub('mumbai_calls');
-  $('mum-csp-table').innerHTML=`<tr><th>CSP</th><th>Alignment</th><th>AM · region</th><th>Open</th><th>Stuck</th><th>Installed</th><th>Cancelled</th><th>Oldest open</th><th>Last call on their bookings</th></tr>`+
+  $('mum-csp-table').innerHTML=`<tr><th>CSP</th><th>Alignment</th><th>AM · region</th><th>Open</th><th>Lost</th><th>Installed</th><th>Cancelled</th><th>Oldest open</th><th>Last call on their bookings</th></tr>`+
     MUM.csps.map(c=>{
       const l=logs.find(x=>x.csp_id===c.csp_id);
       return `<tr><td class="tt2">${esc(c.csp_name||c.csp_id)}${c.csp_poc?`<br><span class="sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<br><span style="font-family:monospace;font-size:12px;color:var(--deep)">${esc(c.csp_mobile)}</span>`:''}</td>
