@@ -527,6 +527,7 @@ svg text{font-family:inherit}
       </div>
       <div class="hdr-right" style="align-items:flex-start">
         <span class="asof" id="mum-asof">loading…</span>
+        <span class="asof" id="mum-who"></span>
         <button class="btn" id="mum-refbtn" onclick="loadMumbai(true)" style="padding:8px 20px;font-size:13px">Refresh</button>
       </div>
     </div>
@@ -1089,6 +1090,9 @@ function bootStandalone(){
   TABS.forEach(x=>$('pane-'+x).style.display='none'); METRICS.forEach(m=>$('pane-'+m).style.display='none');
   $('pane-sehat').style.display='none';
   INIT='mumbai'; $('pane-mumbai').style.display='';
+  // Who is calling: the signed-in @wiom.in email, fetched up front so the call form
+  // never falls back to the name prompt (that is where 'anonymous' came from).
+  fetch('/api/me').then(r=>r.json()).then(j=>{ME=j.email||'';}).catch(()=>{ME='';});
   loadMumbai();
 }
 
@@ -3169,6 +3173,7 @@ async function renderMumbai(){
   if(!MUM) return;
   const s=MUM.summary;
   $('mum-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min';
+  if(ME) $('mum-who').textContent='calls logged as '+ME;
   $('mum-tiles').innerHTML=
     ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
     ptile(fmt(s.today),'Today','booked so far')+

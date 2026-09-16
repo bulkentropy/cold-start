@@ -2718,6 +2718,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._json_body()
                 if self._email():          # signed-in email is the authoritative editor
                     body["_editor"] = self._email()
+                    if kind == "mumbai_calls":     # caller identity comes from the login, never the form
+                        body["called_by"] = self._email()
                 if len(parts) == 3:
                     out = cs_create(kind, body)
                 else:
