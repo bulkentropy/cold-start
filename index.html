@@ -537,6 +537,15 @@ svg text{font-family:inherit}
 
   <div class="card section">
     <div class="chart-head">
+      <div><div class="label">Installs per day</div>
+        <h2>Connections activated each day, by the booking's source</h2></div>
+      <div class="sub" id="mum-inst-cap"></div>
+    </div>
+    <div id="mum-inst" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card section">
+    <div class="chart-head">
       <div><div class="label">Bookings per day</div>
         <h2>Organic vs paid, with installs so far</h2></div>
       <div class="sub" id="mum-daily-cap"></div>
@@ -3181,6 +3190,7 @@ async function renderMumbai(){
     ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
+  drawMumInstalls();
   drawMumDaily();
   // filter options
   const cspSel=$('mum-csp'), cur=cspSel.value;
@@ -3192,6 +3202,28 @@ async function renderMumbai(){
   await renderMumQueue();
   renderMumCsps();
   renderMumLog();
+}
+function drawMumInstalls(){
+  const t=MUM.daily, max=Math.max(...t.map(r=>r.installs_on||0),1);
+  const W=860,H=140,B=24,T=34,gap=4,bw=(W-(t.length-1)*gap)/t.length;
+  const yv=v=>T+(H-T-B)*(1-v/max);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
+  const mi=t.findIndex(r=>r.day>=MUM.mkt_start);
+  if(mi>0){const x=mi*(bw+gap)-gap/2; svg+=`<line x1="${x}" y1="6" x2="${x}" y2="${H-B}" stroke="var(--accent)" stroke-dasharray="3 3"/><text x="${x+4}" y="12" font-size="10" fill="var(--accent)" font-weight="700">marketing live →</text>`;}
+  t.forEach((r,i)=>{
+    const x0=i*(bw+gap), n=r.installs_on||0, p=r.installs_on_paid||0, org=n-p;
+    const hO=(H-B)-yv(org), hP=(H-B)-yv(p);
+    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,n?1:0)}" fill="var(--green)" opacity=".75"/>`;
+    if(p)svg+=`<rect x="${x0}" y="${H-B-hO-hP}" width="${bw}" height="${hP}" fill="var(--accent)" rx="2"/>`;
+    if(n)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${n}</text>`;
+    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${r.day.slice(8)}</text>`;
+  });
+  $('mum-inst').innerHTML=svg+'</svg>'+
+    `<div class="legend"><span><i style="background:var(--green);opacity:.75"></i>from organic / call-centre bookings</span>
+     <span><i style="background:var(--accent)"></i>from paid bookings</span></div>`;
+  const mk=t.filter(r=>r.day>=MUM.mkt_start), pre=t.filter(r=>r.day<MUM.mkt_start);
+  const sum=a=>a.reduce((s,r)=>s+(r.installs_on||0),0), avg=a=>a.length?Math.round(10*sum(a)/a.length)/10:0;
+  $('mum-inst-cap').textContent=`${sum(t)} installed since 1 Sep · ${avg(pre)}/day before marketing → ${avg(mk)}/day since (today included)`;
 }
 function drawMumDaily(){
   const t=MUM.daily, max=Math.max(...t.map(r=>r.booked),1);

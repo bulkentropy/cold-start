@@ -2371,15 +2371,22 @@ def compute_mumbai():
     for r in rows:
         summary["by_source"][r["source"]] = summary["by_source"].get(r["source"], 0) + 1
         summary["by_source_group"][r["source_group"]] = summary["by_source_group"].get(r["source_group"], 0) + 1
-    daily = {d: {"day": d, "booked": 0, "paid": 0, "installed": 0}
+    # booked/paid/installed are keyed by the booking day (cohort view: how many of
+    # that day's bookings ended up installed). installs_on/installs_on_paid are
+    # keyed by the INSTALL day - what actually got activated each day.
+    daily = {d: {"day": d, "booked": 0, "paid": 0, "installed": 0, "installs_on": 0, "installs_on_paid": 0}
              for d in _daterange(MUMBAI_START, today)}
     for r in rows:
         d = daily.get(r["first_booked_on"])   # demand counted once, on the day it first arrived
-        if not d:
-            continue
-        d["booked"] += 1
-        d["paid"] += 1 if r["source_group"] == "paid" else 0
-        d["installed"] += 1 if r["stage"] == "installed" else 0
+        if d:
+            d["booked"] += 1
+            d["paid"] += 1 if r["source_group"] == "paid" else 0
+            d["installed"] += 1 if r["stage"] == "installed" else 0
+        if r["stage"] == "installed":
+            di = daily.get((r["installed_at"] or "")[:10])
+            if di:
+                di["installs_on"] += 1
+                di["installs_on_paid"] += 1 if r["source_group"] == "paid" else 0
     by_csp = {}
     for r in rows:
         if not r["csp_id"]:
