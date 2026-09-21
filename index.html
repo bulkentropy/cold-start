@@ -3225,7 +3225,14 @@ function mumView(v){
     installed:'Installed',cancelled:'Cancelled by customer',all:'All bookings'}[v];
   renderMumQueue();
 }
-function mumLastCall(logs,key){ return logs.find(l=>l.booking_key===key); }
+// A row is one customer x CSP. It carries the latest journey's key plus any
+// earlier keys for the same pair (re-bookings), so calls logged before the
+// re-booking still attach. A call belongs to a row only if it was logged against
+// the SAME CSP: a connection re-farmed to another CSP keeps its booking key, and
+// the old CSP's call must not show up on the new CSP's row.
+function mumKeys(r){ return [r.key,...(r.prev_keys||[])]; }
+function mumCallsFor(logs,r){ const ks=mumKeys(r); return logs.filter(l=>ks.includes(l.booking_key)&&(l.csp_id||'')===(r.csp_id||'')); }
+function mumLastCall(logs,r){ return mumCallsFor(logs,r)[0]; }
 function mumMore(el){ el.classList.toggle('open'); const m=el.nextElementSibling; if(m&&m.classList.contains('mum-more')) m.textContent=el.classList.contains('open')?'less ⌃':'more ⌄'; }
 async function renderMumQueue(){
   if(!MUM) return;
@@ -3237,15 +3244,15 @@ async function renderMumQueue(){
   if(csp)rows=rows.filter(r=>r.csp_id===csp);
   if(tier)rows=rows.filter(r=>tier==='none'?!r.tier:r.tier===tier);
   if(src)rows=rows.filter(r=>r.source===src);
-  if(uncalled)rows=rows.filter(r=>!mumLastCall(logs,r.key));
+  if(uncalled)rows=rows.filter(r=>!mumLastCall(logs,r));
   if(q)rows=rows.filter(r=>[r.name,r.mobile,r.locality,r.zone,r.city,r.pincode,r.csp_name,r.csp_poc,r.booking_id,r.source].join(' ').toLowerCase().includes(q));
   // Server order is latest day first, near-installs first within the day. On top of
   // that: a booking that has been called sinks to the bottom until its follow-up
   // date, when it resurfaces at the very top as "due". No follow-up date = stays down.
   const today=new Date().toISOString().slice(0,10);
-  const bucket=r=>{const l=mumLastCall(logs,r.key); if(!l)return 1;
+  const bucket=r=>{const l=mumLastCall(logs,r); if(!l)return 1;
     const f=l.follow_up_on?String(l.follow_up_on).slice(0,10):''; return f&&f<=today?0:2;};
-  const fu=r=>{const l=mumLastCall(logs,r.key); return l&&l.follow_up_on?String(l.follow_up_on).slice(0,10):'9999';};
+  const fu=r=>{const l=mumLastCall(logs,r); return l&&l.follow_up_on?String(l.follow_up_on).slice(0,10):'9999';};
   rows=rows.map((r,i)=>({r,i,b:bucket(r),f:fu(r)})).sort((a,b)=>a.b-b.b||(a.b===1?a.i-b.i:a.f<b.f?-1:a.f>b.f?1:a.i-b.i)).map(x=>x.r);
   const due=rows.filter(r=>bucket(r)===0).length;
   $('mum-q-count').textContent=`${rows.length} booking${rows.length===1?'':'s'}${due?` · ${due} follow-up${due===1?'':'s'} due`:''}`;
@@ -3260,12 +3267,12 @@ async function renderMumQueue(){
   };
   $('mum-table').innerHTML=`<tr><th>Booked</th><th>Customer</th><th>Where</th><th>Source</th><th>Stage</th><th>CSP</th><th>Last call</th><th></th></tr>`+
     rows.map(r=>{
-      const l=mumLastCall(logs,r.key), nCalls=logs.filter(x=>x.booking_key===r.key).length;
+      const l=mumLastCall(logs,r), nCalls=mumCallsFor(logs,r).length;
       const idle=r.idle_days>=2&&inQueue(r)?`<span style="color:var(--red);font-weight:700"> · idle ${r.idle_days}d</span>`:'';
       const b=bucket(r), rowStyle=b===0?'background:#FFF3E0':b===2?'opacity:.62':'';
       const dueTag=b===0?`<div><span class="pill min">follow-up due ${esc(String(l.follow_up_on).slice(5,10))}</span></div>`:'';
       return `<tr id="mum-row-${esc(r.key)}" style="${rowStyle}">
-        <td style="white-space:nowrap"><span class="mum-line"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}</span><span class="mum-line sub">${r.age_days}d old${idle}</span>${dueTag}</td>
+        <td style="white-space:nowrap"><span class="mum-line"><b>${esc(r.booked_on.slice(5))}</b> ${esc((r.booked_at||'').slice(11))}</span><span class="mum-line sub">${r.age_days}d old${idle}</span>${r.journeys>1?`<span class="mum-line"><span class="pill min" title="first booked ${esc(r.first_booked_on)}">re-booked ×${r.journeys-1}</span></span>`:''}${dueTag}</td>
         <td class="tt2"><span class="mum-line">${esc(r.name||'—')}</span><span class="mum-line mum-mono">${esc(r.mobile)}</span></td>
         <td style="max-width:240px"><span class="mum-line sub">${esc(r.locality||r.address||'')}</span><span class="mum-line">${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</span></td>
         <td style="max-width:200px">${r.source_group==='paid'?`<b style="color:var(--accent)">${esc(r.source)}</b>`:esc(r.source)}${r.source_detail?`<span class="mum-line sub" title="${esc(r.source_detail)}">${esc(r.source_detail.split(' · ').filter(x=>/^(click|impression|touch|call|lead via)/i.test(x)).join(' · '))}</span>`:''}${r.flow?`<span class="mum-line sub">flow ${esc(r.flow)}</span>`:''}</td>

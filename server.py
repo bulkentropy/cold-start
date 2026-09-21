@@ -2329,6 +2329,27 @@ def compute_mumbai():
             "csp_align_label": c.get("alignment_label") or "",
             "csp_state": c.get("csp_state") or "",
         })
+    # One entry per customer x CSP. A customer who times out and re-books lands on
+    # the same CSP as a new connection, so the SQL hands back one journey per
+    # re-booking and the same person shows up under "timed out" AND "installed".
+    # Keep the latest journey (its stage is the truth today); remember the earlier
+    # keys so call logs filed against them still attach, and count the journeys.
+    # Demand is dated from the FIRST booking - a re-booking is not new demand.
+    rows.sort(key=lambda r: r["booked_at"] or "")
+    merged = {}
+    for r in rows:
+        k = (r["mobile"], r["csp_id"] or "")
+        prev = merged.get(k)
+        if prev is None:
+            r["journeys"], r["prev_keys"] = 1, []
+            r["first_booked_on"], r["first_booked_at"] = r["booked_on"], r["booked_at"]
+        else:
+            r["journeys"] = prev["journeys"] + 1
+            r["prev_keys"] = prev["prev_keys"] + [prev["key"]]
+            r["first_booked_on"], r["first_booked_at"] = prev["first_booked_on"], prev["first_booked_at"]
+        r["is_mkt"] = r["first_booked_on"] >= MUMBAI_MKT_START
+        merged[k] = r
+    rows = list(merged.values())
     # Latest booking day first; within a day the ones closest to an install come
     # first (technician assigned > slot confirmed > proposed/received > stuck), so
     # the caller protects today's near-installs before chasing timeouts.
@@ -2353,7 +2374,7 @@ def compute_mumbai():
     daily = {d: {"day": d, "booked": 0, "paid": 0, "installed": 0}
              for d in _daterange(MUMBAI_START, today)}
     for r in rows:
-        d = daily.get(r["booked_on"])
+        d = daily.get(r["first_booked_on"])   # demand counted once, on the day it first arrived
         if not d:
             continue
         d["booked"] += 1
