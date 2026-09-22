@@ -270,6 +270,12 @@ MUMBAI_START = "2026-09-01"
 MUMBAI_MKT_START = "2026-09-13"
 MUMBAI_CSPS_OBJECT = "mumbai/csps.json"
 MUMBAI_TTL_S = 10 * 60
+# Audit / consent / ordering flags are overlaid LIVE from the "Final Master | Cold
+# Start | Audit | Active CSPs" sheet, Repository tab (the same tab the pack read on
+# 9 Sep and froze). Read via gviz CSV like the Sehat sheet; on failure the pack's
+# snapshot stands and the payload says so.
+MUMBAI_REPO_SHEET_ID = "1i1QQng-yFOmeEEOJ4zoBz-JjBPpfb4iHrhWRbPIcPoA"
+MUMBAI_REPO_SHEET_TAB = "Repository"
 
 
 def _load_settlement(obj, local):
@@ -2172,6 +2178,50 @@ def _mum_load_csps():
     return _mum_csps
 
 
+_MUM_ALIGN_LABEL = {"A_audit_consent": "Audit + consent", "B_audit_only": "Audit only",
+                    "C_not_audited": "Not audited", "D_not_in_active_list": "Not in active CSP list"}
+
+
+def _mum_refresh_alignment():
+    """Overlay today's audit / consent / ordering flags from the Repository tab onto
+    the pack's CSP list. Returns (changed, error). Only CSPs already in the pack are
+    touched - the sheet is all-India and carries no zone or AM for the rest."""
+    import csv, io
+    url = (f"https://docs.google.com/spreadsheets/d/{MUMBAI_REPO_SHEET_ID}"
+           f"/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(MUMBAI_REPO_SHEET_TAB)}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "cold-start-dashboard"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            text = r.read().decode("utf-8", "replace")
+        if "<html" in text[:200].lower():
+            raise RuntimeError("gviz returned HTML (sheet not accessible)")
+        live = {(r.get("CSP id") or "").strip(): r for r in csv.DictReader(io.StringIO(text))}
+        if not live:
+            raise RuntimeError("sheet parsed empty")
+    except Exception as e:
+        return 0, f"{type(e).__name__}: {e}"
+    changed = 0
+    for cid, c in _mum_load_csps().items():
+        l = live.get(cid)
+        if not l:
+            continue
+        audit = (l.get("Audit Status") or "").strip()
+        consent = "Yes" if (l.get("Consent Signed") or "").strip().lower() == "yes" else "No"
+        ordering = "Yes" if (l.get("Ordering enabled") or "").strip().lower() == "yes" else "No"
+        if c.get("alignment") == "D_not_in_active_list":
+            align = "D_not_in_active_list"          # the pack's activity cut, not the sheet's
+        elif audit in ("Scan Complete", "Not in audit scope (PSF only)"):
+            align = "A_audit_consent" if consent == "Yes" else "B_audit_only"
+        else:
+            align = "C_not_audited"
+        new = {"audit_status": audit, "consent_signed": consent, "ordering_enabled": ordering,
+               "alignment": align, "alignment_label": _MUM_ALIGN_LABEL[align]}
+        if any(c.get(k) != v for k, v in new.items()):
+            changed += 1
+        c.update(new)
+    return changed, None
+
+
 def _in_ring(lng, lat, ring):
     inside = False
     j = len(ring) - 1
@@ -2265,6 +2315,7 @@ def _mum_source(r):
 def compute_mumbai():
     sql = open(os.path.join(BASE_DIR, "sql", "mumbai_bookings.sql"), encoding="utf-8").read()
     raw = metabase_sql(sql.replace("{START_DATE}", MUMBAI_START))
+    align_changed, align_err = _mum_refresh_alignment()
     csps = _mum_load_csps()
     now = datetime.now(IST).replace(tzinfo=None)
     today = now.date().isoformat()
@@ -2327,6 +2378,7 @@ def compute_mumbai():
             "csp_region": c.get("region") or "", "csp_am": c.get("am") or "",
             "csp_alignment": c.get("alignment") or "",
             "csp_align_label": c.get("alignment_label") or "",
+            "csp_ordering": c.get("ordering_enabled") or "",
             "csp_state": c.get("csp_state") or "",
         })
     # One entry per customer x CSP. A customer who times out and re-books lands on
@@ -2395,7 +2447,8 @@ def compute_mumbai():
             "csp_id": r["csp_id"], "csp_name": r["csp_name"], "csp_poc": r["csp_poc"],
             "csp_mobile": r["csp_mobile"], "partner_id": r["partner_id"],
             "region": r["csp_region"], "am": r["csp_am"], "alignment": r["csp_alignment"],
-            "align_label": r["csp_align_label"], "total": 0, "open": 0, "stuck": 0,
+            "align_label": r["csp_align_label"], "ordering": r["csp_ordering"],
+            "total": 0, "open": 0, "stuck": 0,
             "installed": 0, "cancelled": 0, "oldest_open": 0})
         c["total"] += 1
         if r["stage"] in MUM_OPEN_STAGES:
@@ -2412,6 +2465,8 @@ def compute_mumbai():
     return {"asof": datetime.now(IST).isoformat(timespec="seconds"),
             "start": MUMBAI_START, "mkt_start": MUMBAI_MKT_START,
             "ttl_min": MUMBAI_TTL_S // 60, "csps_loaded": len(csps),
+            "alignment_live": align_err is None, "alignment_changed": align_changed,
+            "alignment_error": align_err,
             "zones_loaded": len(_mum_load_zones()),
             "summary": summary, "daily": sorted(daily.values(), key=lambda d: d["day"]),
             "csps": csp_rows, "rows": rows}

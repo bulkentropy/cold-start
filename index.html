@@ -3181,7 +3181,7 @@ async function loadMumbai(force){
 async function renderMumbai(){
   if(!MUM) return;
   const s=MUM.summary;
-  $('mum-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min';
+  $('mum-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min'+(MUM.alignment_live?' · audit/consent live from the Repository sheet':' · audit/consent from the 9 Sep snapshot (sheet unreachable)');
   if(ME) $('mum-who').textContent='calls logged as '+ME;
   $('mum-tiles').innerHTML=
     ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
@@ -3353,7 +3353,7 @@ async function renderMumCsps(){
     MUM.csps.map(c=>{
       const l=logs.find(x=>x.csp_id===c.csp_id);
       return `<tr><td class="tt2"><span class="mum-line">${esc(c.csp_name||c.csp_id)}</span>${c.csp_poc&&c.csp_poc.toLowerCase()!==(c.csp_name||'').toLowerCase()?`<span class="mum-line sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<span class="mum-line mum-mono">${esc(c.csp_mobile)}</span>`:''}</td>
-        <td>${mumAlign(c.alignment)}</td><td class="sub">${esc((c.am||'').replace('AM-',''))}${c.region?' · '+esc(c.region):''}</td>
+        <td>${mumAlign(c.alignment)}${c.alignment==='A_audit_consent'&&c.ordering==='No'?'<span class="mum-line sub" style="color:var(--red)">ordering not enabled</span>':''}</td><td class="sub">${esc((c.am||'').replace('AM-',''))}${c.region?' · '+esc(c.region):''}</td>
         <td><b>${c.open}</b></td><td>${c.stuck?`<b style="color:var(--red)">${c.stuck}</b>`:'0'}</td><td style="color:var(--green)">${c.installed}</td><td class="sub">${c.cancelled}</td>
         <td>${c.open+c.stuck?c.oldest_open+'d':'—'}</td>
         <td class="sub">${l?`${esc(dstr(l.called_at))} · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)} · ${esc(l.called_by||'')}`:'—'}</td></tr>`;}).join('');
