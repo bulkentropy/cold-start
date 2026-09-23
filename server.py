@@ -2200,8 +2200,18 @@ def _mum_refresh_alignment():
             raise RuntimeError("sheet parsed empty")
     except Exception as e:
         return 0, f"{type(e).__name__}: {e}"
+    csps = _mum_load_csps()
+    # CSPs the sheet places in Mumbai but the pack's 9-Sep active list missed: seed a
+    # row so they get an alignment instead of showing blank in the queue and being
+    # skipped by every alignment filter and count.
+    for cid, l in live.items():
+        if cid and cid not in csps and (l.get("City") or "").strip().lower() == "mumbai":
+            csps[cid] = {"csp_id": cid, "partner_id": (l.get("Partner ID") or "").strip(),
+                         "csp_name": (l.get("Name") or "").strip(), "region": "", "am": "",
+                         "csp_state": "", "live_plan_base": "", "installs_jun_aug_2026": "",
+                         "home_zone_name": "", "from_sheet": True}
     changed = 0
-    for cid, c in _mum_load_csps().items():
+    for cid, c in csps.items():
         l = live.get(cid)
         if not l:
             continue
