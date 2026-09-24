@@ -17,7 +17,8 @@ WITH mg_csp AS (
 ),
 bookings AS (
     SELECT MOBILE AS mobile, TO_DATE(BOOKING_CONFIRM_DATE) AS booking_date,
-           BOOKING_CONFIRM_TIME AS bt, NEXT_BOOKING_CONFIRM_TIME AS nb
+           BOOKING_CONFIRM_TIME AS bt, NEXT_BOOKING_CONFIRM_TIME AS nb,
+           CONNECTION_ID AS fct_conn
     FROM PROD_DB.DBT.fct_booking_window
     WHERE BOOKING_CONFIRM_DATE >= '{START_DATE}'
       -- PHANTOM-BOOKING GUARD. fct_booking_window is an incremental model whose
@@ -52,7 +53,13 @@ acc_clean AS (   -- drop test-LCO bookings
     WHERE lco IS NULL OR lco NOT IN
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
 ),
+-- PRIMARY LINK (24 Sep 2026): fct_booking_window.CONNECTION_ID; the legacy
+-- DYNAMODB account_id -> CONNECTIONS.CUSTOMER_ID path below (Q11528's) resolves
+-- only ~28% of bookings since the app cutover and is now the fallback.
 conn_raw AS (
+    SELECT mobile, booking_date, fct_conn AS CONNECTION_ID
+    FROM acc_clean WHERE fct_conn IS NOT NULL
+    UNION ALL
     SELECT a.mobile, a.booking_date, ceh.CONNECTION_ID
     FROM acc_clean a
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
@@ -63,6 +70,7 @@ conn_raw AS (
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTIONS c
       ON c.CONNECTION_ID = ceh.CONNECTION_ID AND c.CUSTOMER_ID::STRING = a.account_id
      AND c._fivetran_active = TRUE
+    WHERE a.fct_conn IS NULL
     QUALIFY ROW_NUMBER() OVER (PARTITION BY a.mobile, a.booking_date ORDER BY ceh.EVENT_TIMESTAMP) = 1
 ),
 conn AS (   -- de-duplicate: two booking instances that resolve to the

@@ -18,7 +18,8 @@ WITH mg_csp AS (
 ),
 bookings AS (
     SELECT MOBILE AS mobile, TO_DATE(BOOKING_CONFIRM_DATE) AS booking_date,
-           BOOKING_CONFIRM_TIME AS bt, NEXT_BOOKING_CONFIRM_TIME AS nb
+           BOOKING_CONFIRM_TIME AS bt, NEXT_BOOKING_CONFIRM_TIME AS nb,
+           CONNECTION_ID AS fct_conn
     FROM PROD_DB.DBT.fct_booking_window WHERE BOOKING_CONFIRM_DATE >= '{START_DATE}'
       -- PHANTOM-BOOKING GUARD. fct_booking_window is an incremental model whose
       -- merge key includes BOOKING_CONFIRM_TIME, which it RECOMPUTES 1-5 min
@@ -41,6 +42,7 @@ bookings AS (
 ),
 acc AS (
     SELECT b.mobile, b.booking_date, b.bt, b.nb,
+           b.fct_conn,
            ad.ACCOUNT_ID::STRING AS account_id, ad.GROUP_NAME AS flow, ad.LCO_ACCOUNT_ID AS lco
     FROM bookings b
     LEFT JOIN PROD_DB.DYNAMODB.BOOKING ad
@@ -50,11 +52,21 @@ acc AS (
     QUALIFY ROW_NUMBER() OVER (PARTITION BY b.mobile, b.bt ORDER BY ad.modified_time DESC NULLS LAST) = 1
 ),
 acc_clean AS (
-    SELECT mobile, booking_date, bt, nb, account_id, COALESCE(flow,'(none)') AS flow FROM acc
+    SELECT mobile, booking_date, bt, nb, account_id, fct_conn, COALESCE(flow,'(none)') AS flow FROM acc
     WHERE lco IS NULL OR lco NOT IN
         (SELECT LCO_ACCOUNT_ID FROM PROD_DB.PUBLIC.TEST_LCO_ACCOUNT_ID WHERE LCO_ACCOUNT_ID IS NOT NULL)
 ),
+-- PRIMARY LINK (24 Sep 2026): fct_booking_window.CONNECTION_ID. Since the app
+-- cutover the legacy path below - DYNAMODB.BOOKING.ACCOUNT_ID -> CONNECTIONS.
+-- CUSTOMER_ID, inherited from Q11528 - resolves only ~28% of bookings (46% even
+-- carry an ACCOUNT_ID), so every count downstream read ~4x low while the dotted
+-- "all bookings created" line stayed whole. The fct column is populated on ~100%
+-- of rows; the old path is kept as the fallback for the <1% without one. The loss
+-- was unbiased (34.0% vs 34.8% install rate), so rates were right and counts were not.
 conn_raw AS (
+    SELECT mobile, booking_date, flow, fct_conn AS CONNECTION_ID
+    FROM acc_clean WHERE fct_conn IS NOT NULL
+    UNION ALL
     SELECT a.mobile, a.booking_date, a.flow, c.CONNECTION_ID
     FROM acc_clean a
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTION_EVENT_HISTORY ceh
@@ -64,6 +76,7 @@ conn_raw AS (
      AND (a.nb IS NULL OR DATEADD(minute, 330, ceh.EVENT_TIMESTAMP) < a.nb)
     JOIN PROD_DB.CSP_CONNECTION_LIFECYCLE_SERVICE_CSP_CONNECTION_LIFECYCLE_SERVICE.CONNECTIONS c
       ON c.CONNECTION_ID = ceh.CONNECTION_ID AND c.CUSTOMER_ID::STRING = a.account_id AND c._fivetran_active = TRUE
+    WHERE a.fct_conn IS NULL
     QUALIFY ROW_NUMBER() OVER (PARTITION BY a.mobile, a.bt ORDER BY ceh.EVENT_TIMESTAMP) = 1
 ),
 conn AS (   -- de-duplicate: two booking instances that resolve to the
