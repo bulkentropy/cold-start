@@ -2437,6 +2437,7 @@ def compute_mumbai():
         "total": len(rows), "mkt": _count(lambda r: r["is_mkt"]),
         "today": _count(lambda r: r["booked_on"] == today),
         "installed": _count(lambda r: r["stage"] == "installed"),
+        "tech": _count(lambda r: r["tech_assigned"] or r["stage"] == "installed"),
         "cancelled": _count(lambda r: r["stage"] == "cancelled"),
         "open": _count(lambda r: r["stage"] in MUM_OPEN_STAGES),
         "stuck": _count(lambda r: r["stage"].startswith("stuck")),

@@ -3247,6 +3247,7 @@ async function renderMumbai(){
     ptile(fmt(s.stuck),'Lost to the CSP','timed out / declined / failed — RCA calls','var(--red)')+
     ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
+    ptile(s.tech?Math.round(100*s.installed/s.tech)+'%':'–','Installed ÷ tech assigned',`${fmt(s.installed)} of ${fmt(s.tech)} · target ≥60%`,'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
   drawMumInstalls();
   drawMumDaily();
@@ -3445,6 +3446,7 @@ function renderMumFocus(){
     ptile(String(Math.round(100*all.bookings/days/ncsp)/100),'Per CSP per day',`target ${bm.per_csp_day} · before ${Math.round(100*all.base_per_day/ncsp)/100}`,'var(--purple)')+
     ptile(pc(all.tech,all.bookings),'Technician assigned',`${fmt(all.tech)} of bookings · target ~${Math.round(100*bm.tech_rate)}%`)+
     ptile(pc(all.installed,all.bookings),'Installed',`${fmt(all.installed)} of bookings · target ${bm.install_rate.map(x=>Math.round(100*x)).join('–')}%`,'var(--green)')+
+    ptile(pc(all.installed,all.tech),'Installed ÷ tech assigned',`${fmt(all.installed)} of ${fmt(all.tech)} · target ≥${Math.round(100*bm.install_of_tech)}%`,'var(--green)')+
     ptile(fmt(all.lost),'Lost to the CSP','timed out / declined / failed','var(--red)')+
     ptile(fmt(all.installs_done),'Installs done','since the start, any booking');
   const head=`<tr><th>CSP</th><th>Bookings</th><th>Per day<div class="sub">target ${bm.per_csp_day}</div></th><th>Before<div class="sub">per day, 16 Sep–11 Oct</div></th>
