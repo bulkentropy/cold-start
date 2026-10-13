@@ -508,6 +508,57 @@ svg text{font-family:inherit}
 </div>
 
 <!-- ===================== MUMBAI RESTART ===================== -->
+<div id="mum-nav" class="section" style="display:none">
+  <div class="toggle">
+    <button data-p="all" onclick="location.href='/mumbai'">All bookings &amp; calling queue</button>
+    <button data-p="focus" onclick="location.href='/mumbai/focus'">Focus zones · G14 &amp; G8</button>
+  </div>
+</div>
+
+<div id="pane-mumfocus" style="display:none">
+  <div class="card section">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="label">Mumbai restart · focus zones</div>
+        <h2 style="margin-top:4px">G14 and G8: is the field activity turning into installs?</h2>
+        <div class="sub" style="margin-top:8px;max-width:900px">
+          Offline field activity (RAs and an on-ground agency, stickers and flyers, the regular <b>₹23 1-day plan</b>)
+          started on <b id="mf-start-txt">12 Oct</b> in <b>G14</b> and <b>G8</b>. Each zone's CSPs come from the
+          locality-activation zoning. A booking counts here when the CSP holds it and it was booked on or after the
+          start; the funnel reads how far each one has got. <b>Before</b> is the same CSP's bookings per day from
+          16 Sep to 11 Oct. Benchmarks are the focus-zone targets: 1.1 bookings per CSP per day, ~50% technician
+          assigned, ≥60% of those installed, 45–50% of bookings installed.
+        </div>
+      </div>
+      <div class="hdr-right" style="align-items:flex-start">
+        <span class="asof" id="mf-asof">loading…</span>
+        <button class="btn" id="mf-refbtn" onclick="loadMumbai(true)" style="padding:8px 20px;font-size:13px">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip section" id="mf-tiles"></div>
+
+  <div id="mf-zones"></div>
+
+  <div class="card section">
+    <div class="chart-head">
+      <div><div class="label">Day by day</div><h2>Bookings, technician assigned and installs per day</h2></div>
+      <div class="sub">bookings and tech assigned by booking day · installs by install day (any booking)</div>
+    </div>
+    <div class="tablewrap" style="margin-top:10px"><table class="board" id="mf-daily"></table></div>
+  </div>
+
+  <div class="card section">
+    <div class="chart-head">
+      <div><div class="label">Bookings</div><h2>Every focus-zone booking since the start</h2></div>
+      <div class="sub" id="mf-bk-count"></div>
+    </div>
+    <div class="tablewrap" style="margin-top:10px"><table class="board" id="mf-bookings" style="min-width:900px"></table></div>
+    <div class="foot">To call on any of these, use the calling queue on <a href="/mumbai">All bookings</a> and filter by CSP.</div>
+  </div>
+</div>
+
 <div id="pane-mumbai" style="display:none">
   <div class="card section">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -1095,10 +1146,13 @@ function bootStandalone(){
   $('asof').style.display='none'; $('refbtn').style.display='none';
   $('inits').style.display='none'; document.querySelector('.tabs').style.display='none';
   const nsm=$('nsm'); if(nsm) nsm.style.display='none';
-  document.title='Mumbai restart — bookings & CSP calls';
+  document.title=MUM_PAGE==='focus'?'Mumbai restart — focus zones':'Mumbai restart — bookings & CSP calls';
+  if(MUM_PAGE==='focus') document.querySelector('header h1').textContent='Focus zones · G14 & G8';
   TABS.forEach(x=>$('pane-'+x).style.display='none'); METRICS.forEach(m=>$('pane-'+m).style.display='none');
   $('pane-sehat').style.display='none';
-  INIT='mumbai'; $('pane-mumbai').style.display='';
+  $('mum-nav').style.display='';
+  document.querySelectorAll('#mum-nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===MUM_PAGE));
+  INIT='mumbai'; $(MUM_PAGE==='focus'?'pane-mumfocus':'pane-mumbai').style.display='';
   // Who is calling: the signed-in @wiom.in email, fetched up front so the call form
   // never falls back to the name prompt (that is where 'anonymous' came from).
   fetch('/api/me').then(r=>r.json()).then(j=>{ME=j.email||'';}).catch(()=>{ME='';});
@@ -1555,7 +1609,9 @@ let MUM=null, MUM_VIEW='convert', MUM_REQ=null;   // Mumbai restart pane — hoi
 /* /mumbai is a standalone page for the Mumbai restart team: same file, but only that
    initiative renders — no selector, no tabs, no NSM strip, and the main payload is
    never fetched. It is deliberately absent from the dashboard's initiative row. */
-const STANDALONE=location.pathname.replace(/\/$/,'')==='/mumbai'?'mumbai':null;
+const MUM_PATH=location.pathname.replace(/\/$/,'');
+const STANDALONE=(MUM_PATH==='/mumbai'||MUM_PATH==='/mumbai/focus')?'mumbai':null;
+const MUM_PAGE=MUM_PATH==='/mumbai/focus'?'focus':'all';   // /mumbai/focus = the focus-zones page
 async function setPayoutMonth(m){
   PMONTH=m;
   document.querySelectorAll('#payout-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
@@ -3166,16 +3222,18 @@ const isLost=r=>r.stage.startsWith('stuck');          // CSP timed out / decline
 const inQueue=r=>isOpen(r)||isLost(r);
 
 async function loadMumbai(force){
-  const btn=$('mum-refbtn'); if(btn)btn.disabled=true;
+  const focus=STANDALONE&&MUM_PAGE==='focus', asof=$(focus?'mf-asof':'mum-asof');
+  const btn=$(focus?'mf-refbtn':'mum-refbtn'); if(btn)btn.disabled=true;
   try{
     MUM_REQ=MUM_REQ||fetch('/mumbai.json'+(force?'?force=1':''));
     const r=await MUM_REQ; MUM_REQ=null;
     if(r.status===401){location.href='/login';return;}
     MUM=await r.json();
-    if(MUM.error){$('mum-asof').textContent=MUM.error;return;}
+    if(MUM.error){asof.textContent=MUM.error;return;}
+    if(focus){ renderMumFocus(); return; }
     HUB.mumbai_calls=null;
     renderMumbai();
-  }catch(e){ MUM_REQ=null; $('mum-asof').textContent='could not load — '+e; }
+  }catch(e){ MUM_REQ=null; asof.textContent='could not load — '+e; }
   finally{ if(btn)btn.disabled=false; }
 }
 async function renderMumbai(){
@@ -3365,6 +3423,58 @@ async function renderMumLog(){
     <span class="when">· ${esc(dstr(l.called_at))} · ${esc(l.called_by||'')} · CSP ${esc(l.csp_name||l.csp_id||'?')} · ${esc((MUM_STAGE[l.stage_at_call]||[l.stage_at_call||''])[0])}</span><br>
     <b>${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</b>${l.next_step?' → '+esc(l.next_step):''}${l.follow_up_on?' (by '+esc(dstr(l.follow_up_on))+')':''}${l.notes?`<div class="mum-notes" onclick="mumMore(this)">${esc(l.notes)}</div>${l.notes.length>120?`<span class="mum-more" onclick="mumMore(this.previousSibling)">more ⌄</span>`:''}`:''}</div>`).join('')
     ||'<div class="act-item sub">no calls logged yet — use “log call” on any row above</div>';
+}
+/* Focus zones (/mumbai/focus): G14 + G8 CSPs from the field-activity start, against the
+   focus-zone benchmarks. Computed server-side as MUM.focus. */
+function mfRate(n,d,ok){       // "n/d · x%", green when it meets the benchmark, red when not
+  if(!d) return '<span class="sub">–</span>';
+  const p=n/d; return `${n} <span style="color:${p>=ok?'var(--green)':'var(--red)'};font-weight:600">${Math.round(100*p)}%</span>`;
+}
+function mfPerDay(n,days,ok){ const v=Math.round(100*n/days)/100;
+  return `<span style="color:${v>=ok?'var(--green)':'var(--red)'};font-weight:600">${v}</span>`; }
+function renderMumFocus(){
+  const F=MUM.focus; if(!F){ $('mf-asof').textContent='focus data unavailable'; return; }
+  const bm=F.benchmarks, days=F.days;
+  $('mf-start-txt').textContent=dstr(F.start);
+  $('mf-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · day '+days+' since the start · refreshes every '+MUM.ttl_min+' min';
+  const all=F.zones.reduce((a,z)=>{Object.keys(z.total).forEach(k=>a[k]=(a[k]||0)+z.total[k]);return a;},{});
+  const ncsp=F.zones.reduce((s,z)=>s+z.csps.length,0);
+  const pc=(n,d)=>d?Math.round(100*n/d)+'%':'–';
+  $('mf-tiles').innerHTML=
+    ptile(fmt(all.bookings),'Bookings since '+dstr(F.start),`${ncsp} CSPs across ${F.zones.length} zones`)+
+    ptile(String(Math.round(100*all.bookings/days/ncsp)/100),'Per CSP per day',`target ${bm.per_csp_day} · before ${Math.round(100*all.base_per_day/ncsp)/100}`,'var(--purple)')+
+    ptile(pc(all.tech,all.bookings),'Technician assigned',`${fmt(all.tech)} of bookings · target ~${Math.round(100*bm.tech_rate)}%`)+
+    ptile(pc(all.installed,all.bookings),'Installed',`${fmt(all.installed)} of bookings · target ${bm.install_rate.map(x=>Math.round(100*x)).join('–')}%`,'var(--green)')+
+    ptile(fmt(all.lost),'Lost to the CSP','timed out / declined / failed','var(--red)')+
+    ptile(fmt(all.installs_done),'Installs done','since the start, any booking');
+  const head=`<tr><th>CSP</th><th>Bookings</th><th>Per day<div class="sub">target ${bm.per_csp_day}</div></th><th>Before<div class="sub">per day, 16 Sep–11 Oct</div></th>
+    <th>Slot proposed</th><th>Tech assigned<div class="sub">% of bookings</div></th><th>Installed<div class="sub">% of tech assigned</div></th>
+    <th>Installed<div class="sub">% of bookings</div></th><th>Open</th><th>Lost</th><th>Cancelled</th><th>Installs done<div class="sub">any booking</div></th></tr>`;
+  const line=(c,ncs)=>`<td>${mfPerDay(c.bookings,days*ncs,bm.per_csp_day)}</td><td class="sub">${Math.round(100*c.base_per_day/ncs)/100}</td>
+    <td>${fmt(c.proposed)}</td><td>${mfRate(c.tech,c.bookings,bm.tech_rate)}</td><td>${mfRate(c.installed,c.tech,bm.install_of_tech)}</td>
+    <td>${mfRate(c.installed,c.bookings,bm.install_rate[0])}</td><td>${fmt(c.open)}</td><td>${c.lost?`<span style="color:var(--red)">${c.lost}</span>`:'0'}</td>
+    <td>${fmt(c.cancelled)}</td><td>${fmt(c.installs_done)}</td>`;
+  $('mf-zones').innerHTML=F.zones.map(z=>`<div class="card section">
+    <div class="chart-head"><div><div class="label">Zone ${esc(z.zone)} · ${esc(z.offer)}</div>
+      <h2>${fmt(z.total.bookings)} booking${z.total.bookings===1?'':'s'} · ${fmt(z.total.installed)} installed</h2></div>
+      <div class="sub">${z.csps.length} CSPs · per-day numbers are per CSP</div></div>
+    <div class="tablewrap" style="margin-top:10px"><table class="board" style="min-width:1000px">${head}
+      ${z.csps.map(c=>`<tr><td><b>${esc(c.csp_name)}</b><div class="sub">${esc(c.csp_id)}${c.align_label?' · '+esc(c.align_label):''}</div></td>
+        <td><b>${fmt(c.bookings)}</b></td>${line(c,1)}</tr>`).join('')}
+      <tr style="border-top:2px solid var(--n300)"><td><b>Zone ${esc(z.zone)} total</b></td><td><b>${fmt(z.total.bookings)}</b></td>${line(z.total,z.csps.length)}</tr>
+    </table></div></div>`).join('');
+  const dayset=F.zones[0]?F.zones[0].daily.map(d=>d.day):[];
+  $('mf-daily').innerHTML=`<tr><th>Day</th>${F.zones.map(z=>`<th colspan="3">${esc(z.zone)}</th>`).join('')}</tr>
+    <tr><th></th>${F.zones.map(()=>'<th class="sub">bookings</th><th class="sub">tech assigned</th><th class="sub">installs</th>').join('')}</tr>`+
+    dayset.slice().reverse().map(d=>`<tr><td>${esc(dstr(d))}</td>${F.zones.map(z=>{const r=z.daily.find(x=>x.day===d)||{};
+      return `<td><b>${fmt(r.bookings||0)}</b></td><td>${fmt(r.tech||0)}</td><td>${fmt(r.installs_done||0)}</td>`;}).join('')}</tr>`).join('');
+  $('mf-bk-count').textContent=`${F.bookings.length} booking${F.bookings.length===1?'':'s'}`;
+  $('mf-bookings').innerHTML=`<tr><th>Booked</th><th>Zone</th><th>Customer</th><th>Locality</th><th>CSP</th><th>Stage</th><th>Source</th></tr>`+
+    (F.bookings.map(b=>`<tr><td class="sub">${esc(b.booked_at||'')}</td><td><b>${esc(b.zone)}</b></td><td>${esc(b.name||'')}</td>
+      <td class="sub" style="max-width:240px">${esc(b.locality||'')}</td><td>${esc(b.csp_name||'')}</td>
+      <td>${mumStagePill(b.stage)}${b.last_reason&&b.stage.startsWith('stuck')?`<div class="sub">${esc(b.last_reason)}</div>`:''}</td>
+      <td class="sub">${esc(b.source||'')}</td></tr>`).join('')
+     ||'<tr><td colspan="7" class="sub">no bookings at these CSPs since the start yet</td></tr>');
 }
 </script>
 </body>

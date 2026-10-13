@@ -34,7 +34,7 @@ import time
 import traceback
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -276,6 +276,19 @@ MUMBAI_TTL_S = 10 * 60
 # snapshot stands and the payload says so.
 MUMBAI_REPO_SHEET_ID = "1i1QQng-yFOmeEEOJ4zoBz-JjBPpfb4iHrhWRbPIcPoA"
 MUMBAI_REPO_SHEET_TAB = "Repository"
+# Focus zones — offline field activity (RAs + on-ground agency, stickers/flyers, the
+# regular ₹23 offer) went live on 12 Oct 2026 in G14 and G8. CSPs per zone are the
+# locality-activation zoning (29 Sep 2x2 metrics). The /mumbai/focus page tracks
+# their bookings from FOCUS_START against the success benchmarks; the 16 Sep -
+# 11 Oct window is the before-read.
+MUMBAI_FOCUS_START = "2026-10-12"
+MUMBAI_FOCUS_BASE = ("2026-09-16", "2026-10-11")
+MUMBAI_FOCUS_ZONES = [
+    {"zone": "G14", "offer": "₹23 · 1-day plan",
+     "csps": ["a0b8r2", "a0b9o2", "a0b9e0", "a0b8y4"]},
+    {"zone": "G8", "offer": "₹23 · 1-day plan",
+     "csps": ["a0b6k5", "a0b7a8", "a0b9a7", "a0b9u6"]},
+]
 
 
 def _load_settlement(obj, local):
@@ -2473,6 +2486,7 @@ def compute_mumbai():
             c["cancelled"] += 1
     csp_rows = sorted(by_csp.values(), key=lambda c: (-(c["open"] + c["stuck"]), -c["oldest_open"]))
     return {"asof": datetime.now(IST).isoformat(timespec="seconds"),
+            "focus": _mum_focus(rows, csps, today),
             "start": MUMBAI_START, "mkt_start": MUMBAI_MKT_START,
             "ttl_min": MUMBAI_TTL_S // 60, "csps_loaded": len(csps),
             "alignment_live": align_err is None, "alignment_changed": align_changed,
@@ -2480,6 +2494,72 @@ def compute_mumbai():
             "zones_loaded": len(_mum_load_zones()),
             "summary": summary, "daily": sorted(daily.values(), key=lambda d: d["day"]),
             "csps": csp_rows, "rows": rows}
+
+
+_MUM_PROPOSED_ON = {"slot_proposed", "slot_confirmed", "tech_assigned", "installed"}
+
+
+def _mum_focus(rows, csps, today):
+    """Focus-zone funnel per CSP: bookings the CSP holds whose (latest) booking day is
+    on or after MUMBAI_FOCUS_START, and how far each got. Tech assigned counts an
+    install too (it had one); installs_done counts installs completed since the start
+    on ANY booking, so pre-activity bookings closing now show up as work done."""
+    start = MUMBAI_FOCUS_START
+    b0, b1 = MUMBAI_FOCUS_BASE
+    days = max(1, (date.fromisoformat(today) - date.fromisoformat(start)).days + 1)
+    base_days = (date.fromisoformat(b1) - date.fromisoformat(b0)).days + 1
+    names = {r["csp_id"]: r["csp_name"] for r in rows if r["csp_id"] and r["csp_name"]}
+
+    def funnel(rs):
+        f = {"bookings": len(rs),
+             "proposed": sum(1 for r in rs if r["stage"] in _MUM_PROPOSED_ON or r["slot_proposed"]),
+             "tech": sum(1 for r in rs if r["tech_assigned"] or r["stage"] == "installed"),
+             "installed": sum(1 for r in rs if r["stage"] == "installed"),
+             "open": sum(1 for r in rs if r["stage"] in MUM_OPEN_STAGES),
+             "lost": sum(1 for r in rs if r["stage"].startswith("stuck")),
+             "cancelled": sum(1 for r in rs if r["stage"] == "cancelled")}
+        return f
+
+    zones, bookings = [], []
+    for z in MUMBAI_FOCUS_ZONES:
+        ids = set(z["csps"])
+        zrows = [r for r in rows if r["csp_id"] in ids]
+        cur = [r for r in zrows if r["booked_on"] >= start]
+        out = []
+        for cid in z["csps"]:
+            mine = [r for r in cur if r["csp_id"] == cid]
+            base = [r for r in zrows if r["csp_id"] == cid and b0 <= r["first_booked_on"] <= b1]
+            c = csps.get(cid) or {}
+            out.append({"csp_id": cid, "csp_name": names.get(cid) or c.get("csp_name") or cid,
+                        "align_label": c.get("alignment_label") or "", "am": c.get("am") or "",
+                        **funnel(mine),
+                        "installs_done": sum(1 for r in zrows if r["csp_id"] == cid and r["stage"] == "installed"
+                                             and (r["installed_at"] or "")[:10] >= start),
+                        "base_per_day": round(len(base) / base_days, 2)})
+        daily = {d: {"day": d, "bookings": 0, "tech": 0, "installs_done": 0}
+                 for d in _daterange(start, today)}
+        for r in cur:
+            if r["booked_on"] in daily:
+                daily[r["booked_on"]]["bookings"] += 1
+                daily[r["booked_on"]]["tech"] += 1 if (r["tech_assigned"] or r["stage"] == "installed") else 0
+        for r in zrows:
+            d = daily.get((r["installed_at"] or "")[:10]) if r["stage"] == "installed" else None
+            if d:
+                d["installs_done"] += 1
+        tot = funnel(cur)
+        tot["installs_done"] = sum(c["installs_done"] for c in out)
+        tot["base_per_day"] = round(sum(c["base_per_day"] for c in out), 2)
+        zones.append({"zone": z["zone"], "offer": z["offer"], "csps": out, "total": tot,
+                      "daily": sorted(daily.values(), key=lambda d: d["day"])})
+        for r in cur:
+            bookings.append({"zone": z["zone"], "booked_at": r["booked_at"], "name": r["name"],
+                             "locality": r["locality"] or r["address"], "csp_name": r["csp_name"],
+                             "stage": r["stage"], "last_reason": r["last_reason"],
+                             "source": r["source"], "key": r["key"]})
+    bookings.sort(key=lambda b: b["booked_at"] or "", reverse=True)
+    return {"start": start, "days": days, "base": [b0, b1], "zones": zones, "bookings": bookings,
+            "benchmarks": {"per_csp_day": 1.1, "tech_rate": 0.5, "install_of_tech": 0.6,
+                           "install_rate": [0.45, 0.5]}}
 
 
 _mum_cache = {"packed": None, "at": 0.0}
@@ -2726,7 +2806,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
-            nxt = "/mumbai" if path == "/mumbai" else "/"
+            nxt = path if path in ("/mumbai", "/mumbai/focus") else "/"
             if path == "/login":
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
@@ -2734,9 +2814,10 @@ class Handler(BaseHTTPRequestHandler):
                         or path in ("/data", "/data/heavy", "/refresh", "/settlement", "/mumbai.json")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
-            if path in ("/", "/mumbai"):
-                # /mumbai is the standalone Mumbai-restart page: same file, the script
-                # reads location.pathname and hides everything but that initiative.
+            if path in ("/", "/mumbai", "/mumbai/focus"):
+                # /mumbai is the standalone Mumbai-restart page (and /mumbai/focus its
+                # focus-zones page): same file, the script reads location.pathname and
+                # hides everything but that initiative.
                 html = open(os.path.join(BASE_DIR, "index.html"), "rb").read()
                 self._send(200, html, "text/html; charset=utf-8")
             elif path == "/data":
@@ -2790,7 +2871,7 @@ class Handler(BaseHTTPRequestHandler):
                 email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
                 nxt = (form.get("next") or ["/"])[0]
-                nxt = nxt if nxt in ("/", "/mumbai") else "/"     # never an open redirect
+                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus") else "/"     # never an open redirect
                 if not EMAIL_RE.match(email):
                     err = '<div class="err">Use your @wiom.in email.</div>'
                 elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
