@@ -2,7 +2,7 @@
 
 Single-file, stdlib-only web server (same pattern as the MBG TV dashboard):
   GET /         -> dashboard HTML (index.html)
-  GET /data     -> current numbers as JSON (served from a 30-min cache)
+  GET /data     -> current numbers as JSON (served from a 60-min cache)
   GET /refresh  -> force a full re-query now, then return fresh JSON
 
 L0 replicates github.com/kushagraagarwal-11/mbg-tv-wall exactly:
@@ -51,7 +51,10 @@ except ImportError:
 # CONFIG
 # ----------------------------------------------------------------------------
 PORT = int(os.environ.get("PORT", 8090))
-CACHE_TTL_S = 30 * 60
+CACHE_TTL_S = 60 * 60
+# Background warmer is idle in this IST hour window; a visitor still triggers an
+# on-demand rebuild. Cuts ~1/3 of the Snowflake runs nobody reads (Snowflake cost review, Oct 2026).
+WARM_QUIET_HOURS = (23, 7)
 IST = timezone(timedelta(hours=5, minutes=30))
 
 METABASE_URL = os.environ.get("METABASE_URL", "https://metabase.wiom.in")
@@ -269,7 +272,7 @@ SEHAT_PAYOUT = None
 MUMBAI_START = "2026-09-01"
 MUMBAI_MKT_START = "2026-09-13"
 MUMBAI_CSPS_OBJECT = "mumbai/csps.json"
-MUMBAI_TTL_S = 10 * 60
+MUMBAI_TTL_S = 30 * 60
 # Audit / consent / ordering flags are overlaid LIVE from the "Final Master | Cold
 # Start | Audit | Active CSPs" sheet, Repository tab (the same tab the pack read on
 # 9 Sep and froze). Read via gviz CSV like the Sehat sheet; on failure the pack's
@@ -2743,10 +2746,14 @@ def serve(which):
 
 
 def _warmer():
-    """Re-warm before the TTL lapses so no request ever meets a stale cache."""
+    """Re-warm before the TTL lapses so no request ever meets a stale cache —
+    except overnight (WARM_QUIET_HOURS), when serve() rebuilds on demand instead."""
     while True:
         time.sleep(60)
         try:
+            hr = datetime.now(IST).hour
+            if hr >= WARM_QUIET_HOURS[0] or hr < WARM_QUIET_HOURS[1]:
+                continue
             if _cache["payload"] and time.time() - _cache["at"] >= CACHE_TTL_S - 120:
                 refresh(force=True)
         except Exception:
