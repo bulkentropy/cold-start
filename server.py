@@ -2514,6 +2514,21 @@ def _mum_focus(rows, csps, today):
     base_days = (date.fromisoformat(b1) - date.fromisoformat(b0)).days + 1
     names = {r["csp_id"]: r["csp_name"] for r in rows if r["csp_id"] and r["csp_name"]}
 
+    # rows is one entry per customer x CSP, so a customer one CSP declined and the
+    # next CSP installed would count twice. Count each customer once, on the CSP
+    # holding their latest booking (its stage is the truth today).
+    focus_ids = {cid for z in MUMBAI_FOCUS_ZONES for cid in z["csps"]}
+
+    def per_customer(rs):
+        latest = {}
+        for r in sorted(rs, key=lambda r: r["booked_at"] or ""):
+            latest[r["mobile"] or r["key"]] = r
+        return list(latest.values())
+
+    frows = [r for r in rows if r["csp_id"] in focus_ids]
+    cur_all = per_customer([r for r in frows if r["booked_on"] >= start])
+    base_all = per_customer([r for r in frows if b0 <= r["first_booked_on"] <= b1])
+
     def funnel(rs):
         f = {"bookings": len(rs),
              "proposed": sum(1 for r in rs if r["stage"] in _MUM_PROPOSED_ON or r["slot_proposed"]),
@@ -2528,11 +2543,11 @@ def _mum_focus(rows, csps, today):
     for z in MUMBAI_FOCUS_ZONES:
         ids = set(z["csps"])
         zrows = [r for r in rows if r["csp_id"] in ids]
-        cur = [r for r in zrows if r["booked_on"] >= start]
+        cur = [r for r in cur_all if r["csp_id"] in ids]
         out = []
         for cid in z["csps"]:
             mine = [r for r in cur if r["csp_id"] == cid]
-            base = [r for r in zrows if r["csp_id"] == cid and b0 <= r["first_booked_on"] <= b1]
+            base = [r for r in base_all if r["csp_id"] == cid]
             c = csps.get(cid) or {}
             out.append({"csp_id": cid, "csp_name": names.get(cid) or c.get("csp_name") or cid,
                         "align_label": c.get("alignment_label") or "", "am": c.get("am") or "",
