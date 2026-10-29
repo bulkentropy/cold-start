@@ -265,11 +265,12 @@ AUGUST = None
 SEHAT_PAYOUT = None
 
 # Mumbai restart — bookings tracker + CSP calling queue. Marketing (Meta) went live
-# on 13 Sep 2026; the window opens on 1 Sep so the organic baseline is visible.
+# on 13 Sep 2026; the window opens on 1 Aug so the organic baseline is visible and
+# the page can show each month on its own (Aug, Sep, Oct, ...).
 # The CSP alignment list names partners with their audit/consent status, so it
 # lives in the private bucket like the settlements (data/mumbai_csps.json is the
 # gitignored dev fallback). Zones are the pack's polygons — derived, no names.
-MUMBAI_START = "2026-09-01"
+MUMBAI_START = "2026-08-01"
 MUMBAI_MKT_START = "2026-09-13"
 MUMBAI_CSPS_OBJECT = "mumbai/csps.json"
 MUMBAI_TTL_S = 30 * 60

@@ -568,7 +568,7 @@ svg text{font-family:inherit}
         <h2 style="margin-top:4px">Every Mumbai booking, where it stands, and who to call</h2>
         <div class="sub" style="margin-top:8px;max-width:900px">
           Marketing for Mumbai went live on <b>13 Sep</b>. This pane pulls every confirmed booking inside the
-          MMR box since <b>1 Sep</b> (so the organic baseline is visible), reads its current stage from the
+          MMR box since <b>1 Aug</b> (so the organic baseline is visible), reads its current stage from the
           CSP task, and puts the ones that are <b>not installed and not cancelled by the customer</b> into a
           <b>Convert</b> queue — latest day first, and within a day the ones closest to an install first
           (technician assigned → slot confirmed → proposed). Bookings the CSP let go (timed out, declined,
@@ -583,6 +583,11 @@ svg text{font-family:inherit}
         <button class="btn" id="mum-refbtn" onclick="loadMumbai(true)" style="padding:8px 20px;font-size:13px">Refresh</button>
       </div>
     </div>
+  </div>
+
+  <div class="section" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div class="toggle" id="mum-month"></div>
+    <span class="sub" id="mum-month-note"></span>
   </div>
 
   <div class="strip section" id="mum-tiles"></div>
@@ -1606,7 +1611,7 @@ let PMONTH='jul';
 let PAYOUT_DATA=null, PAYOUT_BUILT=false;
 let AUGUST_DATA=null, AUGUST_BUILT=false;
 let REMOVED_DATA=null;
-let MUM=null, MUM_VIEW='convert', MUM_REQ=null;   // Mumbai restart pane — hoisted for the same reason
+let MUM=null, MUM_VIEW='convert', MUM_REQ=null, MUM_MONTH='';   // Mumbai restart pane — hoisted for the same reason
 /* /mumbai is a standalone page for the Mumbai restart team: same file, but only that
    initiative renders — no selector, no tabs, no NSM strip, and the main payload is
    never fetched. It is deliberately absent from the dashboard's initiative row. */
@@ -3237,77 +3242,136 @@ async function loadMumbai(force){
   }catch(e){ MUM_REQ=null; asof.textContent='could not load — '+e; }
   finally{ if(btn)btn.disabled=false; }
 }
+/* Month view. Everything below the month toggle shows either the whole window
+   (since MUM.start) or one month. A booking belongs to the month it FIRST arrived
+   (first_booked_on, same as the bookings chart), so tiles, queue and CSP table
+   all count the same set. Installs per day is by install day within the month. */
+const mumMonthName=m=>new Date(m+'-01T00:00:00').toLocaleString('en-IN',{month:'short',year:'numeric'});
+const mumDay=d=>Number(d.slice(8,10))+' '+mumMonthName(d.slice(0,7)).split(' ')[0];
+const mumInMonth=r=>!MUM_MONTH||(r.first_booked_on||r.booked_on||'').slice(0,7)===MUM_MONTH;
+function mumMonths(){
+  const out=[], end=(MUM.asof||'').slice(0,7);
+  for(let m=MUM.start.slice(0,7); m<=end;){ out.push(m);
+    const [y,mo]=m.split('-').map(Number); m=mo===12?`${y+1}-01`:`${y}-${String(mo+1).padStart(2,'0')}`; }
+  return out;
+}
+function mumMonth(m){ MUM_MONTH=m; renderMumbai(); }
+// Same counts the server puts in MUM.summary / MUM.csps, but over the chosen month.
+function mumPeriod(){
+  const today=(MUM.asof||'').slice(0,10);
+  const rows=MUM.rows.filter(mumInMonth);
+  const daily=MUM.daily.filter(d=>!MUM_MONTH||d.day.slice(0,7)===MUM_MONTH);
+  const n=f=>rows.filter(f).length;
+  const s={total:rows.length, mkt:n(r=>r.is_mkt), today:n(r=>r.booked_on===today),
+    installed:n(r=>r.stage==='installed'), tech:n(r=>r.tech_assigned||r.stage==='installed'),
+    cancelled:n(r=>r.stage==='cancelled'), open:n(isOpen), stuck:n(isLost), by_source:{}};
+  rows.forEach(r=>{s.by_source[r.source]=(s.by_source[r.source]||0)+1;});
+  const by={};
+  rows.forEach(r=>{
+    if(!r.csp_id)return;
+    const c=by[r.csp_id]=by[r.csp_id]||{csp_id:r.csp_id,csp_name:r.csp_name,csp_poc:r.csp_poc,csp_mobile:r.csp_mobile,
+      partner_id:r.partner_id,region:r.csp_region,am:r.csp_am,alignment:r.csp_alignment,align_label:r.csp_align_label,
+      ordering:r.csp_ordering,total:0,open:0,stuck:0,installed:0,cancelled:0,oldest_open:0};
+    c.total++;
+    if(isOpen(r)){c.open++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
+    else if(isLost(r)){c.stuck++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
+    else if(r.stage==='installed')c.installed++;
+    else if(r.stage==='cancelled')c.cancelled++;
+  });
+  const csps=Object.values(by).sort((a,b)=>(b.open+b.stuck)-(a.open+a.stuck)||b.oldest_open-a.oldest_open);
+  const label=MUM_MONTH?mumMonthName(MUM_MONTH):'since '+mumDay(MUM.start);
+  return {rows,daily,summary:s,csps,today,label,hasToday:!MUM_MONTH||MUM_MONTH===today.slice(0,7)};
+}
 async function renderMumbai(){
   if(!MUM) return;
-  const s=MUM.summary;
+  const P=mumPeriod(), s=P.summary;
   $('mum-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min'+(MUM.alignment_live?' · audit/consent live from the Repository sheet':' · audit/consent from the 9 Sep snapshot (sheet unreachable)');
   if(ME) $('mum-who').textContent='calls logged as '+ME;
+  $('mum-month').innerHTML=`<button data-m="" onclick="mumMonth('')">All · since ${esc(mumDay(MUM.start))}</button>`+
+    mumMonths().map(m=>`<button data-m="${m}" onclick="mumMonth('${m}')">${esc(mumMonthName(m))}</button>`).join('');
+  document.querySelectorAll('#mum-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===MUM_MONTH));
+  $('mum-month-note').textContent=MUM_MONTH?`Bookings that first came in during ${P.label}, with where they stand today. Installs per day counts activations in ${P.label}.`:'Cumulative. Pick a month to see only that month.';
+  const days=P.daily.length||1;
   $('mum-tiles').innerHTML=
-    ptile(fmt(s.total),'Bookings since 1 Sep',`${fmt(s.mkt)} since marketing (13 Sep)`)+
-    ptile(fmt(s.today),'Today','booked so far')+
+    ptile(fmt(s.total),'Bookings '+(MUM_MONTH?'in '+P.label:P.label),!s.mkt?'before marketing (13 Sep)':MUM_MONTH&&s.mkt===s.total?'all after marketing went live (13 Sep)':`${fmt(s.mkt)} since marketing (13 Sep)`)+
+    (P.hasToday?ptile(fmt(s.today),'Today','booked so far'):ptile(String(Math.round(10*s.total/days)/10),'Per day',`bookings a day over ${days} days`))+
     ptile(fmt(s.stuck),'Lost to the CSP','timed out / declined / failed — RCA calls','var(--red)')+
     ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
     ptile(s.tech?Math.round(100*s.installed/s.tech)+'%':'–','Installed ÷ tech assigned',`${fmt(s.installed)} of ${fmt(s.tech)} · target ≥60%`,'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
-  drawMumInstalls();
-  drawMumDaily();
+  drawMumInstalls(P);
+  drawMumDaily(P);
   // filter options
   const cspSel=$('mum-csp'), cur=cspSel.value;
-  cspSel.innerHTML='<option value="">all CSPs</option>'+MUM.csps.map(c=>`<option value="${esc(c.csp_id)}">${esc(c.csp_name||c.csp_id)} (${c.open+c.stuck})</option>`).join('');
+  cspSel.innerHTML='<option value="">all CSPs</option>'+P.csps.map(c=>`<option value="${esc(c.csp_id)}">${esc(c.csp_name||c.csp_id)} (${c.open+c.stuck})</option>`).join('');
   cspSel.value=cur;
   const srcSel=$('mum-src'), curS=srcSel.value;
   srcSel.innerHTML='<option value="">all sources</option>'+Object.keys(s.by_source).sort().map(k=>`<option>${esc(k)}</option>`).join('');
   srcSel.value=curS;
   await renderMumQueue();
-  renderMumCsps();
+  renderMumCsps(P);
   renderMumLog();
 }
-function drawMumInstalls(){
-  const t=MUM.daily, max=Math.max(...t.map(r=>r.installs_on||0),1);
-  const W=860,H=140,B=24,T=34,gap=4,bw=(W-(t.length-1)*gap)/t.length;
-  const yv=v=>T+(H-T-B)*(1-v/max);
-  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
+// x-axis label: every day in a month view; on the long cumulative view only the
+// 1st/8th/15th/22nd, with the month name on the 1st, so labels do not overlap.
+function mumDayLabel(t,r){
+  const d=r.day.slice(8);
+  if(t.length<=40) return d;
+  if(d==='01') return mumMonthName(r.day.slice(0,7)).split(' ')[0];
+  return ['08','15','22'].includes(d)?d:'';
+}
+function mumMktLine(t,bw,gap,H,B){
   const mi=t.findIndex(r=>r.day>=MUM.mkt_start);
-  if(mi>0){const x=mi*(bw+gap)-gap/2; svg+=`<line x1="${x}" y1="6" x2="${x}" y2="${H-B}" stroke="var(--accent)" stroke-dasharray="3 3"/><text x="${x+4}" y="12" font-size="10" fill="var(--accent)" font-weight="700">marketing live →</text>`;}
+  if(mi<=0) return '';
+  const x=mi*(bw+gap)-gap/2;
+  return `<line x1="${x}" y1="6" x2="${x}" y2="${H-B}" stroke="var(--accent)" stroke-dasharray="3 3"/><text x="${x+4}" y="12" font-size="10" fill="var(--accent)" font-weight="700">marketing live →</text>`;
+}
+function mumPace(t,f){
+  const sum=a=>a.reduce((s,r)=>s+f(r),0), avg=a=>a.length?Math.round(10*sum(a)/a.length)/10:0;
+  const mk=t.filter(r=>r.day>=MUM.mkt_start), pre=t.filter(r=>r.day<MUM.mkt_start);
+  return {sum:sum(t), split:mk.length&&pre.length, pre:avg(pre), mk:avg(mk), mkDays:mk.length, all:avg(t)};
+}
+function drawMumInstalls(P){
+  const t=P.daily, max=Math.max(...t.map(r=>r.installs_on||0),1), dense=t.length>40;
+  const W=860,H=140,B=24,T=34,gap=dense?1:4,bw=(W-(t.length-1)*gap)/t.length;
+  const yv=v=>T+(H-T-B)*(1-v/max);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`+mumMktLine(t,bw,gap,H,B);
   t.forEach((r,i)=>{
     const x0=i*(bw+gap), n=r.installs_on||0, p=r.installs_on_paid||0, org=n-p;
     const hO=(H-B)-yv(org), hP=(H-B)-yv(p);
-    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,n?1:0)}" fill="var(--green)" opacity=".75"/>`;
+    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,n?1:0)}" fill="var(--green)" opacity=".75"><title>${r.day}: ${n} installed</title></rect>`;
     if(p)svg+=`<rect x="${x0}" y="${H-B-hO-hP}" width="${bw}" height="${hP}" fill="var(--accent)" rx="2"/>`;
-    if(n)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${n}</text>`;
-    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${r.day.slice(8)}</text>`;
+    if(n&&!dense)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${n}</text>`;
+    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${mumDayLabel(t,r)}</text>`;
   });
   $('mum-inst').innerHTML=svg+'</svg>'+
     `<div class="legend"><span><i style="background:var(--green);opacity:.75"></i>from organic / call-centre bookings</span>
      <span><i style="background:var(--accent)"></i>from paid bookings</span></div>`;
-  const mk=t.filter(r=>r.day>=MUM.mkt_start), pre=t.filter(r=>r.day<MUM.mkt_start);
-  const sum=a=>a.reduce((s,r)=>s+(r.installs_on||0),0), avg=a=>a.length?Math.round(10*sum(a)/a.length)/10:0;
-  $('mum-inst-cap').textContent=`${sum(t)} installed since 1 Sep · ${avg(pre)}/day before marketing → ${avg(mk)}/day since (today included)`;
+  const k=mumPace(t,r=>r.installs_on||0);
+  $('mum-inst-cap').textContent=`${k.sum} installed ${MUM_MONTH?'in '+P.label:P.label} · `+
+    (k.split?`${k.pre}/day before marketing → ${k.mk}/day since`:`${k.all}/day`)+(P.hasToday?' (today included)':'');
 }
-function drawMumDaily(){
-  const t=MUM.daily, max=Math.max(...t.map(r=>r.booked),1);
-  const W=860,H=140,B=24,T=34,gap=4,bw=(W-(t.length-1)*gap)/t.length;
+function drawMumDaily(P){
+  const t=P.daily, max=Math.max(...t.map(r=>r.booked),1), dense=t.length>40;
+  const W=860,H=140,B=24,T=34,gap=dense?1:4,bw=(W-(t.length-1)*gap)/t.length;
   const yv=v=>T+(H-T-B)*(1-v/max);
-  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`;
-  const mi=t.findIndex(r=>r.day>=MUM.mkt_start);
-  if(mi>0){const x=mi*(bw+gap)-gap/2; svg+=`<line x1="${x}" y1="6" x2="${x}" y2="${H-B}" stroke="var(--accent)" stroke-dasharray="3 3"/><text x="${x+4}" y="12" font-size="10" fill="var(--accent)" font-weight="700">marketing live →</text>`;}
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:860px;height:auto">`+mumMktLine(t,bw,gap,H,B);
   t.forEach((r,i)=>{
     const x0=i*(bw+gap), org=r.booked-r.paid;
     const hO=(H-B)-yv(org), hP=(H-B)-yv(r.paid);
-    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,r.booked?1:0)}" fill="var(--purple)" opacity=".7"/>`;
+    svg+=`<rect x="${x0}" y="${H-B-hO}" width="${bw}" height="${Math.max(hO,r.booked?1:0)}" fill="var(--purple)" opacity=".7"><title>${r.day}: ${r.booked} booked, ${r.installed} installed</title></rect>`;
     if(r.paid)svg+=`<rect x="${x0}" y="${H-B-hO-hP}" width="${bw}" height="${hP}" fill="var(--accent)" rx="2"/>`;
-    if(r.booked)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${r.booked}</text>`;
-    if(r.installed)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-14}" font-size="9.5" fill="var(--green)" font-weight="700" text-anchor="middle">✓${r.installed}</text>`;
-    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${r.day.slice(8)}</text>`;
+    if(r.booked&&!dense)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-3}" font-size="10.5" font-weight="600" fill="var(--text)" text-anchor="middle">${r.booked}</text>`;
+    if(r.installed&&!dense)svg+=`<text x="${x0+bw/2}" y="${H-B-hO-hP-14}" font-size="9.5" fill="var(--green)" font-weight="700" text-anchor="middle">✓${r.installed}</text>`;
+    svg+=`<text x="${x0+bw/2}" y="${H-7}" font-size="9.5" fill="${MUTED}" text-anchor="middle">${mumDayLabel(t,r)}</text>`;
   });
   $('mum-daily').innerHTML=svg+'</svg>'+
     `<div class="legend"><span><i style="background:var(--purple);opacity:.7"></i>organic / call centre</span>
      <span><i style="background:var(--accent)"></i>paid (ad click or view before booking)</span>
-     <span style="color:var(--green);font-weight:700">✓n</span><span>installed from that day's bookings</span></div>`;
-  const mk=MUM.daily.filter(r=>r.day>=MUM.mkt_start), pre=MUM.daily.filter(r=>r.day<MUM.mkt_start);
-  const avg=a=>a.length?Math.round(10*a.reduce((s,r)=>s+r.booked,0)/a.length)/10:0;
-  $('mum-daily-cap').textContent=`${avg(pre)}/day before marketing → ${avg(mk)}/day since (${mk.length} day${mk.length===1?'':'s'}, today included)`;
+     ${dense?'<span>hover a bar for that day; pick a month to see daily labels</span>':`<span style="color:var(--green);font-weight:700">✓n</span><span>installed from that day's bookings</span>`}</div>`;
+  const k=mumPace(t,r=>r.booked);
+  $('mum-daily-cap').textContent=(k.split?`${k.pre}/day before marketing → ${k.mk}/day since (${k.mkDays} day${k.mkDays===1?'':'s'})`:`${k.sum} booked · ${k.all}/day`)+(P.hasToday?', today included':'');
 }
 function mumView(v){
   MUM_VIEW=v;
@@ -3331,7 +3395,7 @@ async function renderMumQueue(){
   const logs=await hub('mumbai_calls');
   const q=($('mum-q').value||'').trim().toLowerCase(), csp=$('mum-csp').value, tier=$('mum-tier').value,
         src=$('mum-src').value, uncalled=$('mum-uncalled').checked;
-  let rows=MUM.rows.filter(r=>
+  let rows=MUM.rows.filter(mumInMonth).filter(r=>
     MUM_VIEW==='all'||(MUM_VIEW==='convert'&&isOpen(r))||(MUM_VIEW==='rca'&&isLost(r))||(MUM_VIEW===r.stage));
   if(csp)rows=rows.filter(r=>r.csp_id===csp);
   if(tier)rows=rows.filter(r=>tier==='none'?!r.tier:r.tier===tier);
@@ -3407,10 +3471,11 @@ async function mumSaveCall(key){
     next_step:$('mc-next').value||null,follow_up_on:$('mc-follow').value||null,notes:$('mc-notes').value||null,_editor:who});
   await renderMumQueue(); renderMumCsps(); renderMumLog();
 }
-async function renderMumCsps(){
+async function renderMumCsps(P){
+  P=P||mumPeriod();
   const logs=await hub('mumbai_calls');
   $('mum-csp-table').innerHTML=`<tr><th>CSP</th><th>Alignment</th><th>AM · region</th><th>Open</th><th>Lost</th><th>Installed</th><th>Cancelled</th><th>Oldest open</th><th>Last call on their bookings</th></tr>`+
-    MUM.csps.map(c=>{
+    P.csps.map(c=>{
       const l=logs.find(x=>x.csp_id===c.csp_id);
       return `<tr><td class="tt2"><span class="mum-line">${esc(c.csp_name||c.csp_id)}</span>${c.csp_poc&&c.csp_poc.toLowerCase()!==(c.csp_name||'').toLowerCase()?`<span class="mum-line sub">${esc(c.csp_poc)}</span>`:''}${c.csp_mobile?`<span class="mum-line mum-mono">${esc(c.csp_mobile)}</span>`:''}</td>
         <td>${mumAlign(c.alignment)}${c.alignment==='A_audit_consent'&&c.ordering==='No'?'<span class="mum-line sub" style="color:var(--red)">ordering not enabled</span>':''}</td><td class="sub">${esc((c.am||'').replace('AM-',''))}${c.region?' · '+esc(c.region):''}</td>
@@ -3419,7 +3484,7 @@ async function renderMumCsps(){
         <td class="sub">${l?`${esc(dstr(l.called_at))} · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)} · ${esc(l.called_by||'')}`:'—'}</td></tr>`;}).join('');
 }
 async function renderMumLog(){
-  const logs=await hub('mumbai_calls');
+  const logs=(await hub('mumbai_calls')).filter(l=>!MUM_MONTH||String(l.called_at||'').slice(0,7)===MUM_MONTH);
   $('mum-log-count').textContent=`${logs.length} call${logs.length===1?'':'s'} logged`;
   $('mum-log').innerHTML=logs.slice(0,60).map(l=>`<div class="act-item"><span class="who">${esc(l.cust_name||l.mobile||'')}</span>
     <span class="when">· ${esc(dstr(l.called_at))} · ${esc(l.called_by||'')} · CSP ${esc(l.csp_name||l.csp_id||'?')} · ${esc((MUM_STAGE[l.stage_at_call]||[l.stage_at_call||''])[0])}</span><br>
