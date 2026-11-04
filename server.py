@@ -2393,6 +2393,7 @@ def compute_mumbai():
             "slot_proposed": (r.get("slot_proposed") or "")[:10] or None,
             "slot_confirmed": _ist(r.get("slot_confirmed")),
             "tech_assigned": r.get("tech_assigned") == 1,
+            "tech_assigned_at": _ist(r.get("tech_assigned_at")),
             "installed_at": _ist(r.get("installed_at")) or _ist(r.get("fct_install")),
             "cancelled_at": _ist(r.get("cancelled_at")), "cancel_reason": r.get("cancel_reason"),
             "last_reason": r.get("last_reason"), "last_moved": moved,

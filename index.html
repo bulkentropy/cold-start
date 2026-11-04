@@ -3243,9 +3243,12 @@ async function loadMumbai(force){
   finally{ if(btn)btn.disabled=false; }
 }
 /* Month view. Everything below the month toggle shows either the whole window
-   (since MUM.start) or one month. A booking belongs to the month it FIRST arrived
-   (first_booked_on, same as the bookings chart), so tiles, queue and CSP table
-   all count the same set. Installs per day is by install day within the month. */
+   (since MUM.start) or one month. Each metric counts in the month it HAPPENED:
+   bookings by the day they first arrived (first_booked_on), technician assigned by
+   assignment day, installs by install day, lost by the day the CSP timed out /
+   declined / failed, cancelled by cancel day — so an October booking installed on
+   1 Nov is a November install. In pipeline is what is open right now. The calling
+   queue still lists the month's bookings. */
 const mumMonthName=m=>new Date(m+'-01T00:00:00').toLocaleString('en-IN',{month:'short',year:'numeric'});
 const mumDay=d=>Number(d.slice(8,10))+' '+mumMonthName(d.slice(0,7)).split(' ')[0];
 const mumInMonth=r=>!MUM_MONTH||(r.first_booked_on||r.booked_on||'').slice(0,7)===MUM_MONTH;
@@ -3261,22 +3264,30 @@ function mumPeriod(){
   const today=(MUM.asof||'').slice(0,10);
   const rows=MUM.rows.filter(mumInMonth);
   const daily=MUM.daily.filter(d=>!MUM_MONTH||d.day.slice(0,7)===MUM_MONTH);
-  const n=f=>rows.filter(f).length;
+  const inM=d=>!MUM_MONTH||(d||'').slice(0,7)===MUM_MONTH;
+  // the day each outcome happened (see the note above)
+  const isInst=r=>r.stage==='installed'&&inM(r.installed_at);
+  const isTech=r=>(r.tech_assigned||r.stage==='installed')&&inM(r.tech_assigned_at||r.installed_at||r.first_booked_on);
+  const isLostM=r=>isLost(r)&&inM(r.last_moved);
+  const isCanc=r=>r.stage==='cancelled'&&inM(r.cancelled_at||r.last_moved);
+  const n=f=>rows.filter(f).length, nAll=f=>MUM.rows.filter(f).length;
   const s={total:rows.length, mkt:n(r=>r.is_mkt), today:n(r=>r.booked_on===today),
-    installed:n(r=>r.stage==='installed'), tech:n(r=>r.tech_assigned||r.stage==='installed'),
-    cancelled:n(r=>r.stage==='cancelled'), open:n(isOpen), stuck:n(isLost), by_source:{}};
+    installed:nAll(isInst), tech:nAll(isTech),
+    cancelled:nAll(isCanc), open:nAll(isOpen), stuck:nAll(isLostM), by_source:{}};
   rows.forEach(r=>{s.by_source[r.source]=(s.by_source[r.source]||0)+1;});
   const by={};
-  rows.forEach(r=>{
+  MUM.rows.forEach(r=>{
     if(!r.csp_id)return;
+    const booked=mumInMonth(r), open=isOpen(r), lost=isLostM(r), inst=isInst(r), canc=isCanc(r);
+    if(!(booked||open||lost||inst||canc))return;
     const c=by[r.csp_id]=by[r.csp_id]||{csp_id:r.csp_id,csp_name:r.csp_name,csp_poc:r.csp_poc,csp_mobile:r.csp_mobile,
       partner_id:r.partner_id,region:r.csp_region,am:r.csp_am,alignment:r.csp_alignment,align_label:r.csp_align_label,
       ordering:r.csp_ordering,total:0,open:0,stuck:0,installed:0,cancelled:0,oldest_open:0};
-    c.total++;
-    if(isOpen(r)){c.open++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
-    else if(isLost(r)){c.stuck++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
-    else if(r.stage==='installed')c.installed++;
-    else if(r.stage==='cancelled')c.cancelled++;
+    if(booked)c.total++;
+    if(open){c.open++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
+    else if(lost){c.stuck++; c.oldest_open=Math.max(c.oldest_open,r.age_days);}
+    else if(inst)c.installed++;
+    else if(canc)c.cancelled++;
   });
   const csps=Object.values(by).sort((a,b)=>(b.open+b.stuck)-(a.open+a.stuck)||b.oldest_open-a.oldest_open);
   const label=MUM_MONTH?mumMonthName(MUM_MONTH):'since '+mumDay(MUM.start);
@@ -3290,15 +3301,15 @@ async function renderMumbai(){
   $('mum-month').innerHTML=`<button data-m="" onclick="mumMonth('')">All · since ${esc(mumDay(MUM.start))}</button>`+
     mumMonths().map(m=>`<button data-m="${m}" onclick="mumMonth('${m}')">${esc(mumMonthName(m))}</button>`).join('');
   document.querySelectorAll('#mum-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===MUM_MONTH));
-  $('mum-month-note').textContent=MUM_MONTH?`Bookings that first came in during ${P.label}, with where they stand today. Installs per day counts activations in ${P.label}.`:'Cumulative. Pick a month to see only that month.';
+  $('mum-month-note').textContent=MUM_MONTH?`Everything counts in the month it happened: bookings that came in, technicians assigned, installs, losses and cancellations during ${P.label}, whatever month the booking came in. In pipeline is open right now.`:'Cumulative. Pick a month to see only that month.';
   const days=P.daily.length||1;
   $('mum-tiles').innerHTML=
     ptile(fmt(s.total),'Bookings '+(MUM_MONTH?'in '+P.label:P.label),!s.mkt?'before marketing (13 Sep)':MUM_MONTH&&s.mkt===s.total?'all after marketing went live (13 Sep)':`${fmt(s.mkt)} since marketing (13 Sep)`)+
     (P.hasToday?ptile(fmt(s.today),'Today','booked so far'):ptile(String(Math.round(10*s.total/days)/10),'Per day',`bookings a day over ${days} days`))+
     ptile(fmt(s.stuck),'Lost to the CSP','timed out / declined / failed — RCA calls','var(--red)')+
-    ptile(fmt(s.open),'In pipeline','received → technician assigned','var(--purple)')+
-    ptile(fmt(s.installed),'Installed',s.total?Math.round(100*s.installed/s.total)+'% of bookings':'', 'var(--green)')+
-    ptile(s.tech?Math.round(100*s.installed/s.tech)+'%':'–','Installed ÷ tech assigned',`${fmt(s.installed)} of ${fmt(s.tech)} · target ≥60%`,'var(--green)')+
+    ptile(fmt(s.open),'In pipeline',MUM_MONTH?'open right now · received → technician assigned':'received → technician assigned','var(--purple)')+
+    ptile(fmt(s.installed),'Installed',MUM_MONTH?'done in '+P.label:(s.total?Math.round(100*s.installed/s.total)+'% of bookings':''), 'var(--green)')+
+    ptile(s.tech?Math.round(100*s.installed/s.tech)+'%':'–','Installed ÷ tech assigned',`${fmt(s.installed)} installed · ${fmt(s.tech)} tech assigned${MUM_MONTH?' in '+P.label:''} · target ≥60%`,'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
   drawMumInstalls(P);
   drawMumDaily(P);

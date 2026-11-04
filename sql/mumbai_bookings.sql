@@ -69,6 +69,13 @@ tr AS (   -- last transition on the current candidate (reason for terminal state
       AND t.EXECUTION_CANDIDATE_ID IN (SELECT EXECUTION_CANDIDATE_ID FROM tl)
     QUALIFY ROW_NUMBER() OVER (PARTITION BY t.EXECUTION_CANDIDATE_ID ORDER BY t.OCCURRED_AT DESC) = 1
 ),
+ta AS (   -- when the current candidate first got a technician (dates tech assigned in the month view)
+    SELECT t.EXECUTION_CANDIDATE_ID, MIN(t.OCCURRED_AT) AS tech_at
+    FROM PROD_DB.CSP_TAS_SERVICE_CSP_TAS_SERVICE.INSTALL_STATE_TRANSITION_LOG t
+    WHERE t._FIVETRAN_DELETED = FALSE AND t.TO_STATE = 'TECHNICIAN_ASSIGNED'
+      AND t.EXECUTION_CANDIDATE_ID IN (SELECT EXECUTION_CANDIDATE_ID FROM tl)
+    GROUP BY 1
+),
 att AS (   -- dbt attribution journey (last touch at booking confirm): Online / CC / BDO / Organic
     SELECT m.MOBILE, m.bt, a.SOURCE AS att_source, a.ATTRIBUTION AS att_channel,
            a.LAST_CLICK AS att_last_click, a.LAST_CALL AS att_last_call,
@@ -136,6 +143,7 @@ SELECT m.MOBILE                                             AS mobile,
        tl.PROPOSED_SLOT_DATE::STRING AS slot_proposed,
        tl.CONFIRMED_SLOT_AT::STRING  AS slot_confirmed,
        IFF(tl.EXECUTOR_ID IS NOT NULL, 1, 0) AS tech_assigned,
+       ta.tech_at::STRING            AS tech_assigned_at,
        tl.inst_any, tl.inst_at_any::STRING AS installed_at, tl.n_candidates,
        tr.TO_STATE AS last_state, tr.REASON_CODE AS last_reason,
        tr.OCCURRED_AT::STRING AS last_moved,
@@ -144,6 +152,7 @@ SELECT m.MOBILE                                             AS mobile,
 FROM m
 LEFT JOIN tl  ON tl.CONNECTION_ID = m.CONNECTION_ID
 LEFT JOIN tr  ON tr.EXECUTION_CANDIDATE_ID = tl.EXECUTION_CANDIDATE_ID
+LEFT JOIN ta  ON ta.EXECUTION_CANDIDATE_ID = tl.EXECUTION_CANDIDATE_ID
 LEFT JOIN att ON att.MOBILE = m.MOBILE AND att.bt = m.bt
 LEFT JOIN br  ON br.MOBILE = m.MOBILE AND br.bt = m.bt
 LEFT JOIN csp c ON c.CSP_ID = COALESCE(tl.CSP_ID, m.fct_csp_id)
