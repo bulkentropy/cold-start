@@ -3275,6 +3275,10 @@ function mumPeriod(){
     installed:nAll(isInst), tech:nAll(isTech),
     cancelled:nAll(isCanc), open:nAll(isOpen), stuck:nAll(isLostM), by_source:{}};
   rows.forEach(r=>{s.by_source[r.source]=(s.by_source[r.source]||0)+1;});
+  // unique CSPs with at least one install, in the chosen period and in each month
+  const instCsps=f=>new Set(MUM.rows.filter(r=>r.csp_id&&r.stage==='installed'&&f(r.installed_at)).map(r=>r.csp_id)).size;
+  s.inst_csps=instCsps(inM);
+  s.inst_csps_by_month=mumMonths().map(m=>[m,instCsps(d=>(d||'').slice(0,7)===m)]);
   const by={};
   MUM.rows.forEach(r=>{
     if(!r.csp_id)return;
@@ -3309,6 +3313,7 @@ async function renderMumbai(){
     ptile(fmt(s.stuck),'Lost to the CSP','timed out / declined / failed — RCA calls','var(--red)')+
     ptile(fmt(s.open),'In pipeline',MUM_MONTH?'open right now · received → technician assigned':'received → technician assigned','var(--purple)')+
     ptile(fmt(s.installed),'Installed',MUM_MONTH?'done in '+P.label:(s.total?Math.round(100*s.installed/s.total)+'% of bookings':''), 'var(--green)')+
+    ptile(fmt(s.inst_csps),'CSPs that installed',MUM_MONTH?`at least one install in ${P.label}`:s.inst_csps_by_month.map(([m,c])=>`${mumMonthName(m).slice(0,3)} ${c}`).join(' · '),'var(--green)')+
     ptile(s.tech?Math.round(100*s.installed/s.tech)+'%':'–','Installed ÷ tech assigned',`${fmt(s.installed)} installed · ${fmt(s.tech)} tech assigned${MUM_MONTH?' in '+P.label:''} · target ≥60%`,'var(--green)')+
     ptile(fmt(s.cancelled),'Cancelled','by the customer');
   drawMumInstalls(P);
