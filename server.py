@@ -2390,6 +2390,7 @@ def compute_mumbai():
             "tier": z["tier"] if z else None, "cell": z["cell"] if z else None,
             "pref_install": (r.get("pref_install") or "")[:10] or None,
             "stage": stage, "tas_state": state or None,
+            "task_created": _ist(r.get("task_created")),
             "slot_proposed": (r.get("slot_proposed") or "")[:10] or None,
             "slot_confirmed": _ist(r.get("slot_confirmed")),
             "tech_assigned": r.get("tech_assigned") == 1,
@@ -2831,7 +2832,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
-            nxt = path if path in ("/mumbai", "/mumbai/focus") else "/"
+            nxt = path if path in ("/mumbai", "/mumbai/focus", "/mumbai/installs") else "/"
             if path == "/login":
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
@@ -2839,7 +2840,7 @@ class Handler(BaseHTTPRequestHandler):
                         or path in ("/data", "/data/heavy", "/refresh", "/settlement", "/mumbai.json")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
-            if path in ("/", "/mumbai", "/mumbai/focus"):
+            if path in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs"):
                 # /mumbai is the standalone Mumbai-restart page (and /mumbai/focus its
                 # focus-zones page): same file, the script reads location.pathname and
                 # hides everything but that initiative.
@@ -2896,7 +2897,7 @@ class Handler(BaseHTTPRequestHandler):
                 email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
                 nxt = (form.get("next") or ["/"])[0]
-                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus") else "/"     # never an open redirect
+                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs") else "/"     # never an open redirect
                 if not EMAIL_RE.match(email):
                     err = '<div class="err">Use your @wiom.in email.</div>'
                 elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):

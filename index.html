@@ -512,6 +512,48 @@ svg text{font-family:inherit}
   <div class="toggle">
     <button data-p="all" onclick="location.href='/mumbai'">All bookings &amp; calling queue</button>
     <button data-p="focus" onclick="location.href='/mumbai/focus'">Focus zones · G14 &amp; G8</button>
+    <button data-p="installs" onclick="location.href='/mumbai/installs'">Installs · today &amp; yesterday</button>
+  </div>
+</div>
+
+<div id="pane-muminst" style="display:none">
+  <div class="card section">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="label">Mumbai restart · recent installs</div>
+        <h2 style="margin-top:4px">Every Mumbai install done today and yesterday</h2>
+        <div class="sub" style="margin-top:8px;max-width:900px">
+          A rolling list: each install shows here on the day it happens and the day after, then drops off.
+          An install counts on its install day (IST), whatever day the booking came in. Each row shows the
+          CSP that did it and the booking's path to the install: when it was first booked, any CSP that lost it
+          first, when this CSP got the task, slot, technician and install. The time after each step is the gap
+          from the step before.
+        </div>
+      </div>
+      <div class="hdr-right" style="align-items:flex-start">
+        <span class="asof" id="mi-asof">loading…</span>
+        <button class="btn" id="mi-refbtn" onclick="loadMumbai(true)" style="padding:8px 20px;font-size:13px">Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip section" id="mi-tiles"></div>
+
+  <div class="card section">
+    <div class="chart-head" style="flex-wrap:wrap;gap:12px">
+      <div><div class="label">Installs</div><h2 id="mi-title">Today and yesterday</h2></div>
+      <div class="toggle" id="mi-day">
+        <button class="on" data-d="" onclick="miDay('')">Both days</button>
+        <button data-d="today" onclick="miDay('today')">Today</button>
+        <button data-d="yday" onclick="miDay('yday')">Yesterday</button>
+      </div>
+    </div>
+    <div class="tablewrap" style="margin-top:12px"><table class="board" id="mi-table" style="min-width:1100px"></table></div>
+    <div class="foot">Install time is the task's installation-completed time, else the booking table's install time.
+      Today's list fills during the day as the warehouse syncs, so a fresh install can take some time to show.
+      <b>Lost first at</b> = an earlier booking by the same customer that another CSP timed out, declined or failed.
+      <b>Re-farmed ×n</b> = the connection passed through n other CSPs before this one. Mobile numbers are for
+      calling only — do not export this table. To log a call, use the calling queue on <a href="/mumbai">All bookings</a>.</div>
   </div>
 </div>
 
@@ -1152,13 +1194,14 @@ function bootStandalone(){
   $('asof').style.display='none'; $('refbtn').style.display='none';
   $('inits').style.display='none'; document.querySelector('.tabs').style.display='none';
   const nsm=$('nsm'); if(nsm) nsm.style.display='none';
-  document.title=MUM_PAGE==='focus'?'Mumbai restart — focus zones':'Mumbai restart — bookings & CSP calls';
+  document.title=MUM_PAGE==='focus'?'Mumbai restart — focus zones':MUM_PAGE==='installs'?'Mumbai restart — recent installs':'Mumbai restart — bookings & CSP calls';
   if(MUM_PAGE==='focus') document.querySelector('header h1').textContent='Focus zones · G14 & G8';
+  if(MUM_PAGE==='installs') document.querySelector('header h1').textContent='Installs · today & yesterday';
   TABS.forEach(x=>$('pane-'+x).style.display='none'); METRICS.forEach(m=>$('pane-'+m).style.display='none');
   $('pane-sehat').style.display='none';
   $('mum-nav').style.display='';
   document.querySelectorAll('#mum-nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===MUM_PAGE));
-  INIT='mumbai'; $(MUM_PAGE==='focus'?'pane-mumfocus':'pane-mumbai').style.display='';
+  INIT='mumbai'; $({focus:'pane-mumfocus',installs:'pane-muminst'}[MUM_PAGE]||'pane-mumbai').style.display='';
   // Who is calling: the signed-in @wiom.in email, fetched up front so the call form
   // never falls back to the name prompt (that is where 'anonymous' came from).
   fetch('/api/me').then(r=>r.json()).then(j=>{ME=j.email||'';}).catch(()=>{ME='';});
@@ -1616,8 +1659,10 @@ let MUM=null, MUM_VIEW='convert', MUM_REQ=null, MUM_MONTH='';   // Mumbai restar
    initiative renders — no selector, no tabs, no NSM strip, and the main payload is
    never fetched. It is deliberately absent from the dashboard's initiative row. */
 const MUM_PATH=location.pathname.replace(/\/$/,'');
-const STANDALONE=(MUM_PATH==='/mumbai'||MUM_PATH==='/mumbai/focus')?'mumbai':null;
-const MUM_PAGE=MUM_PATH==='/mumbai/focus'?'focus':'all';   // /mumbai/focus = the focus-zones page
+const STANDALONE=['/mumbai','/mumbai/focus','/mumbai/installs'].includes(MUM_PATH)?'mumbai':null;
+// /mumbai/focus = the focus-zones page, /mumbai/installs = today's and yesterday's installs
+const MUM_PAGE=MUM_PATH==='/mumbai/focus'?'focus':MUM_PATH==='/mumbai/installs'?'installs':'all';
+let MI_DAY='';
 async function setPayoutMonth(m){
   PMONTH=m;
   document.querySelectorAll('#payout-month button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
@@ -3228,8 +3273,9 @@ const isLost=r=>r.stage.startsWith('stuck');          // CSP timed out / decline
 const inQueue=r=>isOpen(r)||isLost(r);
 
 async function loadMumbai(force){
-  const focus=STANDALONE&&MUM_PAGE==='focus', asof=$(focus?'mf-asof':'mum-asof');
-  const btn=$(focus?'mf-refbtn':'mum-refbtn'); if(btn)btn.disabled=true;
+  const focus=STANDALONE&&MUM_PAGE==='focus', inst=STANDALONE&&MUM_PAGE==='installs';
+  const pre=focus?'mf':inst?'mi':'mum', asof=$(pre+'-asof');
+  const btn=$(pre+'-refbtn'); if(btn)btn.disabled=true;
   try{
     MUM_REQ=MUM_REQ||fetch('/mumbai.json'+(force?'?force=1':''));
     const r=await MUM_REQ; MUM_REQ=null;
@@ -3238,6 +3284,7 @@ async function loadMumbai(force){
     if(MUM.error){asof.textContent=MUM.error;return;}
     if(focus){ renderMumFocus(); return; }
     HUB.mumbai_calls=null;
+    if(inst){ renderMumInstalls(); return; }
     renderMumbai();
   }catch(e){ MUM_REQ=null; asof.textContent='could not load — '+e; }
   finally{ if(btn)btn.disabled=false; }
@@ -3506,6 +3553,73 @@ async function renderMumLog(){
     <span class="when">· ${esc(dstr(l.called_at))} · ${esc(l.called_by||'')} · CSP ${esc(l.csp_name||l.csp_id||'?')} · ${esc((MUM_STAGE[l.stage_at_call]||[l.stage_at_call||''])[0])}</span><br>
     <b>${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</b>${l.next_step?' → '+esc(l.next_step):''}${l.follow_up_on?' (by '+esc(dstr(l.follow_up_on))+')':''}${l.notes?`<div class="mum-notes" onclick="mumMore(this)">${esc(l.notes)}</div>${l.notes.length>120?`<span class="mum-more" onclick="mumMore(this.previousSibling)">more ⌄</span>`:''}`:''}</div>`).join('')
     ||'<div class="act-item sub">no calls logged yet — use “log call” on any row above</div>';
+}
+/* Recent installs (/mumbai/installs): rolling list of installs whose install day (IST)
+   is today or yesterday, from the same MUM.rows. Times are 'YYYY-MM-DD HH:MM' IST. */
+function miDay(d){ MI_DAY=d; renderMumInstalls(); }
+const miTs=s=>s?new Date(s.replace(' ','T')+':00').getTime():null;
+function miGap(a,b){                       // "+3h" / "+2d 4h" from a to b, '' if either is missing
+  const x=miTs(a), y=miTs(b); if(x==null||y==null||y<x) return '';
+  const m=Math.round((y-x)/6e4); if(m<60) return `+${m}m`;
+  const h=Math.round(m/60); return h<24?`+${h}h`:`+${Math.floor(h/24)}d${h%24?' '+h%24+'h':''}`;
+}
+function miInstAt(r){ return r.installed_at||r.last_moved||''; }
+async function renderMumInstalls(){
+  if(!MUM) return;
+  const today=(MUM.asof||'').slice(0,10);
+  const yd=new Date(today+'T00:00:00'); yd.setDate(yd.getDate()-1);
+  const yday=`${yd.getFullYear()}-${String(yd.getMonth()+1).padStart(2,'0')}-${String(yd.getDate()).padStart(2,'0')}`;
+  $('mi-asof').textContent='as of '+(MUM.asof||'').replace('T',' ').slice(0,16)+' IST · refreshes every '+MUM.ttl_min+' min';
+  document.querySelectorAll('#mi-day button').forEach(b=>b.classList.toggle('on',b.dataset.d===MI_DAY));
+  const all=MUM.rows.filter(r=>r.stage==='installed'&&[today,yday].includes(miInstAt(r).slice(0,10)))
+    .sort((a,b)=>miInstAt(b).localeCompare(miInstAt(a)));
+  const nT=all.filter(r=>miInstAt(r).startsWith(today)).length, nY=all.length-nT;
+  const paid=all.filter(r=>r.source_group==='paid').length;
+  const hrs=all.map(r=>{const a=miTs(r.first_booked_at||r.booked_at), b=miTs(miInstAt(r)); return a!=null&&b!=null&&b>=a?(b-a)/36e5:null;})
+    .filter(h=>h!=null).sort((a,b)=>a-b);
+  const med=hrs.length?hrs[Math.floor(hrs.length/2)]:null;
+  $('mi-tiles').innerHTML=
+    ptile(fmt(nT),'Today',mumDay(today)+' · so far','var(--green)')+
+    ptile(fmt(nY),'Yesterday',mumDay(yday),'var(--green)')+
+    ptile(fmt(new Set(all.map(r=>r.csp_id).filter(Boolean)).size),'CSPs that installed','across both days')+
+    ptile(all.length?Math.round(100*paid/all.length)+'%':'–','From paid bookings',`${paid} of ${all.length}`,'var(--accent)')+
+    ptile(med==null?'–':med<48?Math.round(med)+'h':Math.round(med/24*10)/10+'d','Booking → install','median, from first booking');
+  const rows=all.filter(r=>!MI_DAY||miInstAt(r).startsWith(MI_DAY==='today'?today:yday));
+  $('mi-title').textContent=(MI_DAY==='today'?'Today':MI_DAY==='yday'?'Yesterday':'Today and yesterday')+` · ${rows.length} install${rows.length===1?'':'s'}`;
+  const logs=await hub('mumbai_calls');
+  const step=(label,at,prev,extra)=>at?`<span class="mum-line"><b>${label}</b> ${esc(at.slice(5))}${prev?` <span class="sub">${miGap(prev,at)}</span>`:''}${extra||''}</span>`:'';
+  let lastDay='';
+  $('mi-table').innerHTML=`<tr><th>Installed</th><th>Customer</th><th>Where</th><th>Source</th><th>CSP</th><th>Journey</th><th>Calls</th></tr>`+
+    rows.map(r=>{
+      const ia=miInstAt(r), day=ia.slice(0,10);
+      // other bookings by the same customer that a different CSP held and lost
+      const lostAt=MUM.rows.filter(x=>x.mobile===r.mobile&&(x.csp_id||'')!==(r.csp_id||'')&&x.key!==r.key);
+      const first=r.first_booked_at||r.booked_at;
+      const t=[
+        step('Booked',first,'',r.journeys>1?` <span class="pill min">re-booked ×${r.journeys-1}</span>`:''),
+        r.journeys>1?step('Latest booking',r.booked_at,first):'',
+        ...lostAt.map(x=>`<span class="mum-line sub">Lost first at <b>${esc(x.csp_name||x.csp_id||'no CSP')}</b> · ${esc((MUM_STAGE[x.stage]||[x.stage])[0])}${x.fail_bucket?' · '+esc(x.fail_bucket):''}</span>`),
+        step('CSP got task',r.task_created,r.booked_at,r.refarms?` <span class="pill min">re-farmed ×${r.refarms}</span>`:''),
+        r.slot_proposed?`<span class="mum-line"><b>Slot</b> ${esc(r.slot_proposed.slice(5))}${r.pref_install&&r.pref_install!==r.slot_proposed?` <span class="sub">(asked ${esc(r.pref_install.slice(5))})</span>`:''}</span>`:'',
+        step('Slot confirmed',r.slot_confirmed,r.task_created),
+        step('Tech assigned',r.tech_assigned_at,r.slot_confirmed||r.task_created),
+        step('Installed',ia,r.tech_assigned_at||r.slot_confirmed||r.task_created),
+        `<span class="mum-line sub">total ${miGap(first,ia).replace('+','')||'–'} from first booking</span>`
+      ].join('');
+      const calls=mumCallsFor(logs,r), l=calls[0];
+      const head=!MI_DAY&&day!==lastDay?`<tr><td colspan="7" style="background:var(--n200);font-weight:700">${day===today?'Today':'Yesterday'} · ${esc(mumDay(day))} · ${day===today?nT:nY}</td></tr>`:'';
+      lastDay=day;
+      return head+`<tr>
+        <td style="white-space:nowrap"><span class="mum-line"><b>${esc(ia.slice(11))}</b></span><span class="mum-line sub">${esc(mumDay(day))}</span></td>
+        <td class="tt2"><span class="mum-line">${esc(r.name||'—')}</span><span class="mum-line mum-mono">${esc(r.mobile)}</span>${r.booking_id?`<span class="mum-line sub">booking ${esc(r.booking_id)}</span>`:''}</td>
+        <td style="max-width:220px"><span class="mum-line sub">${esc(r.locality||r.address||'')}${r.pincode?' · '+esc(r.pincode):''}</span><span class="mum-line">${r.zone?`<b>${esc(r.zone)}</b> `:''}${mumTier(r.tier)}</span></td>
+        <td style="max-width:180px">${r.source_group==='paid'?`<b style="color:var(--accent)">${esc(r.source)}</b>`:esc(r.source)}${r.flow?`<span class="mum-line sub">flow ${esc(r.flow)}</span>`:''}</td>
+        <td class="tt2" style="max-width:220px"><span class="mum-line">${esc(r.csp_name||r.csp_id||'—')}</span>${r.csp_poc&&r.csp_poc.toLowerCase()!==(r.csp_name||'').toLowerCase()?`<span class="mum-line sub">${esc(r.csp_poc)}</span>`:''}
+            ${r.csp_mobile?`<span class="mum-line mum-mono">${esc(r.csp_mobile)}</span>`:''}
+            <span class="mum-line" style="margin-top:3px">${mumAlign(r.csp_alignment)}${r.csp_am?` <span class="sub">${esc(r.csp_am.replace('AM-',''))}</span>`:''}</span></td>
+        <td style="min-width:240px">${t}</td>
+        <td style="max-width:200px">${l?`<span class="mum-line"><b>${calls.length}</b> call${calls.length===1?'':'s'}</span><span class="mum-line sub">last ${esc(dstr(l.called_at))} · ${esc(MUM_OUT_LABEL[l.outcome]||l.outcome)}</span>`:'<span class="sub">none</span>'}</td>
+      </tr>`;}).join('')||'<tr><td colspan="7" class="sub">no installs yet</td></tr>';
 }
 /* Focus zones (/mumbai/focus): G14 + G8 CSPs from the field-activity start, against the
    focus-zone benchmarks. Computed server-side as MUM.focus. */
