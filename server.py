@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
@@ -1949,13 +1950,13 @@ DOC_TYPES = {"pdf": "pdf", "doc": "doc", "docx": "doc", "xls": "sheet", "xlsx": 
              "csv": "sheet", "ppt": "deck", "pptx": "deck", "md": "doc", "txt": "doc"}
 
 
-def storage_upload(path, data, content_type):
+def storage_upload(path, data, content_type, upsert=False):
     key = _require("SUPABASE_AUDIT_SERVICE_KEY")
     req = urllib.request.Request(
         f"{SUPABASE_AUDIT_URL}/storage/v1/object/{UPLOAD_BUCKET}/{urllib.parse.quote(path)}",
         data=data, method="POST",
         headers={"Authorization": f"Bearer {key}", "Content-Type": content_type,
-                 "x-upsert": "false"})
+                 "x-upsert": "true" if upsert else "false"})
     return _http_json(req)
 
 
@@ -2615,6 +2616,184 @@ def serve_mumbai(force=False):
     return _mum_cache["packed"] or _pack({"error": "mumbai data unavailable"})
 
 
+# ----------------------------------------------------------------------------
+# Mumbai -> Slack: every hour, rebuild /mumbai and post what changed since the last
+# post — new bookings, re-bookings, and bookings that moved to another CSP — with
+# the lead's current stage. Posts as the user (SLACK_USER_TOKEN) because the target
+# is a group DM, which a bot cannot join. Off unless MUMBAI_SLACK_NOTIFY=1, so a
+# local server never double-posts or races the deployed one on the saved state.
+# ----------------------------------------------------------------------------
+MUMBAI_SLACK_CHANNEL = os.environ.get("MUMBAI_SLACK_CHANNEL", "C0C2QG9JGTA")
+MUMBAI_NOTIFY_STATE = "mumbai/notify_state.json"
+MUMBAI_PAGE_URL = "https://mg-dashboard-production-c9be.up.railway.app/mumbai"
+_MUM_STAGE_TEXT = {
+    "stuck_timeout": "Lost · CSP timed out", "stuck_declined": "Lost · CSP declined",
+    "stuck_failed": "Lost · install failed", "no_csp": "No CSP yet",
+    "received": "CSP received", "slot_proposed": "Slot proposed",
+    "slot_confirmed": "Slot confirmed", "tech_assigned": "Technician assigned",
+    "installed": "Installed", "cancelled": "Cancelled by customer"}
+_MUM_CATEGORIES = ["New booking", "Re-booking", "CSP change", "Re-booking · CSP change"]
+
+
+def _mum_customer_key(r):
+    # Hashed so the state file in storage carries no phone numbers.
+    return hashlib.sha256((r["mobile"] or r["key"] or "").encode()).hexdigest()[:20]
+
+
+def _mum_snapshot(rows):
+    """Per customer: the connection, CSP and stage of their latest booking — the same
+    'latest booking holds the truth' rule as the focus page."""
+    latest = {}
+    for r in sorted(rows, key=lambda r: r["booked_at"] or ""):
+        latest[_mum_customer_key(r)] = r
+    return latest
+
+
+def _mum_changes(prev, latest):
+    out = []
+    for h, r in latest.items():
+        p = prev.get(h)
+        if p is None:
+            cat = "New booking"
+        else:
+            rebooked = r["key"] != p["key"]
+            moved = (r["csp_id"] or "") != (p["csp"] or "")
+            if rebooked and moved:
+                cat = "Re-booking · CSP change"
+            elif moved:
+                cat = "CSP change"
+            elif rebooked:
+                cat = "Re-booking"
+            else:
+                continue
+        out.append({"cat": cat, "row": r, "prev_csp": (p or {}).get("csp_name") or ""})
+    return out
+
+
+def _mum_line(c):
+    r = c["row"]
+    csp = r["csp_name"] or r["csp_id"] or "No CSP yet"
+    if "CSP change" in c["cat"]:
+        csp = f"{c['prev_csp'] or 'No CSP'} → {csp}"
+    where = r["locality"] or r["zone"] or ""
+    bits = [f"*{csp}*", _MUM_STAGE_TEXT.get(r["stage"], r["stage"])]
+    if r["name"]:
+        bits.append(r["name"])
+    if where:
+        bits.append(where)
+    if r["booked_at"]:
+        bits.append("booked " + datetime.strptime(r["booked_at"], "%Y-%m-%d %H:%M").strftime("%d %b %H:%M"))
+    return "• " + " · ".join(bits)
+
+
+def _mum_messages(changes, since, now):
+    counts = {k: sum(1 for c in changes if c["cat"] == k) for k in _MUM_CATEGORIES}
+    head = (f"*Mumbai bookings — changes {since:%d %b %H:%M} to {now:%d %b %H:%M} IST*\n"
+            + "  ·  ".join(f"{k}: {n}" for k, n in counts.items() if n))
+    lines = []
+    for k in _MUM_CATEGORIES:
+        group = sorted((c for c in changes if c["cat"] == k),
+                       key=lambda c: c["row"]["booked_at"] or "", reverse=True)
+        if group:
+            lines.append(f"\n*{k}* ({len(group)})")
+            lines.extend(_mum_line(c) for c in group)
+    lines.append(f"\n<{MUMBAI_PAGE_URL}|Open the Mumbai dashboard>")
+    # Slack truncates long messages; split into chunks of ~40 lines.
+    msgs, cur = [], [head]
+    for ln in lines:
+        if len(cur) >= 40:
+            msgs.append("\n".join(cur))
+            cur = ["_(continued)_"]
+        cur.append(ln)
+    msgs.append("\n".join(cur))
+    return msgs
+
+
+def _slack_call(token, method, payload):
+    req = urllib.request.Request(
+        "https://slack.com/api/" + method, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8",
+                 "Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        out = json.loads(resp.read())
+    if not out.get("ok"):
+        raise RuntimeError(f"Slack {method} failed: {out.get('error')}")
+    return out
+
+
+def _mum_alert(text):
+    """Best-effort failure DM to the owner via the bot (cron_alert pattern). Never raises."""
+    try:
+        tok, email = os.environ.get("SLACK_BOT_TOKEN"), os.environ.get("SLACK_ALERT_EMAIL")
+        if not (tok and email):
+            return
+        q = urllib.parse.urlencode({"email": email})
+        req = urllib.request.Request(f"https://slack.com/api/users.lookupByEmail?{q}",
+                                     headers={"Authorization": "Bearer " + tok})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            u = json.loads(resp.read())
+        if u.get("ok"):
+            _slack_call(tok, "chat.postMessage", {"channel": u["user"]["id"], "text": text})
+    except Exception as e:
+        print("mumbai notify: alert not delivered:", type(e).__name__, e)
+
+
+def mumbai_notify_once():
+    """Rebuild the Mumbai data (this IS the dashboard refresh), diff against the last
+    posted state, post the changes, then save the new state. State is saved only
+    after a successful post, so a failed hour is retried — not lost — next hour."""
+    token = _require("SLACK_USER_TOKEN")
+    data = compute_mumbai()
+    packed = _pack(data)
+    with _mum_lock:
+        _mum_cache["packed"] = packed
+        _mum_cache["at"] = time.time()
+    latest = _mum_snapshot(data["rows"])
+    now = datetime.now(IST).replace(tzinfo=None, second=0, microsecond=0)
+    try:
+        prev_doc = json.loads(storage_download(MUMBAI_NOTIFY_STATE)[0])
+    except urllib.error.HTTPError as e:
+        if e.code not in (400, 404):
+            raise
+        prev_doc = None   # first run: take a baseline, post nothing
+    posted = 0
+    if prev_doc is not None:
+        changes = _mum_changes(prev_doc["customers"], latest)
+        if changes:
+            since = datetime.fromisoformat(prev_doc["asof"])
+            for text in _mum_messages(changes, since, now):
+                _slack_call(token, "chat.postMessage",
+                            {"channel": MUMBAI_SLACK_CHANNEL, "text": text,
+                             "unfurl_links": False, "unfurl_media": False})
+            posted = len(changes)
+    state = {"asof": now.isoformat(timespec="minutes"),
+             "customers": {h: {"key": r["key"], "csp": r["csp_id"] or "",
+                               "csp_name": r["csp_name"] or "", "stage": r["stage"]}
+                           for h, r in latest.items()}}
+    storage_upload(MUMBAI_NOTIFY_STATE, json.dumps(state).encode(), "application/json", upsert=True)
+    print(f"mumbai notify: {'baseline saved' if prev_doc is None else f'{posted} change(s) posted'}")
+    return posted
+
+
+def _mum_notifier():
+    """Runs at the top of every IST hour outside WARM_QUIET_HOURS. Overnight changes
+    are not lost: the 07:00 run diffs against the 22:00 state and posts them all."""
+    while True:
+        now = datetime.now(IST)
+        nxt = (now + timedelta(hours=1)).replace(minute=0, second=30, microsecond=0)
+        time.sleep(max(1, (nxt - now).total_seconds()))
+        hr = datetime.now(IST).hour
+        if hr >= WARM_QUIET_HOURS[0] or hr < WARM_QUIET_HOURS[1]:
+            continue
+        try:
+            mumbai_notify_once()
+        except Exception as e:
+            traceback.print_exc()
+            _mum_alert(f":red_circle: *Mumbai booking updates — hourly post failed*\n"
+                       f"{datetime.now(IST):%d %b %Y %H:%M} IST\n*{type(e).__name__}:* {str(e)[:300]}\n"
+                       f"Nothing was posted this hour; the changes will be retried at the next run.")
+
+
 def refresh(force=False):
     with _lock:
         if (not force and _cache["payload"]
@@ -2969,4 +3148,6 @@ if __name__ == "__main__":
     print(f"MG dashboard on http://localhost:{PORT}  (refresh every {CACHE_TTL_S // 60} min; GET /refresh to force)")
     threading.Thread(target=refresh, daemon=True).start()
     threading.Thread(target=_warmer, daemon=True).start()
+    if os.environ.get("MUMBAI_SLACK_NOTIFY") == "1":
+        threading.Thread(target=_mum_notifier, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
