@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSP Task List</title>
+<style>
+:root{
+  --accent:#D9008D; --purple:#6D17CE; --dark:#161021;
+  --text:#161021; --muted:#665E75; --bg:#F1EDF7; --card:#FAF9FC;
+  --green:#008043; --red:#E01E00; --amber:#C77700;
+  --n200:#E8E4F0; --n300:#D7D3E0;
+  --install:#6D17CE; --service:#D9008D; --pickup:#0B6BCB; --claim:#C77700;
+  --shadow:0 4px 24px rgba(22,16,33,.07); --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);
+     color:var(--text);padding:24px 16px 48px;max-width:1280px;margin:0 auto}
+.label{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;line-height:1.2;margin-top:2px}
+.sub{font-size:13px;color:var(--muted);line-height:1.5}
+header{margin-bottom:16px}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:40px;padding:10px 24px;font:inherit;
+     font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover{background:#b80078}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--text);border:1.5px solid var(--n300)}
+.btn.ghost:hover{border-color:var(--accent);background:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* CSP picker */
+.pick{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+.combo{position:relative;flex:1 1 360px;min-width:0}
+.combo input{width:100%;font:inherit;font-size:15px;padding:11px 16px;border:1.5px solid var(--n300);
+             border-radius:12px;background:#fff;color:var(--text)}
+.combo input:focus{border-color:var(--accent);outline:none}
+.list{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--n300);
+      border-radius:12px;box-shadow:var(--shadow);max-height:340px;overflow:auto;display:none}
+.list.open{display:block}
+.opt{padding:9px 14px;cursor:pointer;display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.opt small{color:var(--muted);white-space:nowrap}
+.opt.hl{background:var(--bg)}
+.opt.none{color:var(--muted);cursor:default}
+.chosen{margin-top:10px;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.chosen b{color:var(--text);font-size:15px}
+.flag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:40px;background:#FFE6CC;color:#B85C00}
+.status{font-size:13px;color:var(--muted);margin-top:10px}
+.err{background:#FDE7E4;color:var(--red);border-radius:10px;padding:10px 14px;font-size:13px;margin-top:10px}
+
+/* KPI tiles — click to filter */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;border:1.5px solid transparent;
+     border-left:4px solid var(--c);cursor:pointer;text-align:left;font:inherit;color:inherit}
+.kpi:hover{border-color:var(--n300);border-left-color:var(--c)}
+.kpi.on{border-color:var(--c);background:#fff}
+.kpi .n{font-size:28px;font-weight:800;line-height:1.1}
+.kpi .l{font-size:13px;color:var(--muted);margin-top:2px}
+.kpi .o{font-size:12px;font-weight:700;color:var(--red);margin-top:4px;min-height:15px}
+
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.filters input[type=search]{font:inherit;font-size:14px;padding:8px 14px;border:1.5px solid var(--n300);border-radius:40px;
+     background:#fff;min-width:0;flex:1 1 220px;max-width:340px}
+.filters label{font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--muted)}
+.count{font-size:13px;color:var(--muted);margin-left:auto}
+
+/* table */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);
+   padding:8px 10px;border-bottom:1.5px solid var(--n300);white-space:nowrap;cursor:pointer;user-select:none}
+th[aria-sort=ascending]::after{content:" ▲"} th[aria-sort=descending]::after{content:" ▼"}
+td{padding:10px;border-bottom:1px solid var(--n200);vertical-align:top}
+tr.stale td{opacity:.6}
+.type{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:40px;color:#fff;background:var(--c);white-space:nowrap}
+.cust{font-weight:600}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px}
+.mute{color:var(--muted);font-size:12px}
+.late{color:var(--red);font-weight:700}
+.soon{color:var(--amber);font-weight:700}
+.ok{color:var(--green);font-weight:600}
+.age{font-weight:700;white-space:nowrap}
+.empty{text-align:center;color:var(--muted);padding:32px 10px}
+.staletag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:40px;background:var(--n200);color:var(--muted);margin-left:6px}
+.legend{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6}
+
+/* pull status */
+.pstat{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 14px;border-radius:10px;font-size:13.5px}
+.pstat.busy{background:var(--n200);color:var(--text)}
+.pstat.done{background:#E1FAED;color:var(--green)}
+.pstat.done b{color:var(--green)}
+.pstat .sub2{color:var(--muted);font-size:12.5px}
+.spin{width:16px;height:16px;border-radius:50%;border:2.5px solid var(--n300);border-top-color:var(--accent);animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tick{flex:none;width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:800}
+.flash{animation:fl 1.2s ease}
+@keyframes fl{0%{box-shadow:0 0 0 0 rgba(0,128,67,.45)}100%{box-shadow:0 0 0 12px rgba(0,128,67,0)}}
+@media (prefers-reduced-motion:reduce){.spin,.flash{animation:none}}
+
+/* scorecard */
+.sc-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:4px}
+.sc-head h2{font-size:1.1rem;font-weight:800}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:40px;background:var(--n200);color:var(--text)}
+.pill.good{background:#E1FAED;color:var(--green)} .pill.warn{background:#FFE6CC;color:#B85C00} .pill.bad{background:#FDE7E4;color:var(--red)}
+.mets{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-top:14px}
+.met{background:#fff;border:1px solid var(--n200);border-radius:14px;padding:14px 16px;position:relative}
+.met .t{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.3px}
+.met .v{font-size:26px;font-weight:800;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums}
+.met .v small{font-size:13px;font-weight:600;color:var(--muted)}
+.met .d{font-size:12.5px;color:var(--muted);margin-top:2px}
+.met .row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.chg{font-size:12px;font-weight:700;color:var(--muted)}
+.spark{display:block;width:100%;height:40px;margin-top:8px;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--dark);color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%);display:none;z-index:3}
+.sc-note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6}
+.sec-label{margin:4px 0 10px}
+
+/* phone: rows become cards */
+@media (max-width:720px){
+  body{padding:16px 16px 40px}
+  table,thead,tbody,tr,td{display:block}
+  thead{display:none}
+  tr{background:#fff;border:1px solid var(--n200);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+  td{border:none;padding:3px 0}
+  td[data-l]::before{content:attr(data-l) ": ";color:var(--muted);font-size:12px}
+  .count{margin-left:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="label">Cold-start · Mumbai</div>
+  <h1>CSP task list</h1>
+  <p class="sub">One CSP at a time: their app scorecard and the tasks pending on their app (installs, service, pickups, recharge claims). Data is pulled live only when you pick a CSP or press Refresh.</p>
+</header>
+
+<section class="card" aria-label="Choose a CSP">
+  <div class="pick">
+    <div class="combo">
+      <input id="q" type="search" role="combobox" aria-expanded="false" aria-controls="list" aria-autocomplete="list"
+             autocomplete="off" placeholder="Loading Mumbai CSPs…" disabled>
+      <div id="list" class="list" role="listbox"></div>
+    </div>
+    <button id="refresh" class="btn" disabled>Refresh</button>
+  </div>
+  <div id="chosen" class="chosen"></div>
+  <div id="status" class="pstat" role="status" aria-live="polite" hidden></div>
+  <div id="err" class="err" hidden></div>
+</section>
+
+<div id="out" hidden>
+  <section class="card" id="score" aria-label="App scorecard"></section>
+  <div class="label sec-label">Pending tasks</div>
+  <div id="kpis" class="kpis"></div>
+  <section class="card">
+    <div class="filters">
+      <input id="f" type="search" placeholder="Search customer, device ID, locality" aria-label="Search tasks">
+      <label><input type="checkbox" id="fLate"> Overdue only</label>
+      <label id="staleWrap"><input type="checkbox" id="fStale"> <span id="staleLbl"></span></label>
+      <button id="csv" class="btn ghost" type="button">Download CSV</button>
+      <span id="count" class="count"></span>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th data-s="type">Type</th><th data-s="cust">Customer</th><th data-s="dev">Device ID</th>
+        <th data-s="stage">Stage</th><th data-s="age" aria-sort="descending">Received</th>
+        <th data-s="due">Due</th><th>Details</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="legend">A task is pending when the app marks it as needing the CSP's action. <b>Stale</b> means the system still shows it open but it has had no update in 30+ days. These are likely dead tasks, so they are hidden unless you tick the box.</p>
+  </section>
+</div>
+
+<script>
+const TYPES = {
+  install: {label: "Install", c: "var(--install)"},
+  service: {label: "Service", c: "var(--service)"},
+  pickup:  {label: "Pickup",  c: "var(--pickup)"},
+  claim:   {label: "Claim",   c: "var(--claim)"},
+};
+const STAGES = {
+  AWAITING_CSP_ACCEPTANCE: "Accept booking", AWAITING_SLOT_PROPOSAL: "Propose slot",
+  AWAITING_CUSTOMER_SLOT_CONFIRMATION: "Customer to confirm slot",
+  AWAITING_TECHNICIAN_ASSIGNMENT: "Assign technician", TECHNICIAN_ASSIGNED: "Technician assigned",
+  ARRIVED_AT_SITE: "Technician at site", INSTALLATION_IN_PROGRESS_PRE_FEE: "Installing (before fee)",
+  INSTALLATION_IN_PROGRESS_POST_FEE: "Installing (after fee)", FEE_COLLECTION_PENDING: "Collect fee",
+  AWAITING_CUSTOMER_OTP: "Customer OTP pending",
+  PENDING_ACCEPTANCE: "Accept ticket", ACCEPTED: "Accepted", ASSIGNED_TECHNICIAN: "Technician assigned",
+  IN_PROGRESS: "In progress", PENDING_PICKUP: "Pick up device", ACTION_REQUIRED: "Recharge, then claim",
+};
+const STALE_DAYS = 30, H = 3600e3, D = 24 * H;
+let CSPS = [], csp = null, data = null, busy = false;
+let F = {type: "", late: false, stale: false, q: ""}, SORT = {k: "age", dir: -1}, hl = -1, matches = [];
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+const ist = s => s ? new Date(s.replace(" ", "T") + ":00+05:30").getTime() : null;
+function dur(ms) {
+  const a = Math.abs(ms), d = Math.floor(a / D), h = Math.floor(a % D / H), m = Math.floor(a % H / 60e3);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+const fmtDate = t => new Date(t).toLocaleString("en-IN", {day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata"});
+// Addresses arrive either as text or as a JSON object (home / street / address /
+// pincode). Show one readable line; drop bare zone codes, which are not a place.
+function placeText(p) {
+  if (!p || /^\d*$/.test(p)) return "";
+  if (p.trim().startsWith("{")) {
+    try {
+      const o = JSON.parse(p), seen = new Set();
+      return [o.home, o.address || o.street, o.pincode && !String(o.address || "").includes(o.pincode) ? o.pincode : ""]
+        .map(v => String(v || "").trim()).filter(v => v && !seen.has(v) && seen.add(v)).join(", ");
+    } catch (e) { return p; }
+  }
+  return p;
+}
+const stage = s => STAGES[s] || (s || "").toLowerCase().replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+
+/* ---------- CSP picker ---------- */
+async function loadCsps() {
+  try {
+    const r = await fetch("/tasklist/csps.json");
+    if (r.status === 401) return location.reload();
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    CSPS = j.csps;
+    $("q").disabled = false;
+    $("q").placeholder = `Search ${CSPS.length} Mumbai CSPs by name or ID`;
+    const want = new URLSearchParams(location.search).get("csp");
+    const pre = CSPS.find(c => c.csp_id === want);
+    if (pre) choose(pre); else $("q").focus();
+  } catch (e) {
+    showErr("Could not load the CSP list: " + e.message);
+  }
+}
+function renderList() {
+  const q = $("q").value.trim().toLowerCase();
+  matches = CSPS.filter(c => !q || c.name.toLowerCase().includes(q) || c.csp_id.includes(q)
+                               || String(c.partner_id || "").includes(q)).slice(0, 80);
+  hl = matches.length ? Math.max(0, Math.min(hl, matches.length - 1)) : -1;
+  $("list").innerHTML = matches.length ? matches.map((c, i) =>
+    `<div class="opt${i === hl ? " hl" : ""}" role="option" id="o${i}" data-i="${i}" aria-selected="${i === hl}">
+       <span>${esc(c.name)}</span>
+       <small>${esc(c.csp_id)}${c.region ? " · " + esc(c.region) : ""}</small></div>`).join("")
+    : '<div class="opt none">No Mumbai CSP matches</div>';
+  $("q").setAttribute("aria-activedescendant", hl >= 0 ? "o" + hl : "");
+  const el = $("o" + hl); if (el) el.scrollIntoView({block: "nearest"});
+}
+function openList(on) { $("list").classList.toggle("open", on); $("q").setAttribute("aria-expanded", on); if (on) renderList(); }
+$("q").addEventListener("focus", () => { $("q").select(); openList(true); });
+$("q").addEventListener("input", () => { hl = 0; openList(true); });
+$("q").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); openList(true);
+    hl = Math.max(0, Math.min(matches.length - 1, hl + (e.key === "ArrowDown" ? 1 : -1))); renderList();
+  } else if (e.key === "Enter" && matches[hl]) { e.preventDefault(); choose(matches[hl]); }
+  else if (e.key === "Escape") { openList(false); if (csp) $("q").value = csp.name; }
+});
+$("list").addEventListener("mousedown", e => {
+  const o = e.target.closest("[data-i]"); if (!o) return;
+  e.preventDefault(); choose(matches[+o.dataset.i]);
+});
+document.addEventListener("click", e => { if (!e.target.closest(".combo")) { openList(false); if (csp) $("q").value = csp.name; } });
+
+function choose(c) {
+  csp = c; openList(false); $("q").value = c.name; $("q").blur();
+  $("refresh").disabled = false;
+  $("chosen").innerHTML = `<b>${esc(c.name)}</b><span>CSP ${esc(c.csp_id)}</span>`
+    + (c.partner_id ? `<span>Partner ${esc(c.partner_id)}</span>` : "")
+    + (c.region ? `<span>${esc(c.region)}</span>` : "") + (c.am ? `<span>AM: ${esc(c.am)}</span>` : "")
+    + '<span id="live"></span>';
+  history.replaceState(null, "", "?csp=" + encodeURIComponent(c.csp_id));
+  pull();
+}
+
+/* ---------- pull ---------- */
+async function pull() {
+  if (!csp || busy) return;
+  busy = true; $("refresh").disabled = true; $("refresh").textContent = "Pulling…";
+  hideErr();
+  const want = csp.csp_id, t0 = Date.now(), st0 = $("status");
+  st0.className = "pstat busy"; st0.hidden = false;
+  const tick = () => { st0.innerHTML = `<span class="spin" aria-hidden="true"></span><span>Pulling <b>${esc(csp.name)}</b>'s scorecard and tasks… ${Math.round((Date.now() - t0) / 1000)}s</span>`; };
+  tick(); const timer = setInterval(tick, 1000);
+  try {
+    const r = await fetch("/tasklist/tasks.json?csp=" + encodeURIComponent(want));
+    if (r.status === 401) return location.reload();
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    if (want !== csp.csp_id) return;     // a newer pick replaced this one
+    data = j; data.now = Date.now();
+    data.rows.forEach(t => {
+      t.created = ist(t.created_ist); t.deadline = ist(t.deadline_ist); t.updated = ist(t.updated_ist);
+      t.stale = t.updated != null && data.now - t.updated > STALE_DAYS * D;
+      t.late = t.deadline != null && t.deadline < data.now;
+    });
+    F = {type: "", late: false, stale: false, q: ""}; $("f").value = ""; $("fLate").checked = false; $("fStale").checked = false;
+    clearInterval(timer);
+    const nLive = data.rows.filter(t => !t.stale).length, last = (data.metrics || []).slice(-1)[0];
+    st0.className = "pstat done flash";
+    st0.innerHTML = `<span class="tick" aria-hidden="true">✓</span><span><b>Pull complete</b> at ${esc(fmtDate(data.now))} IST in ${Math.max(1, Math.round((data.now - t0) / 1000))}s · `
+      + `${nLive} pending task${nLive === 1 ? "" : "s"}` + (last ? ` · scorecard of ${esc(fmtDay(last.day))}` : " · no scorecard yet")
+      + (data.synced ? `<br><span class="sub2">Task data as of ${esc(fmtDate(ist(data.synced)))} IST. The warehouse copy runs a few minutes behind the app.</span>` : "")
+      + `</span>`;
+    renderScore();
+    // Live status comes with each pull, for this CSP only.
+    const st = (j.csp.status || "").toUpperCase();
+    $("live").innerHTML = (st && st !== "ACTIVE" ? `<span class="flag">Account ${esc(st.toLowerCase())}</span> ` : "")
+      + (j.csp.exiting ? '<span class="flag">Exit in progress</span>' : "");
+    $("out").hidden = false; render();
+  } catch (e) {
+    clearInterval(timer);
+    showErr(`Pull failed for ${csp.name}: ${e.message}. Press Refresh to try again.`);
+    st0.hidden = true;
+  } finally {
+    clearInterval(timer);
+    busy = false; $("refresh").disabled = false; $("refresh").textContent = "Refresh";
+    if (csp && csp.csp_id !== want) pull();     // a different CSP was picked mid-pull
+  }
+}
+
+/* ---------- scorecard (the app's Quality OS daily snapshot) ---------- */
+const fmtDay = d => new Date(d + "T00:00:00+05:30").toLocaleDateString("en-IN", {day: "2-digit", month: "short", timeZone: "Asia/Kolkata"});
+const BAND = {VG: ["Very good", "good"], GOOD: ["Good", "good"], BASE: ["Base", "warn"], BASIC: ["Basic", "warn"],
+  NONE: ["No tier", "bad"], NO_PAYOUT: ["No payout", "bad"], NOT_APPLICABLE: ["Not applicable", ""],
+  INSUFFICIENT: ["Not enough data", ""], INSUFFICIENT_DATA: ["Not enough data", ""]};
+const STATE = {PASS: ["✓ Pass", "good"], FAIL: ["✕ Fail", "bad"], INSUFFICIENT_DATA: ["– Not enough data", ""],
+  COMPLIANT: ["✓ Compliant", "good"], AT_RISK: ["! At risk", "warn"], NON_COMPLIANT: ["✕ Non-compliant", "bad"]};
+const pill = (map, k, pre = "") => k ? `<span class="pill ${(map[k] || [])[1] || ""}">${esc(pre)}${esc((map[k] || [k.toLowerCase().replace(/_/g, " ")])[0])}</span>` : "";
+const pct = v => v == null ? null : Math.round(v * 10) / 10;
+
+const METRICS = [
+  {k: "avg_rating", t: "Customer rating", fmt: v => v.toFixed(2) + "<small> / 5</small>", chgUnit: "",
+   d: m => m.avg_rating_count != null ? `${m.avg_rating_count} ratings` : "", state: m => pill(STATE, m.avg_rating_state)},
+  {k: "install_compliance_rate", t: "Install compliance", fmt: v => pct(v) + "<small>%</small>", chgUnit: " pts",
+   d: m => m.install_compliance_denominator != null ? `${m.install_compliance_numerator} of ${m.install_compliance_denominator} installs on time` : "",
+   state: m => pill(STATE, m.install_compliance_state)},
+  {k: "resolution_timeliness_rate", t: "Service SLA (resolved on time)", fmt: v => pct(v) + "<small>%</small>", chgUnit: " pts",
+   d: m => m.resolution_timeliness_denominator != null ? `${m.resolution_timeliness_numerator} of ${m.resolution_timeliness_denominator} tickets` : "",
+   state: m => pill(STATE, m.resolution_timeliness_state)},
+  {k: "long_open_breach_count", t: "Long-open ticket breaches", fmt: v => String(v), chgUnit: "", lowerBetter: true,
+   d: m => m.long_open_ticket_count != null ? `${m.long_open_closed_in_time_count} of ${m.long_open_ticket_count} long-open tickets closed in time` : "",
+   state: m => pill(STATE, m.long_open_state)},
+  {k: "t1_oor_rate", t: "Optical power in range", fmt: v => pct(v) + "<small>%</small>", chgUnit: " pts",
+   d: m => m.ont_active_connection_count != null ? `${m.ont_active_connection_count} fibre (ONT) connections` : "",
+   state: m => pill(BAND, m.t1_band, "Band: ")},
+  {k: "t2_speed_ok_rate", t: "Speed OK", fmt: v => pct(v) + "<small>%</small>", chgUnit: " pts",
+   d: m => "of speed tests", state: m => pill(BAND, m.t2_band, "Band: ")},
+];
+
+function spark(series, key, fmt) {
+  // One series, single hue, 2px line, gaps where the app had no value.
+  const pts = series.map((m, i) => ({i, v: m[key], day: m.day})), vals = pts.filter(p => p.v != null).map(p => p.v);
+  if (vals.length < 2) return "";
+  const W = 200, Hh = 40, n = series.length - 1 || 1;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const x = i => i / n * W, y = v => Hh - 4 - (v - lo) / (hi - lo) * (Hh - 8);
+  let d = "", pen = false;
+  pts.forEach(p => { if (p.v == null) { pen = false; return; } d += (pen ? "L" : "M") + x(p.i).toFixed(1) + " " + y(p.v).toFixed(1); pen = true; });
+  const lastP = [...pts].reverse().find(p => p.v != null);
+  const hits = pts.map(p => `<rect x="${(x(p.i) - W / n / 2).toFixed(1)}" y="0" width="${(W / n).toFixed(1)}" height="${Hh}" fill="transparent"
+     data-tip="${esc(fmtDay(p.day))}: ${p.v == null ? "no value" : esc(String(fmt(p.v)).replace(/<[^>]+>/g, ""))}" data-x="${x(p.i).toFixed(1)}"></rect>`).join("");
+  return `<svg class="spark" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="30-day trend">
+    <path d="${d}" fill="none" stroke="var(--purple)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(lastP.i)}" cy="${y(lastP.v)}" r="3.5" fill="var(--purple)" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>${hits}</svg>`;
+}
+
+function renderScore() {
+  const ms = data.metrics || [], el = $("score");
+  if (!ms.length) {
+    el.innerHTML = `<div class="sc-head"><h2>App scorecard</h2></div><p class="sub">The app has no scorecard for ${esc(csp.name)} in the last 30 days.</p>`;
+    return;
+  }
+  const m = ms[ms.length - 1];
+  const wk = ms.find(x => x.day === new Date(new Date(m.day).getTime() - 7 * D).toISOString().slice(0, 10));
+  el.innerHTML = `<div class="sc-head"><h2>App scorecard</h2>${pill(STATE, m.composite_state)}${pill(BAND, m.tier_band, "Tier: ")}
+      <span class="sub">${m.active_connection_count ?? "—"} active connections</span></div>
+    <p class="sub">As shown on the CSP app on ${esc(fmtDay(m.day))} (computed ${esc(m.taken_ist ? m.taken_ist.slice(11) : "")} IST), over the 60 days ${esc(fmtDay(m.lookback_start))} – ${esc(fmtDay(m.lookback_end))}. The line shows the last 30 days.</p>
+    <div class="mets">${METRICS.map(c => {
+      const v = m[c.k];
+      let chg = "";
+      if (wk && v != null && wk[c.k] != null) {
+        const dlt = v - wk[c.k], r = Math.round(dlt * 10) / 10;
+        chg = r === 0 ? "No change vs 7 days ago"
+          : `${r > 0 ? "▲" : "▼"} ${Math.abs(r)}${c.chgUnit} vs 7 days ago`;
+      }
+      return `<div class="met"><div class="t">${esc(c.t)}</div>
+        <div class="v">${v == null ? '<small>No value</small>' : c.fmt(v)}</div>
+        <div class="d">${esc(c.d(m))}</div>
+        <div class="row">${c.state(m)}<span class="chg">${esc(chg)}</span></div>
+        ${spark(ms, c.k, c.fmt)}<div class="tip"></div></div>`;
+    }).join("")}</div>
+    <p class="sc-note">Pass, fail and band labels are the app's own verdicts from its daily scorecard; this page does not recompute them.</p>`;
+}
+$("score").addEventListener("mousemove", e => {
+  const r = e.target.closest("rect[data-tip]"), card = e.target.closest(".met");
+  document.querySelectorAll("#score .tip").forEach(t => { if (!card || t.parentNode !== card) t.style.display = "none"; });
+  if (!r || !card) return;
+  const tip = card.querySelector(".tip"), svg = r.ownerSVGElement, sb = svg.getBoundingClientRect(), cb = card.getBoundingClientRect();
+  tip.textContent = r.dataset.tip; tip.style.display = "block";
+  tip.style.left = (sb.left - cb.left + (+r.dataset.x / 200) * sb.width) + "px";
+  tip.style.top = (sb.top - cb.top - 4) + "px";
+});
+$("score").addEventListener("mouseleave", () => document.querySelectorAll("#score .tip").forEach(t => t.style.display = "none"));
+$("refresh").addEventListener("click", pull);
+function showErr(m) { $("err").textContent = m; $("err").hidden = false; }
+function hideErr() { $("err").hidden = true; }
+
+/* ---------- render ---------- */
+function visible() {
+  const q = F.q.toLowerCase();
+  return data.rows.filter(t => (F.stale || !t.stale) && (!F.type || t.kind === F.type) && (!F.late || t.late)
+    && (!q || [t.customer_name, t.device_id, placeText(t.place), t.ref_id, t.detail].some(v => (v || "").toLowerCase().includes(q))));
+}
+function sortKey(t) {
+  switch (SORT.k) {
+    case "type": return t.type_label; case "cust": return (t.customer_name || "").toLowerCase();
+    case "dev": return t.device_id || ""; case "stage": return stage(t.state);
+    case "due": return t.deadline ?? Infinity; default: return data.now - (t.created ?? data.now);   // age
+  }
+}
+function render() {
+  const live = data.rows.filter(t => F.stale || !t.stale);
+  const tiles = [["", "All pending", "var(--dark)"], ...Object.entries(TYPES).map(([k, v]) => [k, v.label, v.c])];
+  $("kpis").innerHTML = tiles.map(([k, l, c]) => {
+    const rs = live.filter(t => !k || t.kind === k), late = rs.filter(t => t.late).length;
+    return `<button class="kpi${F.type === k ? " on" : ""}" style="--c:${c}" data-k="${k}" aria-pressed="${F.type === k}">
+      <div class="n">${rs.length}</div><div class="l">${l}</div><div class="o">${late ? late + " overdue" : ""}</div></button>`;
+  }).join("");
+  const nStale = data.rows.filter(t => t.stale).length;
+  $("staleWrap").hidden = !nStale;
+  $("staleLbl").textContent = `Show ${nStale} stale`;
+
+  const list = visible().sort((a, b) => { const x = sortKey(a), y = sortKey(b); return (x < y ? -1 : x > y ? 1 : 0) * SORT.dir; });
+  $("count").textContent = `${list.length} of ${data.rows.length} tasks`;
+  document.querySelectorAll("th[data-s]").forEach(th => th.setAttribute("aria-sort",
+    th.dataset.s === SORT.k ? (SORT.dir === -1 ? "descending" : "ascending") : "none"));
+
+  if (!list.length) {
+    $("rows").innerHTML = `<tr><td colspan="7" class="empty">${data.rows.length
+      ? "No tasks match these filters." : esc(csp.name) + " has no pending tasks in the app right now."}</td></tr>`;
+    return;
+  }
+  $("rows").innerHTML = list.map(t => {
+    const ty = TYPES[t.kind] || {c: "var(--muted)"};
+    const age = t.created != null ? dur(data.now - t.created) : "—";
+    let due = '<span class="mute">—</span>';
+    if (t.deadline != null) {
+      const left = t.deadline - data.now;
+      due = left < 0 ? `<span class="late">Overdue ${dur(left)}</span>`
+          : left < 6 * H ? `<span class="soon">${dur(left)} left</span>` : `<span class="ok">${dur(left)} left</span>`;
+      due += `<div class="mute">${esc(fmtDate(t.deadline))}</div>`;
+    }
+    const place = placeText(t.place);
+    const det = [place, t.detail, t.assignee ? "Assigned: " + t.assignee : "", t.ref_id ? "Ref " + t.ref_id : ""]
+      .filter(Boolean).map((v, i) => i === 0 ? esc(v) : `<span class="mute">${esc(v)}</span>`).join("<br>");
+    return `<tr class="${t.stale ? "stale" : ""}">
+      <td data-l="Type"><span class="type" style="--c:${ty.c}">${esc(t.type_label)}</span></td>
+      <td data-l="Customer" class="cust">${esc(t.customer_name || "—")}</td>
+      <td data-l="Device ID" class="mono">${esc(t.device_id || "—")}</td>
+      <td data-l="Stage">${esc(stage(t.state))}${t.stale ? '<span class="staletag">Stale</span>' : ""}</td>
+      <td data-l="Received"><span class="age">${age} ago</span>${t.created != null ? `<div class="mute">${esc(fmtDate(t.created))}</div>` : ""}</td>
+      <td data-l="Due">${due}</td>
+      <td data-l="Details">${det || '<span class="mute">—</span>'}</td></tr>`;
+  }).join("");
+}
+$("kpis").addEventListener("click", e => { const k = e.target.closest("[data-k]"); if (!k) return; F.type = F.type === k.dataset.k ? "" : k.dataset.k; render(); });
+$("f").addEventListener("input", e => { F.q = e.target.value.trim(); render(); });
+$("fLate").addEventListener("change", e => { F.late = e.target.checked; render(); });
+$("fStale").addEventListener("change", e => { F.stale = e.target.checked; render(); });
+document.querySelector("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-s]"); if (!th) return;
+  SORT = SORT.k === th.dataset.s ? {k: SORT.k, dir: -SORT.dir} : {k: th.dataset.s, dir: th.dataset.s === "age" ? -1 : 1};
+  render();
+});
+
+/* ---------- CSV ---------- */
+$("csv").addEventListener("click", () => {
+  const head = ["CSP", "CSP ID", "Type", "Customer", "Device ID", "Stage", "Received (IST)", "Hours since received",
+                "Due (IST)", "Overdue", "Stale", "Locality", "Details", "Assignee", "Ref"];
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [head.map(q).join(",")].concat(visible().map(t => [csp.name, csp.csp_id, t.type_label, t.customer_name,
+    t.device_id, stage(t.state), t.created_ist, t.created != null ? ((data.now - t.created) / H).toFixed(1) : "",
+    t.deadline_ist, t.late ? "yes" : "", t.stale ? "yes" : "", placeText(t.place), t.detail, t.assignee, t.ref_id].map(q).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + lines.join("\n")], {type: "text/csv"}));
+  a.download = `tasks_${csp.csp_id}_${new Date(data.now).toISOString().slice(0, 16).replace(/[:T]/g, "")}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+loadCsps();
+</script>
+</body>
+</html>

@@ -2775,6 +2775,50 @@ def mumbai_notify_once():
     return posted
 
 
+# ----------------------------------------------------------------------------
+# /tasklist — one CSP's pending app tasks (install, service, pickup, claim), pulled
+# live from the CSP-app service tables on demand. No cache and no schedule for the
+# tasks; only the CSP dropdown is cached. Scope for now: active Mumbai CSPs.
+# ----------------------------------------------------------------------------
+_CSP_ID_RE = re.compile(r"^[a-z0-9]{3,16}$")
+
+
+def tasklist_csps():
+    """The dropdown: Mumbai CSPs from the stored CSP list. No Metabase call — this is a
+    relationship-management page, so Metabase is only ever asked about the one CSP
+    picked (live status and exit are checked in tasklist_tasks)."""
+    rows = [{"csp_id": cid, "name": c.get("csp_name") or cid, "partner_id": c.get("partner_id"),
+             "region": c.get("region") or "", "am": c.get("am") or ""}
+            for cid, c in _mum_load_csps().items() if _CSP_ID_RE.match(cid)]
+    return sorted(rows, key=lambda r: r["name"].lower())
+
+
+def tasklist_tasks(csp_id):
+    allowed = {r["csp_id"]: r for r in tasklist_csps()}
+    if csp_id not in allowed:     # also what keeps the id safe to put in the SQL
+        raise ValueError("unknown CSP")
+
+    def run(name):
+        sql = open(os.path.join(BASE_DIR, "sql", name), encoding="utf-8").read()
+        return metabase_sql(sql.replace("{CSP_ID}", csp_id))
+
+    # Three small CSP-scoped reads, in parallel so a pull takes as long as the slowest.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_prof, f_rows, f_met = (ex.submit(run, n) for n in
+                                 ("csp_profile.sql", "csp_tasks.sql", "csp_metrics.sql"))
+        prof = (f_prof.result() or [{}])[0]
+        rows = f_rows.result()
+        metrics = f_met.result()
+    synced = max((r["synced_ist"] for r in rows if r.get("synced_ist")), default=None)
+    keep = ("kind", "type_label", "state", "task_id", "ref_id", "customer_name", "device_id",
+            "place", "assignee", "detail", "created_ist", "deadline_ist", "updated_ist")
+    csp = dict(allowed[csp_id], status=prof.get("status") or "NOT FOUND",
+               exiting=bool(prof.get("exit_state")))
+    return {"asof": datetime.now(IST).isoformat(timespec="seconds"), "synced": synced,
+            "csp": csp, "rows": [{k: r.get(k) for k in keep} for r in rows], "metrics": metrics}
+
+
 def _mum_notifier():
     """Runs at the top of every IST hour outside WARM_QUIET_HOURS. Overnight changes
     are not lost: the 07:00 run diffs against the 22:00 state and posts them all."""
@@ -3011,11 +3055,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
-            nxt = path if path in ("/mumbai", "/mumbai/focus", "/mumbai/installs") else "/"
+            nxt = path if path in ("/mumbai", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"
             if path == "/login":
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
-                if (path.startswith("/api")
+                if (path.startswith("/api") or path.startswith("/tasklist/")
                         or path in ("/data", "/data/heavy", "/refresh", "/settlement", "/mumbai.json")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
@@ -3025,6 +3069,18 @@ class Handler(BaseHTTPRequestHandler):
                 # hides everything but that initiative.
                 html = open(os.path.join(BASE_DIR, "index.html"), "rb").read()
                 self._send(200, html, "text/html; charset=utf-8")
+            elif path == "/tasklist":
+                html = open(os.path.join(BASE_DIR, "tasklist.html"), "rb").read()
+                self._send(200, html, "text/html; charset=utf-8")
+            elif path == "/tasklist/csps.json":
+                self._send(200, json.dumps({"csps": tasklist_csps()}).encode(), "application/json")
+            elif path == "/tasklist/tasks.json":
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                try:
+                    out = tasklist_tasks(qs.get("csp", [""])[0])
+                except ValueError as e:
+                    return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
+                self._send(200, json.dumps(out).encode(), "application/json")
             elif path == "/data":
                 raw, gz = serve("light")
                 self._send(200, raw, "application/json", gz=gz)
@@ -3076,7 +3132,7 @@ class Handler(BaseHTTPRequestHandler):
                 email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
                 nxt = (form.get("next") or ["/"])[0]
-                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs") else "/"     # never an open redirect
+                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"     # never an open redirect
                 if not EMAIL_RE.match(email):
                     err = '<div class="err">Use your @wiom.in email.</div>'
                 elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
