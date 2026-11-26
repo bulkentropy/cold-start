@@ -26,6 +26,7 @@ import gzip
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import sys
@@ -294,6 +295,14 @@ MUMBAI_FOCUS_ZONES = [
     {"zone": "G8", "offer": "₹23 · 1-day plan",
      "csps": ["a0b6k5", "a0b7a8", "a0b9a7", "a0b9u6"]},
 ]
+# A / non-A marketing plan — from 24 Nov 2026 Meta marketing runs on the revised circle
+# plan: 17 A circles (ground where bookings install; most of the budget) and 20 non-A
+# circles (keep bookings coming where CSPs need to improve). The circles live in
+# data/mumbai_mkt_circles.json (centre + radius, no names). The /mumbai/zones page reads
+# bookings by where the customer is, against the 4 weeks before the switch.
+# The G14 / G8 focus-zones page (/mumbai/focus) is archived as of this switch.
+MUMBAI_PLAN_START = "2026-11-24"
+MUMBAI_PLAN_BASE = ("2026-10-27", "2026-11-23")
 
 
 def _load_settlement(obj, local):
@@ -2188,6 +2197,40 @@ def _mum_load_zones():
     return _mum_zones
 
 
+_mum_circles = None
+
+
+def _mum_load_circles():
+    global _mum_circles
+    if _mum_circles is None:
+        try:
+            _mum_circles = json.load(open(os.path.join(BASE_DIR, "data", "mumbai_mkt_circles.json"),
+                                          encoding="utf-8"))
+        except Exception as e:
+            print("mumbai marketing circles unavailable:", e)
+            _mum_circles = []
+    return _mum_circles
+
+
+def _mum_circle(lat, lng):
+    """The plan circle a customer sits in. Circles overlap, so A wins over non-A, then the
+    nearest centre. None when outside every circle; 'nolocation' when no lat/lng."""
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return "nolocation"
+    best = None
+    for c in _mum_load_circles():
+        dy = (lat - c["lat"]) * 111.32
+        dx = (lng - c["lng"]) * 111.32 * math.cos(math.radians(c["lat"]))
+        d = math.hypot(dx, dy)
+        if d <= c["radius_km"]:
+            k = (c["cat"] != "A", d)
+            if best is None or k < best[0]:
+                best = (k, c)
+    return best[1] if best else None
+
+
 def _mum_load_csps():
     global _mum_csps
     if _mum_csps is None:
@@ -2495,6 +2538,7 @@ def compute_mumbai():
     csp_rows = sorted(by_csp.values(), key=lambda c: (-(c["open"] + c["stuck"]), -c["oldest_open"]))
     return {"asof": datetime.now(IST).isoformat(timespec="seconds"),
             "focus": _mum_focus(rows, csps, today),
+            "plan": _mum_plan(rows, today),
             "start": MUMBAI_START, "mkt_start": MUMBAI_MKT_START,
             "ttl_min": MUMBAI_TTL_S // 60, "csps_loaded": len(csps),
             "alignment_live": align_err is None, "alignment_changed": align_changed,
@@ -2583,6 +2627,90 @@ def _mum_focus(rows, csps, today):
     return {"start": start, "days": days, "base": [b0, b1], "zones": zones, "bookings": bookings,
             "benchmarks": {"per_csp_day": 1.1, "tech_rate": 0.5, "install_of_tech": 0.6,
                            "install_rate": [0.45, 0.5]}}
+
+
+_MUM_PLAN_CATS = (("A", "A zones"), ("N", "Non-A zones"), ("O", "Outside the circles"))
+
+
+def _mum_plan(rows, today):
+    """A / non-A marketing-plan funnel, by where the customer is (not by CSP). Same
+    counting rules as the focus page: each customer once, on their latest booking;
+    a booking counts when booked on or after the plan start; installs_done counts
+    installs completed since the start on ANY booking located in the circle."""
+    start = MUMBAI_PLAN_START
+    b0, b1 = MUMBAI_PLAN_BASE
+    days = max(1, (date.fromisoformat(today) - date.fromisoformat(start)).days + 1)
+    base_days = (date.fromisoformat(b1) - date.fromisoformat(b0)).days + 1
+
+    def per_customer(rs):
+        latest = {}
+        for r in sorted(rs, key=lambda r: r["booked_at"] or ""):
+            latest[r["mobile"] or r["key"]] = r
+        return list(latest.values())
+
+    def place(r):
+        c = _mum_circle(r["lat"], r["lng"])
+        if c == "nolocation":
+            return "O", None, False
+        return (c["cat"], c["circle"], True) if c else ("O", None, True)
+
+    def funnel(rs):
+        return {"bookings": len(rs),
+                "proposed": sum(1 for r in rs if r["stage"] in _MUM_PROPOSED_ON or r["slot_proposed"]),
+                "tech": sum(1 for r in rs if r["tech_assigned"] or r["stage"] == "installed"),
+                "installed": sum(1 for r in rs if r["stage"] == "installed"),
+                "open": sum(1 for r in rs if r["stage"] in MUM_OPEN_STAGES),
+                "lost": sum(1 for r in rs if r["stage"].startswith("stuck")),
+                "cancelled": sum(1 for r in rs if r["stage"] == "cancelled")}
+
+    cur = [dict(r, _p=place(r)) for r in per_customer([r for r in rows if r["booked_on"] >= start])]
+    base = [dict(r, _p=place(r)) for r in per_customer([r for r in rows if b0 <= r["first_booked_on"] <= b1])]
+    done = [dict(r, _p=place(r)) for r in per_customer(
+        [r for r in rows if r["stage"] == "installed" and (r["installed_at"] or "")[:10] >= start])]
+    no_location = sum(1 for r in cur if not r["_p"][2])
+
+    cats, bookings = [], []
+    for cat, label in _MUM_PLAN_CATS:
+        names = [c["circle"] for c in _mum_load_circles() if c["cat"] == cat]
+        radius = {c["circle"]: c["radius_km"] for c in _mum_load_circles()}
+        ccur = [r for r in cur if r["_p"][0] == cat]
+        cbase = [r for r in base if r["_p"][0] == cat]
+        cdone = [r for r in done if r["_p"][0] == cat]
+        circles = []
+        for n in names:
+            mine = [r for r in ccur if r["_p"][1] == n]
+            by_csp = {}
+            for r in mine:
+                if r["csp_name"]:
+                    by_csp[r["csp_name"]] = by_csp.get(r["csp_name"], 0) + 1
+            circles.append({"circle": n, "radius_km": radius[n], **funnel(mine),
+                            "installs_done": sum(1 for r in cdone if r["_p"][1] == n),
+                            "base_per_day": round(sum(1 for r in cbase if r["_p"][1] == n) / base_days, 2),
+                            "csps": sorted(by_csp.items(), key=lambda x: -x[1])[:3]})
+        tot = funnel(ccur)
+        tot["installs_done"] = len(cdone)
+        tot["base_per_day"] = round(len(cbase) / base_days, 2)
+        daily = {d: {"day": d, "bookings": 0, "tech": 0, "installs_done": 0}
+                 for d in _daterange(start, today)}
+        for r in ccur:
+            if r["booked_on"] in daily:
+                daily[r["booked_on"]]["bookings"] += 1
+                daily[r["booked_on"]]["tech"] += 1 if (r["tech_assigned"] or r["stage"] == "installed") else 0
+        for r in cdone:
+            d = daily.get((r["installed_at"] or "")[:10])
+            if d:
+                d["installs_done"] += 1
+        cats.append({"cat": cat, "label": label, "circles": circles, "total": tot,
+                     "daily": sorted(daily.values(), key=lambda d: d["day"])})
+        for r in ccur:
+            bookings.append({"cat": cat, "circle": r["_p"][1] or "", "booked_at": r["booked_at"],
+                             "name": r["name"], "locality": r["locality"] or r["address"],
+                             "csp_name": r["csp_name"], "stage": r["stage"],
+                             "last_reason": r["last_reason"], "source": r["source"], "key": r["key"]})
+    bookings.sort(key=lambda b: b["booked_at"] or "", reverse=True)
+    return {"start": start, "days": days, "base": [b0, b1], "base_days": base_days,
+            "cats": cats, "bookings": bookings, "no_location": no_location,
+            "benchmarks": {"tech_rate": 0.5, "install_of_tech": 0.6, "install_rate": [0.45, 0.5]}}
 
 
 _mum_cache = {"packed": None, "at": 0.0}
@@ -3055,7 +3183,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         try:
-            nxt = path if path in ("/mumbai", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"
+            nxt = path if path in ("/mumbai", "/mumbai/zones", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"
             if path == "/login":
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
             if not self._authed():
@@ -3063,7 +3191,7 @@ class Handler(BaseHTTPRequestHandler):
                         or path in ("/data", "/data/heavy", "/refresh", "/settlement", "/mumbai.json")):
                     return self._send(401, b'{"error":"auth required"}', "application/json")
                 return self._send(200, _login_html("", nxt).encode(), "text/html; charset=utf-8")
-            if path in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs"):
+            if path in ("/", "/mumbai", "/mumbai/zones", "/mumbai/focus", "/mumbai/installs"):
                 # /mumbai is the standalone Mumbai-restart page (and /mumbai/focus its
                 # focus-zones page): same file, the script reads location.pathname and
                 # hides everything but that initiative.
@@ -3132,7 +3260,7 @@ class Handler(BaseHTTPRequestHandler):
                 email = (form.get("email") or [""])[0].strip().lower()
                 pw = (form.get("password") or [""])[0]
                 nxt = (form.get("next") or ["/"])[0]
-                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"     # never an open redirect
+                nxt = nxt if nxt in ("/", "/mumbai", "/mumbai/zones", "/mumbai/focus", "/mumbai/installs", "/tasklist") else "/"     # never an open redirect
                 if not EMAIL_RE.match(email):
                     err = '<div class="err">Use your @wiom.in email.</div>'
                 elif GATE_PASSWORD and hmac.compare_digest(pw, GATE_PASSWORD):
